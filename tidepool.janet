@@ -49,6 +49,9 @@
     :xcursor-theme "Adwaita"
     :xcursor-size 24})
 
+# Per-tag layout storage: tag -> {:layout :kw :params @{...}}
+(def tag-layouts @{})
+
 # --- State ---
 
 (def wm
@@ -787,7 +790,14 @@
         (spit (string rd "/tidepool-tags-" (output :x) "," (output :y))
               (string "focused:" output-str
                       " occupied:" occupied-str
-                      " active:" (if active "true" "false")))))))
+                      " active:" (if active "true" "false")))
+        (spit (string rd "/tidepool-layout-" (output :x) "," (output :y))
+              (string (output :layout))))
+
+      # Global layout file (focused output's layout)
+      (when focused-output
+        (spit (string rd "/tidepool-layout")
+              (string (focused-output :layout)))))))
 
 # --- Manage / Render Phases ---
 
@@ -928,6 +938,26 @@
     :dwindle navigate/dwindle
     :columns navigate/columns})
 
+(defn- find-adjacent-output [current dir]
+  (var best nil)
+  (var best-dist math/inf)
+  (each output (wm :outputs)
+    (when (not= output current)
+      (def dist
+        (case dir
+          :right (when (>= (output :x) (+ (current :x) (current :w)))
+                   (- (output :x) (+ (current :x) (current :w))))
+          :left (when (<= (+ (output :x) (output :w)) (current :x))
+                  (- (current :x) (+ (output :x) (output :w))))
+          :down (when (>= (output :y) (+ (current :y) (current :h)))
+                  (- (output :y) (+ (current :y) (current :h))))
+          :up (when (<= (+ (output :y) (output :h)) (current :y))
+                (- (current :y) (+ (output :y) (output :h))))))
+      (when (and dist (< dist best-dist))
+        (set best output)
+        (set best-dist dist))))
+  best)
+
 (defn action/target [seat dir]
   (when-let [window (seat :focused)
              output (window/tag-output window)
@@ -965,7 +995,14 @@
 
 (defn action/focus [dir]
   (fn [seat binding]
-    (seat/focus seat (action/target seat dir))))
+    (if-let [target (action/target seat dir)]
+      (seat/focus seat target)
+      # No target in current output — try adjacent monitor
+      (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w))
+                             (seat :focused-output))
+                 adjacent (find-adjacent-output current dir)]
+        (seat/focus-output seat adjacent)
+        (seat/focus seat nil)))))
 
 (defn action/swap [dir]
   (fn [seat binding]
@@ -1018,19 +1055,25 @@
 (defn action/focus-tag [tag]
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
+      (tag-layout/save output)
       (each o (wm :outputs) (put (o :tags) tag nil))
       (put output :tags @{tag true})
-      (fallback-tags (wm :outputs)))))
+      (fallback-tags (wm :outputs))
+      (tag-layout/restore output)
+      (indicator/layout-changed output))))
 
 (defn action/toggle-tag [tag]
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
+      (tag-layout/save output)
       (if ((output :tags) tag)
         (put (output :tags) tag nil)
         (do
           (each o (wm :outputs) (put (o :tags) tag nil))
           (put (output :tags) tag true)))
-      (fallback-tags (wm :outputs)))))
+      (fallback-tags (wm :outputs))
+      (tag-layout/restore output)
+      (indicator/layout-changed output))))
 
 (defn action/focus-all-tags []
   (fn [seat binding]
@@ -1038,11 +1081,27 @@
       (each o (wm :outputs) (put o :tags @{}))
       (put output :tags (table ;(mapcat |[$ true] (range 1 10)))))))
 
+(defn- output/primary-tag [output]
+  (min-of (keys (output :tags))))
+
+(defn tag-layout/save [output]
+  (when-let [tag (output/primary-tag output)]
+    (put tag-layouts tag
+         @{:layout (output :layout)
+           :params (table/clone (output :layout-params))})))
+
+(defn tag-layout/restore [output]
+  (when-let [tag (output/primary-tag output)
+             saved (tag-layouts tag)]
+    (put output :layout (saved :layout))
+    (merge-into (output :layout-params) (saved :params))))
+
 (defn indicator/layout-changed [output]
   (def name (string (output :layout)))
   (when ((wm :config) :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
-      (spit (string rd "/tidepool-layout") name)))
+      (spit (string rd "/tidepool-layout") name)
+      (spit (string rd "/tidepool-layout-" (output :x) "," (output :y)) name)))
   (when ((wm :config) :indicator-notify)
     (ev/spawn (os/proc-wait
       (os/spawn ["notify-send" "-t" "1000"
@@ -1053,13 +1112,15 @@
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
       (def params (output :layout-params))
-      (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta)))))))
+      (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta))))
+      (tag-layout/save output))))
 
 (defn action/adjust-main-count [delta]
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
       (def params (output :layout-params))
-      (put params :main-count (max 1 (+ (params :main-count) delta))))))
+      (put params :main-count (max 1 (+ (params :main-count) delta)))
+      (tag-layout/save output))))
 
 (defn action/cycle-layout [dir]
   (fn [seat binding]
@@ -1071,19 +1132,22 @@
                     :next (% (+ i 1) (length layouts))
                     :prev (% (+ (- i 1) (length layouts)) (length layouts))))
       (put output :layout (get layouts next-i))
+      (tag-layout/save output)
       (indicator/layout-changed output))))
 
 (defn action/set-layout [layout]
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
       (put output :layout layout)
+      (tag-layout/save output)
       (indicator/layout-changed output))))
 
 (defn action/adjust-column-width [delta]
   (fn [seat binding]
     (when-let [output (seat :focused-output)]
       (def params (output :layout-params))
-      (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta)))))))
+      (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
+      (tag-layout/save output))))
 
 (defn action/pointer-move []
   (fn [seat binding]
