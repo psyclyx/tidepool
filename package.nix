@@ -41,7 +41,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   meta = {
     description = "Janet-based window manager for River";
-    license = lib.licenses.gpl3Only;
+    license = lib.licenses.mit;
     platforms = lib.platforms.linux;
     mainProgram = "tidepool";
   };
