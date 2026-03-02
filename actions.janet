@@ -150,13 +150,27 @@
           (put w :col-weight nil)
           (seat/focus-output seat adjacent))))))
 
-(defn focus-output []
+(defn focus-output [&opt dir]
   (fn [seat binding]
-    (when-let [focused (seat :focused-output)
-               i (assert (index-of focused (state/wm :outputs)))
-               t (or (get (state/wm :outputs) (+ i 1)) (first (state/wm :outputs)))]
-      (seat/focus-output seat t)
-      (seat/focus seat nil))))
+    (if dir
+      # Directional: focus adjacent output in given direction
+      (when-let [current (or (seat :focused-output) (first (state/wm :outputs)))
+                 adjacent (find-adjacent-output current dir)]
+        (seat/focus-output seat adjacent)
+        (seat/focus seat nil))
+      # No direction: cycle to next output
+      (when-let [focused (seat :focused-output)
+                 i (assert (index-of focused (state/wm :outputs)))
+                 t (or (get (state/wm :outputs) (+ i 1)) (first (state/wm :outputs)))]
+        (seat/focus-output seat t)
+        (seat/focus seat nil)))))
+
+(defn focus-last []
+  (fn [seat binding]
+    (when-let [prev (seat :focus-prev)]
+      (when (and (not (prev :closed))
+                 (window/tag-output prev))
+        (seat/focus seat prev)))))
 
 (defn send-to-output []
   (fn [seat binding]

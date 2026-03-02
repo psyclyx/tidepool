@@ -15,6 +15,9 @@
 (defn focus [seat win]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
+      # Track focus history for focus-last
+      (when (seat :focused)
+        (put seat :focus-prev (seat :focused)))
       (:focus-window (seat :obj) (w :obj))
       (put seat :focused w)
       (if-let [i (find-index |(= $ w) (state/wm :render-order))]
@@ -113,6 +116,8 @@
 
   (when-let [w (seat :focused)]
     (when (w :closed) (put seat :focused nil)))
+  (when-let [w (seat :focus-prev)]
+    (when (w :closed) (put seat :focus-prev nil)))
   (when-let [op (seat :op)]
     (when ((op :window) :closed) (put seat :op nil)))
 
