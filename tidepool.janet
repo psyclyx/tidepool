@@ -94,26 +94,83 @@
 
 # --- Design Notes ---
 #
-# Tidepool's model: tags (integers) are the visibility primitive.
-# Each window has one tag. Outputs have a set of visible tags. Tags
-# are global — toggling one on an output steals it from others.
-# Per-tag layouts are saved/restored on tag switch. State (tags,
-# columns, layouts) persists across restarts via JDN.
-#
-# What works well enough to build on:
-#   - Tags as flat integers (simple, composable, no allocation)
-#   - Per-tag layout save/restore (tag 1 = scroll, tag 2 = monocle)
-#   - Scroll layout as daily driver (columns, struts, variable widths)
-#   - State persistence (window→tag, column assignments survive restarts)
-#   - File-based IPC to waybar (per-output tag/layout files)
-#   - Janet config = full language for user-side abstractions
-#
 # Design principle: tidepool provides primitives, user config builds
 # abstractions. "Project" is a config concept, not a WM concept.
-# Tags, summon, and focus history are the right primitives — pools
-# and projects are patterns users compose from them.
+# Janet config = full language for user-side abstractions.
 #
-# What's missing, roughly in priority order:
+# What works:
+#   - Per-tag layout save/restore
+#   - Scroll layout as daily driver (columns, struts, variable widths)
+#   - State persistence (tags, columns, layouts survive restarts)
+#   - File-based IPC to waybar (per-output tag/layout files)
+#
+# --- Groups: unifying tags, pools, and scratchpad ---
+#
+# Current model: tags are integers 1-9, scratchpad is tag 0 (special),
+# pools were proposed as named sets of tags. Three concepts for what
+# is really one thing: a visibility group.
+#
+# Observation: tags and pools are the same abstraction at different
+# granularities. A tag is "show these windows." A pool is "show
+# these tags" = "show these windows." Scratchpad is "a tag that's
+# toggled instead of focused" — also just a visibility group.
+#
+# Proposed: collapse to one concept — groups.
+#
+#   - A window belongs to one group
+#   - An output shows a set of groups
+#   - Groups are any hashable value (keyword, integer, gensym)
+#   - Named groups (:a, :code, :comms) — stable, bound to keys
+#   - Anonymous groups — created on demand, GC'd when empty
+#
+# Named groups replace tags. No fixed count — you define what you
+# use. Super+asdf for 4 groups, or super+1-9 for 9, or whatever.
+# Anonymous groups replace "unused tag numbers" — need a new
+# workspace? Create one. Done with it? Windows leave, it vanishes.
+# Scratchpad isn't special — it's just a group you toggle.
+#
+# Keybinding story:
+#   super+a..d    focus named group (like current focus-tag)
+#   super+n       new anonymous group, move focused window to it
+#   super+tab     cycle groups with windows (MRU or ordered)
+#   super+shift+  send window to group (like current set-tag)
+#
+# What changes internally: almost nothing. show-hide, layout, and
+# persist use the group identifier where they currently use an
+# integer tag. The machinery doesn't care if it's :a or 3 or a
+# gensym. Tag-layout save/restore keys on group id instead of int.
+#
+# What this unlocks for user config:
+#
+#   # Per-project groups with summon
+#   (def projects
+#     @{:tidepool {:group :tp :dir "~/projects/tidepool"}
+#       :privclyx {:group :px :dir "~/projects/privclyx"}})
+#
+#   (defn project-lazygit [project-key]
+#     (def p (projects project-key))
+#     (action/summon
+#       |(string/has-prefix? (string "git-" (p :group)) ($ :title))
+#       ["foot" "-T" (string "git-" (p :group)) "-D" (p :dir) "lazygit"]
+#       {:float true}))
+#
+# The user defines what "project" means. Tidepool just provides
+# groups and summon. Named groups give stable context. Summon
+# gives context-sensitive window management.
+#
+# Migration: existing integer tags work as-is (integers are
+# hashable). Config that uses (focus-tag 1) keeps working.
+# New config can use keywords. No breaking change.
+#
+# Open questions:
+#   - Group ordering: named groups have config-defined order.
+#     Anonymous groups ordered by creation time? MRU?
+#   - Bar integration: indicator writes group ids to files.
+#     Waybar script needs to handle keywords, not just ints.
+#   - Should outputs show at least one group always, or can
+#     an output be "empty"?
+#
+# --- Other missing primitives ---
 #
 # 1. Focus history
 #
@@ -126,106 +183,37 @@
 #    already approximated by render-order but not per-output and not
 #    exposed as an action.
 #
-#    (defn focus-prev []
-#      (fn [seat binding]
-#        (when-let [o (seat :focused-output)
-#                   stack (o :focus-stack)
-#                   prev (last stack)]
-#          (seat/focus seat prev))))
-#
 # 2. Summon (find-or-spawn + toggle)
 #
-#    The missing primitive for scratchpads, project tools, and
-#    context-sensitive window management. Find a window matching a
-#    predicate; if found, toggle it (bring to current tag / dismiss);
-#    if not found, optionally spawn it.
+#    Find a window matching a predicate; if found, toggle it (bring
+#    to current group / dismiss); if not found, optionally spawn it.
+#    Predicate is any Janet function — user config controls matching.
 #
-#    (defn summon [pred spawn-cmd &opt opts]
-#      (fn [seat binding]
-#        (if-let [w (find pred (state/wm :windows))]
-#          (toggle-summon seat w opts)
-#          (when spawn-cmd (spawn-it spawn-cmd)))))
-#
-#    The predicate is any Janet function. This is what makes it
-#    composable — user config provides the matching logic:
-#
-#    # Simple: global lazygit scratchpad
 #    (action/summon |(= ($ :app-id) "lazygit") ["foot" "lazygit"])
 #
-#    # Context-sensitive: per-tag lazygit
-#    (defn project-git [seat binding]
-#      (def tag (primary-tag (seat :focused-output)))
-#      (def dir (get my-project-dirs tag))
-#      (when dir
-#        ((action/summon
-#           |(and (= ($ :app-id) "foot")
-#                 (string/has-prefix? (string "git-" tag) ($ :title)))
-#           ["foot" "-T" (string "git-" tag) "-D" dir "lazygit"]
-#           {:float true})
-#         seat binding)))
-#
-#    Toggle semantics: "show" = set window's tag to current tag,
-#    float it, focus it. "dismiss" = send it to scratchpad tag (0)
-#    or its original tag. Window remembers :summon-home (the tag it
-#    was on before being summoned) so dismiss sends it back.
-#
-#    This subsumes the current scratchpad. toggle-scratchpad becomes:
-#      (action/summon |(= ($ :tag) 0) nil)
-#    But more useful — any window can be summoned by any predicate.
-#
-#    Summon is the key primitive that makes "project" possible at
-#    the config level without tidepool knowing what a project is.
-#    Tags provide context (which tag am I on). Summon provides
-#    the action (bring me this window). User config maps context
-#    to action however they want.
+#    Toggle semantics: "show" = move to current group, float, focus.
+#    "dismiss" = send back to :summon-home (the group it came from).
+#    Subsumes scratchpad: (action/summon |(= ($ :group) :scratch) nil)
 #
 # 3. Sticky windows
 #
-#    Windows visible on all tags. Useful for media players, chat,
-#    terminals you always want accessible. Currently approximated by
-#    the scratchpad (tag 0, float), but that's a single hidden tag,
-#    not "always visible."
-#
-#    Implementation: a :sticky flag on the window. show-hide includes
-#    sticky windows regardless of tag membership. Simple, but needs
-#    thought on how sticky windows interact with layouts (excluded
-#    from tiling? floating only? per-output?).
+#    :sticky flag — window visible regardless of group membership.
+#    Floating only (excluded from tiling). Useful for media, chat.
 #
 # 4. Window rules improvements
 #
-#    Rules currently match exact app-id and title strings. Missing:
-#    pattern matching (regex or glob on title), more actions beyond
-#    :float and :tag (e.g., :sticky, :output, :column, :col-width),
-#    and negative matches. Rules could also accept Janet functions
-#    as predicates, matching the summon pattern.
+#    Pattern matching (functions as predicates), more actions (:sticky,
+#    :group, :column, :col-width), re-evaluate on title change.
 #
-#    Also: rules only fire on window creation. A "re-evaluate rules"
-#    action would be useful for windows whose title changes (e.g.,
-#    browser tabs).
+# Things deferred:
 #
-# Things considered and deferred:
+#   - IPC beyond netrepl: Janet IPC is the natural fit for a Janet
+#     WM. File-based IPC covers the bar.
 #
-#   - Pools (named tag groups): focus-pool "code" activates tags
-#     1-3. Nice sugar, but not a primitive — it's just focus-tag
-#     for multiple tags. Easy to build in user config with a Janet
-#     table + loop. May add as a built-in action later if the
-#     pattern proves common enough.
+#   - Layout composition: better to make individual layouts good.
 #
-#   - IPC beyond netrepl: the WM is configured via Janet, so Janet
-#     IPC (netrepl) is the natural fit. File-based IPC covers the
-#     bar. Shell scripts can use netrepl via janet -e. A simpler
-#     line protocol isn't worth the complexity right now.
-#
-#   - Layout composition (master-stack where stack is scroll): adds
-#     complexity for a niche use case. Better to make individual
-#     layouts good enough.
-#
-#   - Dynamic tag creation (tags beyond 1-9): 9 tags + scratchpad
-#     is enough. Summon + per-tag context covers the "not enough
-#     tags" feeling without needing more tags.
-#
-#   - Per-output tag namespaces: breaks the global tag model that
-#     makes cross-output tag operations simple. Not worth it.
+#   - Per-output group namespaces: breaks the global model that
+#     makes cross-output operations simple.
 
 # --- Entry Point ---
 
