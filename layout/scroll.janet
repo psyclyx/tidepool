@@ -111,19 +111,19 @@
   (def focused-x (get col-xs focused-col-idx))
   (def focused-col-w (col-width (get cols focused-col-idx) total-w default-ratio))
 
-  # Compute scroll target — disable struts for edge columns (nothing to peek at)
-  (def max-scroll (max 0 (- total-content-w total-w)))
-  (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
-  (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
-  (var target-scroll (params :scroll-offset))
-  (when (< focused-x (+ target-scroll eff-strut-l))
-    (set target-scroll (- focused-x eff-strut-l)))
-  (when (> (+ focused-x focused-col-w) (- (+ target-scroll total-w) eff-strut-r))
-    (set target-scroll (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
-  (set target-scroll (min max-scroll (max 0 target-scroll)))
-
-  # Animate scroll (effect)
-  (animation/scroll-toward params :scroll-offset target-scroll)
+  # Compute scroll target — skip when no window is focused on this output
+  # so the scroll stays where it was when focus left.
+  (when focused-win
+    (def max-scroll (max 0 (- total-content-w total-w)))
+    (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
+    (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
+    (var target-scroll (params :scroll-offset))
+    (when (< focused-x (+ target-scroll eff-strut-l))
+      (set target-scroll (- focused-x eff-strut-l)))
+    (when (> (+ focused-x focused-col-w) (- (+ target-scroll total-w) eff-strut-r))
+      (set target-scroll (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
+    (set target-scroll (min max-scroll (max 0 target-scroll)))
+    (animation/scroll-toward params :scroll-offset target-scroll))
   (animation/scroll-update params :scroll-offset)
   (def scroll (params :scroll-offset))
 
