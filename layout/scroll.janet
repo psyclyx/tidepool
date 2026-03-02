@@ -117,28 +117,38 @@
         (set focused-col-idx ci)
         (set focused-row-idx ri))))
 
-  (def col-xs (x-positions cols total-w default-ratio))
-  (def total-content-w
-    (+ (last col-xs) (col-width (last cols) total-w default-ratio)))
-
   (def strut-l (or (struts :left) 0))
   (def strut-r (or (struts :right) 0))
+
+  # Check if columns overflow the viewport at full size.
+  # If they do, shrink column widths by strut space so columns are narrower,
+  # creating natural peek room for off-screen neighbors.
+  # If they fit, use full viewport width (no wasted space).
+  (def nominal-content-w
+    (sum (map |(col-width $ total-w default-ratio) cols)))
+  (def h-overflows (> nominal-content-w total-w))
+  (def avail-w (if h-overflows (max 0 (- total-w strut-l strut-r)) total-w))
+
+  (def col-xs (x-positions cols avail-w default-ratio))
+  (def total-content-w
+    (+ (last col-xs) (col-width (last cols) avail-w default-ratio)))
+
   (def focused-x (get col-xs focused-col-idx))
-  (def focused-col-w (col-width (get cols focused-col-idx) total-w default-ratio))
+  (def focused-col-w (col-width (get cols focused-col-idx) avail-w default-ratio))
 
   # Compute scroll target — skip when no window is focused on this output
   # so the scroll stays where it was when focus left.
   # Only scroll when the focused column isn't already fully visible in the
   # viewport. This prevents unnecessary scrolling when moving focus between
-  # two columns that both fit on screen (e.g. two 50% columns). When we do
-  # need to scroll, reserve strut space for neighbor peek visibility.
+  # two columns that both fit on screen (e.g. two 50% columns).
+  # When we do scroll, reserve strut space for neighbor peek visibility.
   (when focused-win
     (def max-scroll (max 0 (- total-content-w total-w)))
-    (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
-    (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
     (var target-scroll (params :scroll-offset))
     (def col-right (+ focused-x focused-col-w))
     (when (or (< focused-x target-scroll) (> col-right (+ target-scroll total-w)))
+      (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
+      (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
       (when (< focused-x (+ target-scroll eff-strut-l))
         (set target-scroll (- focused-x eff-strut-l)))
       (when (> col-right (- (+ target-scroll total-w) eff-strut-r))
@@ -156,7 +166,7 @@
   (def results @[])
   (for ci 0 num-cols
     (def col (get cols ci))
-    (def cw (col-width col total-w default-ratio))
+    (def cw (col-width col avail-w default-ratio))
     (def x-off (- (get col-xs ci) scroll))
     (def num-rows (length col))
 
