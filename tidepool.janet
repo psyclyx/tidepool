@@ -106,6 +106,12 @@
 #   - Scroll layout as daily driver (columns, struts, variable widths)
 #   - State persistence (window→tag, column assignments survive restarts)
 #   - File-based IPC to waybar (per-output tag/layout files)
+#   - Janet config = full language for user-side abstractions
+#
+# Design principle: tidepool provides primitives, user config builds
+# abstractions. "Project" is a config concept, not a WM concept.
+# Tags, summon, and focus history are the right primitives — pools
+# and projects are patterns users compose from them.
 #
 # What's missing, roughly in priority order:
 #
@@ -127,27 +133,51 @@
 #                   prev (last stack)]
 #          (seat/focus seat prev))))
 #
-# 2. Pools (workspace groups)
+# 2. Summon (find-or-spawn + toggle)
 #
-#    Named groups of tags. "code" = tags 1-3, "comms" = tag 4.
-#    focus-pool activates all of a pool's tags on the current output.
-#    Pools are bookmarks for tag configurations, not a new primitive.
+#    The missing primitive for scratchpads, project tools, and
+#    context-sensitive window management. Find a window matching a
+#    predicate; if found, toggle it (bring to current tag / dismiss);
+#    if not found, optionally spawn it.
 #
-#    (def pool @{:name "code" :tags [1 2 3]})
+#    (defn summon [pred spawn-cmd &opt opts]
+#      (fn [seat binding]
+#        (if-let [w (find pred (state/wm :windows))]
+#          (toggle-summon seat w opts)
+#          (when spawn-cmd (spawn-it spawn-cmd)))))
 #
-#    Key insight: pools don't own tags exclusively. Tag 1 can be in
-#    multiple pools. A pool is just a saved tag selection — like
-#    focus-tag but for multiple tags at once. This avoids allocation
-#    problems and tag conflicts entirely.
+#    The predicate is any Janet function. This is what makes it
+#    composable — user config provides the matching logic:
 #
-#    Static pools are defined in config. Dynamic pools could be
-#    created from the current output's visible tags (snapshot).
+#    # Simple: global lazygit scratchpad
+#    (action/summon |(= ($ :app-id) "lazygit") ["foot" "lazygit"])
 #
-#    Interaction with persist: pools themselves are config, not state.
-#    But "which pool is active on which output" is state worth saving.
+#    # Context-sensitive: per-tag lazygit
+#    (defn project-git [seat binding]
+#      (def tag (primary-tag (seat :focused-output)))
+#      (def dir (get my-project-dirs tag))
+#      (when dir
+#        ((action/summon
+#           |(and (= ($ :app-id) "foot")
+#                 (string/has-prefix? (string "git-" tag) ($ :title)))
+#           ["foot" "-T" (string "git-" tag) "-D" dir "lazygit"]
+#           {:float true})
+#         seat binding)))
 #
-#    Bar integration: indicator already writes per-output tag files.
-#    Pool names could be appended (or replace tag numbers when active).
+#    Toggle semantics: "show" = set window's tag to current tag,
+#    float it, focus it. "dismiss" = send it to scratchpad tag (0)
+#    or its original tag. Window remembers :summon-home (the tag it
+#    was on before being summoned) so dismiss sends it back.
+#
+#    This subsumes the current scratchpad. toggle-scratchpad becomes:
+#      (action/summon |(= ($ :tag) 0) nil)
+#    But more useful — any window can be summoned by any predicate.
+#
+#    Summon is the key primitive that makes "project" possible at
+#    the config level without tidepool knowing what a project is.
+#    Tags provide context (which tag am I on). Summon provides
+#    the action (bring me this window). User config maps context
+#    to action however they want.
 #
 # 3. Sticky windows
 #
@@ -166,29 +196,33 @@
 #    Rules currently match exact app-id and title strings. Missing:
 #    pattern matching (regex or glob on title), more actions beyond
 #    :float and :tag (e.g., :sticky, :output, :column, :col-width),
-#    and negative matches.
+#    and negative matches. Rules could also accept Janet functions
+#    as predicates, matching the summon pattern.
 #
 #    Also: rules only fire on window creation. A "re-evaluate rules"
 #    action would be useful for windows whose title changes (e.g.,
 #    browser tabs).
 #
-# 5. IPC beyond netrepl
-#
-#    netrepl is powerful but requires Janet. A simpler command
-#    protocol (read lines from a socket, dispatch to actions) would
-#    let shell scripts and external tools interact with tidepool.
-#    Could coexist with netrepl — same socket, detect Janet vs.
-#    line protocol by first byte.
-#
 # Things considered and deferred:
+#
+#   - Pools (named tag groups): focus-pool "code" activates tags
+#     1-3. Nice sugar, but not a primitive — it's just focus-tag
+#     for multiple tags. Easy to build in user config with a Janet
+#     table + loop. May add as a built-in action later if the
+#     pattern proves common enough.
+#
+#   - IPC beyond netrepl: the WM is configured via Janet, so Janet
+#     IPC (netrepl) is the natural fit. File-based IPC covers the
+#     bar. Shell scripts can use netrepl via janet -e. A simpler
+#     line protocol isn't worth the complexity right now.
 #
 #   - Layout composition (master-stack where stack is scroll): adds
 #     complexity for a niche use case. Better to make individual
 #     layouts good enough.
 #
 #   - Dynamic tag creation (tags beyond 1-9): 9 tags + scratchpad
-#     is enough. Pools solve the "not enough tags" feeling without
-#     needing more tags.
+#     is enough. Summon + per-tag context covers the "not enough
+#     tags" feeling without needing more tags.
 #
 #   - Per-output tag namespaces: breaks the global tag model that
 #     makes cross-output tag operations simple. Not worth it.
