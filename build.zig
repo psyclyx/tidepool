@@ -46,7 +46,7 @@ pub fn build(b: *Build) !void {
 
     // --- Wayland (dynamic + static) ---
     const janet_wayland = b.dependency("janet_wayland", .{});
-    const wayland = b.dependency("wayland", .{ .linkage = .dynamic });
+    const wayland = b.dependency("wayland", .{});
     const wayland_native = b.addLibrary(.{
         .name = "wayland-native",
         .root_module = b.createModule(.{
