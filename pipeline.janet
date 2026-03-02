@@ -7,6 +7,7 @@
 (import ./animation)
 (import ./indicator)
 (import ./layout)
+(import ./persist)
 
 # --- Show/Hide ---
 
@@ -88,6 +89,33 @@
   (each w (state/wm :windows) (window/manage-finish w))
   (each s (state/wm :seats) (seat/manage-finish s)))
 
+# --- Restore Persisted Window State ---
+
+(defn- restore-windows []
+  (each w (state/wm :windows)
+    (persist/restore-window w)))
+
+# --- Pipeline Sanitizer ---
+
+(defn- sanitize []
+  (def all-tags @{})
+  (each o (state/wm :outputs)
+    (merge-into all-tags (o :tags)))
+  (each w (state/wm :windows)
+    (when (and (not (w :closing)) (not (w :closed)))
+      # Window tag must reference an active output tag
+      (unless (all-tags (w :tag))
+        (when-let [fallback (min-of (keys all-tags))]
+          (put w :tag fallback)))
+      # Clamp col-width
+      (when-let [cw (w :col-width)]
+        (when (or (< cw 0.1) (> cw 1.0))
+          (put w :col-width nil)))
+      # col-weight must be positive
+      (when-let [cw (w :col-weight)]
+        (when (<= cw 0)
+          (put w :col-weight nil))))))
+
 # --- Pointer Dispatch (extracted from window/manage) ---
 
 (defn- dispatch-pointer-ops []
@@ -106,14 +134,17 @@
   (sort-outputs)
   (each o (state/wm :outputs) (output/manage o))
   (each w (state/wm :windows) (window/manage w))
+  (restore-windows)
   (dispatch-pointer-ops)
   (each s (state/wm :seats) (seat/manage s))
+  (sanitize)
   (clear-layout-state)
   (each o (state/wm :outputs) (layout/apply o))
   (apply-borders)
   (start-animations prev-positions)
   (show-hide)
   (lifecycle-finish)
+  (persist/save)
   (indicator/tags-changed)
   (:manage-finish (state/registry "river_window_manager_v1")))
 

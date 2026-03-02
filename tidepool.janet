@@ -15,6 +15,7 @@
 (import ./pipeline)
 (import ./layout)
 (import ./layout/columns)
+(import ./persist)
 
 # --- Protocol Setup ---
 
@@ -155,6 +156,8 @@
 
   (:set-handler (state/registry "river_window_manager_v1") wm/handle-event)
   (:roundtrip display)
+
+  (persist/load)
 
   # zwlr_output_manager_v1 handler was set in registry/handle-event.
   # If output config was applied during the roundtrips, the done event
