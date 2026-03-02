@@ -13,10 +13,25 @@
   (each win windows
     (when (win :column)
       (set max-col (max max-col (win :column)))))
-  (each win windows
-    (unless (win :column)
-      (++ max-col)
-      (put win :column max-col)))
+  # Find the focused window's column to insert new windows after it
+  (def focused-win
+    (find |(find (fn [s] (= (s :focused) $)) (state/wm :seats)) windows))
+  (def insert-after
+    (if (and focused-win (focused-win :column))
+      (focused-win :column)
+      max-col))
+  # Shift existing columns after the insertion point to make room
+  (def new-windows (filter |(not ($ :column)) windows))
+  (def num-new (length new-windows))
+  (when (> num-new 0)
+    (each win windows
+      (when (and (win :column) (> (win :column) insert-after))
+        (put win :column (+ (win :column) num-new)))))
+  # Assign new windows to columns right after the focused one
+  (var next-col (+ insert-after 1))
+  (each win new-windows
+    (put win :column next-col)
+    (++ next-col))
   # Re-normalize: compact column indices to remove gaps
   (def col-set (sorted (distinct (map |($ :column) windows))))
   (def col-map @{})
