@@ -128,15 +128,21 @@
 
   # Compute scroll target — skip when no window is focused on this output
   # so the scroll stays where it was when focus left.
+  # Only scroll when the focused column isn't already fully visible in the
+  # viewport. This prevents unnecessary scrolling when moving focus between
+  # two columns that both fit on screen (e.g. two 50% columns). When we do
+  # need to scroll, reserve strut space for neighbor peek visibility.
   (when focused-win
     (def max-scroll (max 0 (- total-content-w total-w)))
     (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
     (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
     (var target-scroll (params :scroll-offset))
-    (when (< focused-x (+ target-scroll eff-strut-l))
-      (set target-scroll (- focused-x eff-strut-l)))
-    (when (> (+ focused-x focused-col-w) (- (+ target-scroll total-w) eff-strut-r))
-      (set target-scroll (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
+    (def col-right (+ focused-x focused-col-w))
+    (when (or (< focused-x target-scroll) (> col-right (+ target-scroll total-w)))
+      (when (< focused-x (+ target-scroll eff-strut-l))
+        (set target-scroll (- focused-x eff-strut-l)))
+      (when (> col-right (- (+ target-scroll total-w) eff-strut-r))
+        (set target-scroll (+ (- col-right total-w) eff-strut-r))))
     (set target-scroll (min max-scroll (max 0 target-scroll)))
     (animation/scroll-toward params :scroll-offset target-scroll))
   (animation/scroll-update params :scroll-offset)
