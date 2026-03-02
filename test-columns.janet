@@ -11,17 +11,16 @@
   "Compute the target scroll offset given layout parameters.
   Returns the clamped target scroll value."
   [&named total-w total-content-w strut-l strut-r
-          focused-x focused-col-w current-scroll]
+          focused-x focused-col-w focused-col-idx num-cols current-scroll]
   (def max-scroll (max 0 (- total-content-w total-w)))
-  (def can-peek (>= max-scroll (+ strut-l strut-r)))
-  (def min-scroll (if can-peek strut-r 0))
-  (def max-scroll-adj (if can-peek (- max-scroll strut-l) max-scroll))
+  (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
+  (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
   (var target current-scroll)
-  (when (< focused-x (+ target strut-l))
-    (set target (- focused-x strut-l)))
-  (when (> (+ focused-x focused-col-w) (- (+ target total-w) strut-r))
-    (set target (+ (- (+ focused-x focused-col-w) total-w) strut-r)))
-  (min max-scroll-adj (max min-scroll target)))
+  (when (< focused-x (+ target eff-strut-l))
+    (set target (- focused-x eff-strut-l)))
+  (when (> (+ focused-x focused-col-w) (- (+ target total-w) eff-strut-r))
+    (set target (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
+  (min max-scroll (max 0 target)))
 
 # --- Column geometry helpers ---
 
@@ -195,10 +194,11 @@
     :total-w total-w :total-content-w tcw
     :strut-l 32 :strut-r 32
     :focused-x 0 :focused-col-w (col-width (first cols) total-w 0.5)
+    :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
-(test "scroll: 3 cols 50%, focus col 0 — peeks right"
+(test "scroll: 3 cols 50%, focus col 0 — flush left (no left strut)"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -207,11 +207,12 @@
     :total-w total-w :total-content-w tcw
     :strut-l 32 :strut-r 32
     :focused-x 0 :focused-col-w cw
+    :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
-  # min-scroll = strut-r = 32 (to guarantee right peek)
-  (assert= scroll 32 "scroll should be strut-r for right peek"))
+  # First column: no left strut, flush left → scroll=0
+  (assert= scroll 0 "first column should be flush left"))
 
-(test "scroll: 3 cols 50%, focus col 2 — peeks left"
+(test "scroll: 3 cols 50%, focus col 2 — flush right (no right strut)"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -221,11 +222,12 @@
     :total-w total-w :total-content-w tcw
     :strut-l 32 :strut-r 32
     :focused-x (get col-xs 2) :focused-col-w cw
+    :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
-  # max-scroll-adj = max-scroll - strut-l = 1916 - 32 = 1884
-  (assert= scroll (- max-scroll 32) "scroll should be max-scroll - strut-l for left peek"))
+  # Last column: no right strut, flush right → scroll=max-scroll
+  (assert= scroll max-scroll "last column should be flush right"))
 
-(test "scroll: 3 cols 50%, focus col 1 — both peeks"
+(test "scroll: 3 cols 50%, focus col 1 — both struts apply"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -234,7 +236,9 @@
     :total-w total-w :total-content-w tcw
     :strut-l 32 :strut-r 32
     :focused-x (get col-xs 1) :focused-col-w cw
+    :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
+  # Middle column: both struts apply
   # focused-x + col-w = 1916 + 1916 = 3832
   # 3832 > target + 3832 - 32 = target + 3800 → target = 32
   (assert= scroll 32 "scroll centers col 1 with strut margin"))
@@ -248,10 +252,11 @@
     :total-w total-w :total-content-w tcw
     :strut-l 0 :strut-r 0
     :focused-x 0 :focused-col-w cw
+    :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
   (assert= scroll 0 "no struts, focus col 0 → scroll=0"))
 
-(test "scroll: content fits — no peek clamping"
+(test "scroll: content fits — no scroll"
   (def cols (make-cols 2))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -260,27 +265,24 @@
     :total-w total-w :total-content-w tcw
     :strut-l 200 :strut-r 200
     :focused-x 0 :focused-col-w cw
+    :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
-  # max-scroll = 0, can-peek = false → clamp [0, 0]
   (assert= scroll 0 "no scroll when content fits even with large struts"))
 
-(test "scroll: small overflow, struts too big for peek"
-  # total-content-w barely exceeds total-w, max-scroll < strut-l + strut-r
+(test "scroll: small overflow, focus col 0 — flush left"
+  # total-content-w barely exceeds total-w
   (def cols @[@[(make-win 0.6)] @[(make-win 0.6)]])
   (def col-xs (col-x-positions cols total-w 0.6))
   (def tcw (total-content-width cols col-xs total-w 0.6))
-  (def max-scroll (- tcw total-w))
   (def cw (col-width (first cols) total-w 0.6))
-  # max-scroll = 2*round(3832*0.6) - 3832 = 2*2299 - 3832 = 766
-  # strut-l + strut-r = 400. 766 >= 400 → can-peek = true
-  # Let's use struts bigger than half of max-scroll
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :strut-l 400 :strut-r 400
     :focused-x 0 :focused-col-w cw
+    :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
-  # can-peek: 766 >= 800? No → clamp to [0, 766]
-  (assert= scroll 0 "no peek enforcement when struts exceed max-scroll"))
+  # First column: no left strut → flush left → scroll=0
+  (assert= scroll 0 "first column flush left regardless of strut size"))
 
 # ============================================================
 # Window placement tests
@@ -509,6 +511,7 @@
       :total-w total-w :total-content-w tcw
       :strut-l 32 :strut-r 32
       :focused-x (get col-xs focus-ci) :focused-col-w cw
+      :focused-col-idx focus-ci :num-cols 3
       :current-scroll 0))
     (def wins (window-positions
       :scroll scroll :cols cols :col-xs col-xs
@@ -538,6 +541,7 @@
       :total-w total-w :total-content-w tcw
       :strut-l 32 :strut-r 32
       :focused-x (get col-xs focus-ci) :focused-col-w cw
+      :focused-col-idx focus-ci :num-cols 4
       :current-scroll 0))
     (assert (>= scroll 0)
       (string/format "focus col %d: scroll >= 0" focus-ci))
@@ -550,27 +554,29 @@
   (def tcw (total-content-width cols col-xs total-w 0.5))
   (def strut-l 32)
   (def strut-r 32)
+  (def num-cols 4)
 
-  (for focus-ci 0 4
+  (for focus-ci 0 num-cols
     (def cw (col-width (get cols focus-ci) total-w 0.5))
     (def focused-x (get col-xs focus-ci))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
       :strut-l strut-l :strut-r strut-r
       :focused-x focused-x :focused-col-w cw
+      :focused-col-idx focus-ci :num-cols num-cols
       :current-scroll 0))
-    # The focused column should be within [scroll + strut-l, scroll + total-w - strut-r]
-    # ... OR the clamping made it impossible (edge columns)
-    (def zone-left (+ scroll strut-l))
-    (def zone-right (- (+ scroll total-w) strut-r))
-    # Focused column left edge should be >= zone-left OR scroll is at min
-    (def max-scroll (- tcw total-w))
-    (def can-peek (>= max-scroll (+ strut-l strut-r)))
-    (def min-s (if can-peek strut-r 0))
-    (when (> scroll min-s)
-      (assert (>= focused-x zone-left)
-        (string/format "focus col %d: left edge %d >= zone-left %d"
-          focus-ci focused-x zone-left)))))
+    # Effective struts: disabled for edge columns
+    (def eff-strut-l (if (> focus-ci 0) strut-l 0))
+    (def eff-strut-r (if (< focus-ci (- num-cols 1)) strut-r 0))
+    (def zone-left (+ scroll eff-strut-l))
+    (def zone-right (- (+ scroll total-w) eff-strut-r))
+    # Focused column should always be within zone
+    (assert (>= focused-x zone-left)
+      (string/format "focus col %d: left edge %d >= zone-left %d"
+        focus-ci focused-x zone-left))
+    (assert (<= (+ focused-x cw) (+ zone-right 1))
+      (string/format "focus col %d: right edge %d <= zone-right %d"
+        focus-ci (+ focused-x cw) zone-right))))
 
 # ============================================================
 # Report
