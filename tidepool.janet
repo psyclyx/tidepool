@@ -14,7 +14,7 @@
 (import ./actions :as action)
 (import ./pipeline)
 (import ./layout)
-(import ./layout/columns)
+(import ./layout/scroll)
 (import ./persist)
 
 # --- Protocol Setup ---

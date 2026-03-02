@@ -7,7 +7,7 @@
     :inner-padding 8
     :main-ratio 0.55
     :default-layout :master-stack
-    :layouts [:master-stack :monocle :grid :centered-master :dwindle :columns]
+    :layouts [:master-stack :monocle :grid :centered-master :dwindle :scroll]
     :dwindle-ratio 0.5
     :column-width 0.5
     :column-presets [0.333 0.5 0.667 1.0]

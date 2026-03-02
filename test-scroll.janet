@@ -1,6 +1,6 @@
-# Tests for columns layout scroll, clipping, and placement logic.
+# Tests for scroll layout clipping and placement logic.
 #
-# These extract the pure math from layout/columns and window/clip-to-output
+# These extract the pure math from layout/scroll and window/clip-to-output
 # so we can verify correctness without wayland/protocol dependencies.
 
 (defn sum [xs] (reduce + 0 xs))

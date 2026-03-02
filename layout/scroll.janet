@@ -1,4 +1,4 @@
-# Columns layout: niri-style scrollable columns with multi-window stacking.
+# Scroll layout: scrollable columns with multi-window stacking.
 # Requires state, animation, output for scroll effects and context building.
 
 (import ../state)

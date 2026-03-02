@@ -6,7 +6,7 @@
 (import ./seat)
 (import ./indicator)
 (import ./layout)
-(import ./layout/columns :as columns)
+(import ./layout/scroll :as scroll)
 
 (defn- clamp [x lo hi] (min hi (max lo x)))
 (defn- wrap [x n] (% (+ (% x n) n) n))
@@ -78,12 +78,12 @@
                            {:output o :windows tiled :focused w})]
             (when target-i (get tiled target-i))))))))
 
-# --- Columns Helpers ---
+# --- Scroll Helpers ---
 
-(defn- columns/focused-column [seat]
+(defn- scroll/focused-column [seat]
   (when-let [o (seat :focused-output)]
-    (when (= (o :layout) :columns)
-      (when-let [ctx (columns/context o)]
+    (when (= (o :layout) :scroll)
+      (when-let [ctx (scroll/context o)]
         (get (ctx :cols) (ctx :focused-col))))))
 
 # --- Actions ---
@@ -126,7 +126,7 @@
                wi (index-of w (state/wm :windows))
                ti (index-of t (state/wm :windows))]
         (do
-          # Swap column/sizing assignments for columns layout
+          # Swap column/sizing assignments for scroll layout
           (def wc (w :column))
           (def tc (t :column))
           (put w :column tc)
@@ -217,7 +217,7 @@
     (when-let [o (seat :focused-output)]
       (def params (o :layout-params))
       (case (o :layout)
-        :columns (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
+        :scroll (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
         :dwindle (put params :dwindle-ratio (max 0.1 (min 0.9 (+ (params :dwindle-ratio) delta))))
         (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta)))))
       (tag-layout/save o))))
@@ -258,7 +258,7 @@
 
 (defn resize-column [delta]
   (fn [seat binding]
-    (when-let [col (columns/focused-column seat)]
+    (when-let [col (scroll/focused-column seat)]
       (def current (or ((first col) :col-width)
                        (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
       (def new-width (max 0.1 (min 1.0 (+ current delta))))
@@ -267,14 +267,14 @@
 (defn resize-window [delta]
   (fn [seat binding]
     (when-let [w (seat :focused)
-               col (columns/focused-column seat)]
+               col (scroll/focused-column seat)]
       (when (> (length col) 1)
         (def current (or (w :col-weight) 1.0))
         (put w :col-weight (max 0.1 (+ current delta)))))))
 
 (defn preset-column-width []
   (fn [seat binding]
-    (when-let [col (columns/focused-column seat)]
+    (when-let [col (scroll/focused-column seat)]
       (def presets (state/config :column-presets))
       (when (and presets (> (length presets) 0))
         (def current (or ((first col) :col-width)
@@ -287,15 +287,15 @@
 
 (defn equalize-column []
   (fn [seat binding]
-    (when-let [col (columns/focused-column seat)]
+    (when-let [col (scroll/focused-column seat)]
       (each win col (put win :col-weight nil)))))
 
 (defn consume-column [dir]
   (fn [seat binding]
     (when-let [o (seat :focused-output)
                w (seat :focused)]
-      (when (= (o :layout) :columns)
-        (when-let [ctx (columns/context o)]
+      (when (= (o :layout) :scroll)
+        (when-let [ctx (scroll/context o)]
           (def {:cols cols :num-cols num-cols :focused-col my-col} ctx)
           (def target-ci (case dir :left (- my-col 1) :right (+ my-col 1)))
           (when (and (>= target-ci 0) (< target-ci num-cols) (not= target-ci my-col))
@@ -305,8 +305,8 @@
   (fn [seat binding]
     (when-let [o (seat :focused-output)
                w (seat :focused)]
-      (when (= (o :layout) :columns)
-        (when-let [ctx (columns/context o)]
+      (when (= (o :layout) :scroll)
+        (when-let [ctx (scroll/context o)]
           (def {:cols cols :focused-col my-col :windows tiled} ctx)
           (when (> (length (get cols my-col)) 1)
             (var max-col -1)

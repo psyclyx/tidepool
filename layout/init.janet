@@ -8,7 +8,7 @@
 (import ./grid)
 (import ./centered-master)
 (import ./dwindle)
-(import ./columns)
+(import ./scroll)
 
 (def layout-fns
   @{:master-stack master-stack/layout
@@ -16,7 +16,7 @@
     :grid grid/layout
     :centered-master centered-master/layout
     :dwindle dwindle/layout
-    :columns columns/layout})
+    :scroll scroll/layout})
 
 (def navigate-fns
   @{:master-stack master-stack/navigate
@@ -24,7 +24,7 @@
     :grid grid/navigate
     :centered-master centered-master/navigate
     :dwindle dwindle/navigate
-    :columns columns/navigate})
+    :scroll scroll/navigate})
 
 # Apply geometry specs from a layout function to actual windows
 (defn apply-geometry [results]
@@ -49,7 +49,7 @@
     (when-let [seat (first (state/wm :seats))]
       (when-let [w (seat :focused)]
         (when (find |(= $ w) windows) w))))
-  # Reset clip boxes for non-columns layouts so stale clips don't persist
-  (when (not= layout-fn columns/layout)
+  # Reset clip boxes for non-scroll layouts so stale clips don't persist
+  (when (not= layout-fn scroll/layout)
     (each w windows (:set-clip-box (w :obj) 0 0 0 0)))
   (apply-geometry (layout-fn usable windows params cfg focused)))
