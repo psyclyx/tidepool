@@ -92,47 +92,106 @@
   (protect (os/rm path))
   (netrepl/server :unix path repl-env))
 
-# --- Design: Workspace Abstraction ("Pools") ---
+# --- Design Notes ---
 #
-# Current model: outputs have a set of visible tags (integers 0-N).
-# Each window has a single tag. Tags are global — any output can show
-# any tag, and toggling a tag on one output removes it from others.
+# Tidepool's model: tags (integers) are the visibility primitive.
+# Each window has one tag. Outputs have a set of visible tags. Tags
+# are global — toggling one on an output steals it from others.
+# Per-tag layouts are saved/restored on tag switch. State (tags,
+# columns, layouts) persists across restarts via JDN.
 #
-# Limitation: no way to group related tags, name them, or create
-# ephemeral workspaces. Power users want named contexts (e.g., "code",
-# "comms", "media") that persist across output changes and can contain
-# multiple tags. The current flat tag model can't express this.
+# What works well enough to build on:
+#   - Tags as flat integers (simple, composable, no allocation)
+#   - Per-tag layout save/restore (tag 1 = scroll, tag 2 = monocle)
+#   - Scroll layout as daily driver (columns, struts, variable widths)
+#   - State persistence (window→tag, column assignments survive restarts)
+#   - File-based IPC to waybar (per-output tag/layout files)
 #
-# Proposed: "Pools" — a composable workspace layer on top of tags.
+# What's missing, roughly in priority order:
 #
-#   (def pool @{:name "code"
-#               :tags #{1 2 3}       # tags belonging to this pool
-#               :sticky false        # if true, pool stays on its output
-#               :output nil})        # preferred output (or nil for floating)
+# 1. Focus history
 #
-# A pool groups tags into a named unit. Switching to a pool activates
-# all its tags on the target output. Pools can be:
-#   - Static: defined in config (e.g., "code" = tags 1-3)
-#   - Dynamic: created on the fly, tags allocated from a free pool
-#   - Sticky: bound to a specific output (e.g., "chat" always on right monitor)
+#    No MRU tracking. Alt-tab doesn't exist. When focus leaves an
+#    output, there's no record of what was focused before. This is
+#    the most felt gap in daily use.
 #
-# Composable views: an output can show multiple pools simultaneously.
-# This is already supported by the tag model — just union the tag sets.
-# Pools add naming and grouping, not new visibility semantics.
+#    Minimal version: per-output focus stack (array of windows, most
+#    recent last). action/focus-prev pops the stack. The stack is
+#    already approximated by render-order but not per-output and not
+#    exposed as an action.
 #
-# Transition path:
-#   1. Pools are opt-in. Without pool config, behavior is unchanged.
-#   2. action/focus-pool, action/send-to-pool, action/create-pool
-#   3. Bar indicator shows pool names instead of/alongside tag numbers
-#   4. Dynamic pools: action/create-pool allocates unused tags
+#    (defn focus-prev []
+#      (fn [seat binding]
+#        (when-let [o (seat :focused-output)
+#                   stack (o :focus-stack)
+#                   prev (last stack)]
+#          (seat/focus seat prev))))
 #
-# Open questions:
-#   - Should tags be hidden from the user entirely when pools are active?
-#   - How to handle tag conflicts (two pools wanting the same tag)?
-#   - Per-output pool stacks (MRU pool switching per monitor)?
+# 2. Pools (workspace groups)
 #
-# This is a future direction. The current tag system is the right
-# foundation — pools are sugar on top, not a replacement.
+#    Named groups of tags. "code" = tags 1-3, "comms" = tag 4.
+#    focus-pool activates all of a pool's tags on the current output.
+#    Pools are bookmarks for tag configurations, not a new primitive.
+#
+#    (def pool @{:name "code" :tags [1 2 3]})
+#
+#    Key insight: pools don't own tags exclusively. Tag 1 can be in
+#    multiple pools. A pool is just a saved tag selection — like
+#    focus-tag but for multiple tags at once. This avoids allocation
+#    problems and tag conflicts entirely.
+#
+#    Static pools are defined in config. Dynamic pools could be
+#    created from the current output's visible tags (snapshot).
+#
+#    Interaction with persist: pools themselves are config, not state.
+#    But "which pool is active on which output" is state worth saving.
+#
+#    Bar integration: indicator already writes per-output tag files.
+#    Pool names could be appended (or replace tag numbers when active).
+#
+# 3. Sticky windows
+#
+#    Windows visible on all tags. Useful for media players, chat,
+#    terminals you always want accessible. Currently approximated by
+#    the scratchpad (tag 0, float), but that's a single hidden tag,
+#    not "always visible."
+#
+#    Implementation: a :sticky flag on the window. show-hide includes
+#    sticky windows regardless of tag membership. Simple, but needs
+#    thought on how sticky windows interact with layouts (excluded
+#    from tiling? floating only? per-output?).
+#
+# 4. Window rules improvements
+#
+#    Rules currently match exact app-id and title strings. Missing:
+#    pattern matching (regex or glob on title), more actions beyond
+#    :float and :tag (e.g., :sticky, :output, :column, :col-width),
+#    and negative matches.
+#
+#    Also: rules only fire on window creation. A "re-evaluate rules"
+#    action would be useful for windows whose title changes (e.g.,
+#    browser tabs).
+#
+# 5. IPC beyond netrepl
+#
+#    netrepl is powerful but requires Janet. A simpler command
+#    protocol (read lines from a socket, dispatch to actions) would
+#    let shell scripts and external tools interact with tidepool.
+#    Could coexist with netrepl — same socket, detect Janet vs.
+#    line protocol by first byte.
+#
+# Things considered and deferred:
+#
+#   - Layout composition (master-stack where stack is scroll): adds
+#     complexity for a niche use case. Better to make individual
+#     layouts good enough.
+#
+#   - Dynamic tag creation (tags beyond 1-9): 9 tags + scratchpad
+#     is enough. Pools solve the "not enough tags" feeling without
+#     needing more tags.
+#
+#   - Per-output tag namespaces: breaks the global tag model that
+#     makes cross-output tag operations simple. Not worth it.
 
 # --- Entry Point ---
 
