@@ -13,12 +13,17 @@
   (each win windows
     (when (win :column)
       (set max-col (max max-col (win :column)))))
-  # Find the focused window's column to insert new windows after it
+  # Find the focused window's column to insert new windows after it.
+  # The focused window may be the new (column-less) window itself, so
+  # fall back to focus-prev (the window that was focused before it).
   (def focused-win
     (find |(find (fn [s] (= (s :focused) $)) (state/wm :seats)) windows))
+  (def prev-win
+    (find |(find (fn [s] (= (s :focus-prev) $)) (state/wm :seats)) windows))
   (def insert-after
-    (if (and focused-win (focused-win :column))
-      (focused-win :column)
+    (if-let [col (or (and focused-win (focused-win :column))
+                     (and prev-win (prev-win :column)))]
+      col
       max-col))
   # Shift existing columns after the insertion point to make room
   (def new-windows (filter |(not ($ :column)) windows))
