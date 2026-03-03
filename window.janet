@@ -14,6 +14,13 @@
   (def bw (state/config :border-width))
   (:propose-dimensions (window :obj) (max 1 (- w (* 2 bw))) (max 1 (- h (* 2 bw)))))
 
+(defn fixed-size? [window]
+  (let [min-w (window :min-w) max-w (window :max-w)
+        min-h (window :min-h) max-h (window :max-h)]
+    (and min-w (> min-w 0) max-w (> max-w 0)
+         min-h (> min-h 0) max-h (> max-h 0)
+         (= min-w max-w) (= min-h max-h))))
+
 (defn set-float [window float]
   (if float
     (:set-tiled (window :obj) {})
@@ -38,19 +45,20 @@
   (find |(($ :tags) (window :tag)) (state/wm :outputs)))
 
 (defn max-overlap-output [window]
-  (var max-overlap 0)
-  (var max-output nil)
-  (each o (state/wm :outputs)
-    (def ow (- (min (+ (window :x) (window :w)) (+ (o :x) (o :w)))
-               (max (window :x) (o :x))))
-    (def oh (- (min (+ (window :y) (window :h)) (+ (o :y) (o :h)))
-               (max (window :y) (o :y))))
-    (when (and (> ow 0) (> oh 0))
-      (def overlap (* ow oh))
-      (when (> overlap max-overlap)
-        (set max-overlap overlap)
-        (set max-output o))))
-  max-output)
+  (when (and window (window :x) (window :w) (window :y) (window :h))
+    (var max-overlap 0)
+    (var max-output nil)
+    (each o (state/wm :outputs)
+      (def ow (- (min (+ (window :x) (window :w)) (+ (o :x) (o :w)))
+                 (max (window :x) (o :x))))
+      (def oh (- (min (+ (window :y) (window :h)) (+ (o :y) (o :h)))
+                 (max (window :y) (o :y))))
+      (when (and (> ow 0) (> oh 0))
+        (def overlap (* ow oh))
+        (when (> overlap max-overlap)
+          (set max-overlap overlap)
+          (set max-output o))))
+    max-output))
 
 (defn update-tag [window]
   (when-let [o (max-overlap-output window)]
@@ -110,6 +118,8 @@
         (:propose-dimensions (window :obj) 0 0))
       (do
         (set-float window false)
+        (when (fixed-size? window)
+          (set-float window true))
         (when-let [seat (first (state/wm :seats))
                    o (seat :focused-output)]
           (put window :tag (or (min-of (keys (o :tags))) 1)))
