@@ -125,8 +125,8 @@ pub fn build(b: *Build) !void {
         }),
         .linkage = .dynamic,
     });
-    image_native.addCSourceFile(.{ .file = b.path("src/image-native.c") });
-    image_native.root_module.addIncludePath(b.path("src"));
+    image_native.addCSourceFile(.{ .file = b.path("src/native/image-native.c") });
+    image_native.root_module.addIncludePath(b.path("src/native"));
     image_native.root_module.linkLibrary(janet.artifact("janet"));
 
     const image_native_static = b.addLibrary(.{
@@ -139,10 +139,10 @@ pub fn build(b: *Build) !void {
         .linkage = .static,
     });
     image_native_static.addCSourceFile(.{
-        .file = b.path("src/image-native.c"),
+        .file = b.path("src/native/image-native.c"),
         .flags = &.{"-DJANET_ENTRY_NAME=janet_module_entry_image_native"},
     });
-    image_native_static.root_module.addIncludePath(b.path("src"));
+    image_native_static.root_module.addIncludePath(b.path("src/native"));
     image_native_static.root_module.linkLibrary(janet_static.artifact("janet"));
 
     // --- Protocol Generation ---
@@ -158,7 +158,7 @@ pub fn build(b: *Build) !void {
     const gen_c = b.addRunArtifact(janet.artifact("janet-bin"));
     gen_c.has_side_effects = true;
     gen_c.addFileArg(b.path("build/gen-c-source.janet"));
-    gen_c.addFileArg(b.path("tidepool.janet"));
+    gen_c.addFileArg(b.path("src/tidepool.janet"));
     _ = gen_c.addOutputFileArg("image.jimage");
     const generated = gen_c.addOutputFileArg("main.c");
 
