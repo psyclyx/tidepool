@@ -24,9 +24,13 @@
   (:sync-next-commit (bg :shell-surface))
   (:place-bottom (bg :node))
   (:set-position (bg :node) (output :x) (output :y))
+  (def [r g b a]
+    (if (state/config :wallpaper)
+      [0 0 0 0]
+      (rgb-to-u32-rgba (state/config :background))))
   (def buffer (:create-u32-rgba-buffer
                 (state/registry "wp_single_pixel_buffer_manager_v1")
-                ;(rgb-to-u32-rgba (state/config :background))))
+                r g b a))
   (:attach (bg :surface) buffer 0 0)
   (:damage-buffer (bg :surface) 0 0 0x7fff_ffff 0x7fff_ffff)
   (:set-destination (bg :viewport) (output :w) (output :h))
