@@ -116,6 +116,35 @@ pub fn build(b: *Build) !void {
     xkbcommon_native_static.root_module.linkLibrary(janet_static.artifact("janet"));
     xkbcommon_native_static.root_module.linkLibrary(xkbcommon_static.artifact("xkbcommon"));
 
+    // --- Image decoding (stb_image) ---
+    const image_native = b.addLibrary(.{
+        .name = "image-native",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .link_libc = true,
+        }),
+        .linkage = .dynamic,
+    });
+    image_native.addCSourceFile(.{ .file = b.path("src/image-native.c") });
+    image_native.root_module.addIncludePath(b.path("src"));
+    image_native.root_module.linkLibrary(janet.artifact("janet"));
+
+    const image_native_static = b.addLibrary(.{
+        .name = "image-native",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+        .linkage = .static,
+    });
+    image_native_static.addCSourceFile(.{
+        .file = b.path("src/image-native.c"),
+        .flags = &.{"-DJANET_ENTRY_NAME=janet_module_entry_image_native"},
+    });
+    image_native_static.root_module.addIncludePath(b.path("src"));
+    image_native_static.root_module.linkLibrary(janet_static.artifact("janet"));
+
     // --- Protocol Generation ---
     const gen_protocols = b.addRunArtifact(janet.artifact("janet-bin"));
     gen_protocols.addFileArg(b.path("build/gen-protocols.janet"));
@@ -160,6 +189,9 @@ pub fn build(b: *Build) !void {
     gen_c.addArgs(&.{ "--native", "xkbcommon-native", "janet_module_entry_xkbcommon_native" });
     gen_c.addArtifactArg(xkbcommon_native);
 
+    gen_c.addArgs(&.{ "--native", "image-native", "janet_module_entry_image_native" });
+    gen_c.addArtifactArg(image_native);
+
     b.getInstallStep().dependOn(&gen_c.step);
 
     // --- Final Executable ---
@@ -176,6 +208,7 @@ pub fn build(b: *Build) !void {
     tidepool.linkLibrary(wayland_native_static);
     tidepool.linkLibrary(rawterm_static);
     tidepool.linkLibrary(xkbcommon_native_static);
+    tidepool.linkLibrary(image_native_static);
 
     b.installArtifact(tidepool);
 }

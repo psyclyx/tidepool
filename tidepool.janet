@@ -33,6 +33,7 @@
 
 (def required-interfaces
   @{"wl_compositor" 4
+    "wl_shm" 1
     "wp_viewporter" 1
     "wp_single_pixel_buffer_manager_v1" 1
     "river_window_manager_v1" 3

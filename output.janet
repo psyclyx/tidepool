@@ -2,6 +2,7 @@
 
 (import ./state)
 (import ./animation)
+(import ./image)
 
 (defn rgb-to-u32-rgba [rgb]
   [(* (band 0xff (brushift rgb 16)) (/ 0xffff_ffff 0xff))
@@ -20,22 +21,49 @@
     :shell-surface shell-surface
     :node (:get-node shell-surface)})
 
+(defn- bg/fill-source
+  "Compute viewport source rect for fill mode (cover output, crop excess)."
+  [img-w img-h out-w out-h]
+  (def img-ratio (/ img-w img-h))
+  (def out-ratio (/ out-w out-h))
+  (if (> img-ratio out-ratio)
+    # Image wider than output — crop left/right
+    (let [src-h img-h
+          src-w (* src-h out-ratio)
+          src-x (/ (- img-w src-w) 2)]
+      [src-x 0 src-w src-h])
+    # Image taller — crop top/bottom
+    (let [src-w img-w
+          src-h (/ src-w out-ratio)
+          src-y (/ (- img-h src-h) 2)]
+      [0 src-y src-w src-h])))
+
 (defn bg/manage [bg output]
   (:sync-next-commit (bg :shell-surface))
   (:place-bottom (bg :node))
   (:set-position (bg :node) (output :x) (output :y))
-  (def [r g b a]
-    (if (state/config :wallpaper)
-      [0 0 0 0]
-      (rgb-to-u32-rgba (state/config :background))))
-  (def buffer (:create-u32-rgba-buffer
-                (state/registry "wp_single_pixel_buffer_manager_v1")
-                r g b a))
-  (:attach (bg :surface) buffer 0 0)
-  (:damage-buffer (bg :surface) 0 0 0x7fff_ffff 0x7fff_ffff)
-  (:set-destination (bg :viewport) (output :w) (output :h))
-  (:commit (bg :surface))
-  (:destroy buffer))
+  (def wallpaper (state/config :wallpaper))
+  (if (string? wallpaper)
+    # Image wallpaper
+    (let [img (image/create-buffer wallpaper)
+          [sx sy sw sh] (bg/fill-source (img :width) (img :height)
+                                        (output :w) (output :h))]
+      (:set-source (bg :viewport) sx sy sw sh)
+      (:set-destination (bg :viewport) (output :w) (output :h))
+      (:attach (bg :surface) (img :buffer) 0 0)
+      (:damage-buffer (bg :surface) 0 0 (img :width) (img :height))
+      (:commit (bg :surface)))
+    # Solid color
+    (let [[r g b a] (rgb-to-u32-rgba (or (state/config :background) 0))
+          buffer (:create-u32-rgba-buffer
+                   (state/registry "wp_single_pixel_buffer_manager_v1")
+                   r g b a)]
+      (:set-source (bg :viewport) -1 -1 -1 -1)
+      (:set-destination (bg :viewport) (output :w) (output :h))
+      (:attach (bg :surface) buffer 0 0)
+      (:damage-buffer (bg :surface) 0 0 0x7fff_ffff 0x7fff_ffff)
+      (:commit (bg :surface))
+      (:destroy buffer))))
 
 (defn bg/destroy [bg]
   (:destroy (bg :viewport))
