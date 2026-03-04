@@ -43,7 +43,8 @@
       (fn [event]
         (match event
           [:succeeded] (do (set output-config-applied true)
-                          (print "tidepool: output configuration applied"))
+                          (when (state/config :debug)
+                            (print "tidepool: output configuration applied")))
           [:failed] (eprint "tidepool: output configuration failed")
           [:cancelled] (eprint "tidepool: output configuration cancelled"))))
     (eachp [name head] output-heads

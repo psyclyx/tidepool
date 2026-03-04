@@ -135,9 +135,9 @@
 # --- Main Pipeline ---
 
 (defn manage []
-  (def t0 (os/clock))
-  (def cycle-dt (if (> profile-last-manage 0) (- t0 profile-last-manage) 0))
-  (set profile-last-manage t0)
+  (def t0 (when (state/config :debug) (os/clock)))
+  (def cycle-dt (when t0 (if (> profile-last-manage 0) (- t0 profile-last-manage) 0)))
+  (when t0 (set profile-last-manage t0))
 
   (prune-closed)
   (lifecycle-start)
@@ -159,31 +159,32 @@
   (indicator/tags-changed)
   (:manage-finish (state/registry "river_window_manager_v1"))
 
-  (def manage-dt (- (os/clock) t0))
-  (+= profile-manage-total manage-dt)
-  (when (> cycle-dt 0) (+= profile-cycle-total cycle-dt))
-  (++ profile-count)
-  (when (= (% profile-count 10) 0)
-    (def avg-manage (/ profile-manage-total profile-count))
-    (def avg-render (/ profile-render-total profile-count))
-    (def avg-cycle (if (> profile-count 1) (/ profile-cycle-total (- profile-count 1)) 0))
-    (eprintf "PROFILE [%d frames] manage=%.1fms render=%.1fms cycle=%.1fms (%.0ffps) anim=%s\n"
-      profile-count
-      (* avg-manage 1000) (* avg-render 1000) (* avg-cycle 1000)
-      (if (> avg-cycle 0) (/ 1 avg-cycle) 0)
-      (string (state/wm :anim-active)))
-    (set profile-count 0)
-    (set profile-manage-total 0)
-    (set profile-render-total 0)
-    (set profile-cycle-total 0)))
+  (when (state/config :debug)
+    (def manage-dt (- (os/clock) t0))
+    (+= profile-manage-total manage-dt)
+    (when (> cycle-dt 0) (+= profile-cycle-total cycle-dt))
+    (++ profile-count)
+    (when (= (% profile-count 10) 0)
+      (def avg-manage (/ profile-manage-total profile-count))
+      (def avg-render (/ profile-render-total profile-count))
+      (def avg-cycle (if (> profile-count 1) (/ profile-cycle-total (- profile-count 1)) 0))
+      (eprintf "PROFILE [%d frames] manage=%.1fms render=%.1fms cycle=%.1fms (%.0ffps) anim=%s\n"
+        profile-count
+        (* avg-manage 1000) (* avg-render 1000) (* avg-cycle 1000)
+        (if (> avg-cycle 0) (/ 1 avg-cycle) 0)
+        (string (state/wm :anim-active)))
+      (set profile-count 0)
+      (set profile-manage-total 0)
+      (set profile-render-total 0)
+      (set profile-cycle-total 0))))
 
 (defn render []
-  (def t0 (os/clock))
+  (def t0 (when (state/config :debug) (os/clock)))
   (each w (state/wm :windows) (window/render w))
   (each w (state/wm :windows) (animation/tick w))
   (each w (state/wm :windows) (window/clip-to-output w))
   (each s (state/wm :seats) (seat/render s))
   (:render-finish (state/registry "river_window_manager_v1"))
-  (+= profile-render-total (- (os/clock) t0))
+  (when t0 (+= profile-render-total (- (os/clock) t0)))
   (when (state/wm :anim-active)
     (:manage-dirty (state/registry "river_window_manager_v1"))))

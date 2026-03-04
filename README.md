@@ -59,6 +59,7 @@ The init script runs in the tidepool environment with `config` and `wm` tables a
 | `:border-focused` | `0xffffff` | Focused border color |
 | `:border-normal` | `0x646464` | Unfocused border color |
 | `:border-urgent` | `0xff0000` | Urgent border color |
+| `:debug` | `false` | Enable frame profiling and verbose logging to stderr |
 | `:warp-pointer` | `false` | Warp pointer to focused window |
 | `:xcursor-theme` | `"Adwaita"` | Cursor theme name |
 | `:xcursor-size` | `24` | Cursor size |

@@ -25,6 +25,7 @@
     :xkb-bindings @[]
     :pointer-bindings @[]
     :rules @[]
+    :debug false
     :warp-pointer false
     :xcursor-theme "Adwaita"
     :xcursor-size 24})
