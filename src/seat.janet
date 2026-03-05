@@ -4,41 +4,38 @@
 
 (import xkbcommon)
 
-(defn focus-output "Set the seat's focused output." [seat o]
+(defn focus-output "Set the seat's focused output (pure data mutation)." [seat o]
   (unless (= o (seat :focused-output))
     (put seat :focused-output o)
-    (when o (:set-default (o :layer-shell)))))
+    (put seat :focus-output-changed true)))
 
-(defn focus "Focus a window, respecting layer shell focus state." [seat win]
+(defn focus "Focus a window, respecting layer shell focus state (pure data mutation)." [seat win render-order config]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
       (when (seat :focused)
         (put seat :focus-prev (seat :focused)))
-      (:focus-window (seat :obj) (w :obj))
       (put seat :focused w)
-      (if-let [i (find-index |(= $ w) (state/wm :render-order))]
-        (array/remove (state/wm :render-order) i))
-      (array/push (state/wm :render-order) w)
-      (:place-top (w :node))
-      (when (and (state/config :warp-pointer)
+      (put seat :focus-changed true)
+      (if-let [i (find-index |(= $ w) render-order)]
+        (array/remove render-order i))
+      (array/push render-order w)
+      (when (and (config :warp-pointer)
                  (= (seat :focus-source) :keyboard)
                  (w :w) (w :h))
-        (:pointer-warp (seat :obj)
-                       (+ (w :x) (div (w :w) 2))
-                       (+ (w :y) (div (w :h) 2))))))
+        (put seat :warp-target w))))
 
   (defn clear-focus []
     (when (seat :focused)
-      (:clear-focus (seat :obj))
-      (put seat :focused nil)))
+      (put seat :focused nil)
+      (put seat :focus-changed true)))
 
   (defn focus-non-layer []
     (when win
-      (when-let [o (window/tag-output win)]
+      (when-let [o (window/tag-output win (state/wm :outputs))]
         (focus-output seat o)))
     (when-let [o (seat :focused-output)]
       (defn visible? [w] (and w ((o :tags) (w :tag))))
-      (def visible (output/visible o (state/wm :render-order)))
+      (def visible (output/visible o render-order))
       (cond
         (def fullscreen (last (filter |($ :fullscreen) visible)))
         (focus-window fullscreen)
@@ -55,24 +52,24 @@
                      (put seat :focused nil))
     :none (focus-non-layer)))
 
-(defn pointer-move "Start a pointer-driven move operation on a window." [seat win]
+(defn pointer-move "Start a pointer-driven move operation on a window (pure data setup)." [seat win render-order config]
   (unless (seat :op)
-    (focus seat win)
+    (focus seat win render-order config)
     (window/set-float win true)
-    (:op-start-pointer (seat :obj))
     (put seat :op @{:type :move :window win
                     :start-x (win :x) :start-y (win :y)
-                    :dx 0 :dy 0})))
+                    :dx 0 :dy 0})
+    (put seat :op-started true)))
 
-(defn pointer-resize "Start a pointer-driven resize operation on a window." [seat win edges]
+(defn pointer-resize "Start a pointer-driven resize operation on a window (pure data setup)." [seat win edges render-order config]
   (unless (seat :op)
-    (focus seat win)
+    (focus seat win render-order config)
     (window/set-float win true)
-    (:op-start-pointer (seat :obj))
     (put seat :op @{:type :resize :window win :edges edges
                     :start-x (win :x) :start-y (win :y)
                     :start-w (win :w) :start-h (win :h)
-                    :dx 0 :dy 0})))
+                    :dx 0 :dy 0})
+    (put seat :op-started true)))
 
 (defn xkb-binding/create "Register a keyboard binding for a keysym+mods combo." [seat keysym mods action]
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
@@ -94,16 +91,16 @@
   (:enable (binding :obj))
   (array/push (seat :pointer-bindings) binding))
 
-(defn manage-start "Destroy removed seats or pass through." [seat]
+(defn manage-start "Flag removed seats for destruction." [seat]
   (if (seat :removed)
-    (:destroy (seat :obj))
+    (do (put seat :pending-destroy true) nil)
     seat))
 
-(defn manage "Process seat state: register bindings, focus, pointer ops." [seat]
+(defn manage "Process seat state: register bindings, focus, pointer ops." [seat outputs windows render-order config]
   (when (seat :new)
-    (each binding (state/config :xkb-bindings)
+    (each binding (config :xkb-bindings)
       (xkb-binding/create seat ;binding))
-    (each binding (state/config :pointer-bindings)
+    (each binding (config :pointer-bindings)
       (pointer-binding/create seat ;binding)))
 
   (when-let [w (seat :focused)]
@@ -115,31 +112,32 @@
 
   (if (or (not (seat :focused-output))
           ((seat :focused-output) :removed))
-    (focus-output seat (first (state/wm :outputs))))
+    (focus-output seat (first outputs)))
 
   (put seat :focus-source :pointer)
-  (focus seat nil)
-  (each w (state/wm :windows)
-    (when (w :new) (focus seat w)))
+  (focus seat nil render-order config)
+  (each w windows
+    (when (w :new) (focus seat w render-order config)))
   (if-let [w (seat :window-interaction)]
-    (focus seat w))
+    (focus seat w render-order config))
 
   (put seat :focus-source :keyboard)
   (when-let [[binding action] (seat :pending-action)]
     (action seat binding))
 
   (put seat :focus-source :pointer)
-  (focus seat nil)
+  (focus seat nil render-order config)
 
   (when-let [op (seat :op)]
     (when (= :resize (op :type))
       (window/propose-dimensions (op :window)
                                  (max 1 (+ (op :start-w) (op :dx)))
-                                 (max 1 (+ (op :start-h) (op :dy))))))
+                                 (max 1 (+ (op :start-h) (op :dy)))
+                                 config)))
   (when (and (seat :op-release) (seat :op))
-    (:op-end (seat :obj))
-    (window/update-tag ((seat :op) :window))
-    (focus-output seat (window/tag-output ((seat :op) :window)))
+    (put seat :op-ended true)
+    (window/update-tag ((seat :op) :window) outputs)
+    (focus-output seat (window/tag-output ((seat :op) :window) outputs))
     (put seat :op nil)))
 
 (defn manage-finish "Clear per-frame transient state." [seat]
@@ -147,9 +145,14 @@
   (put seat :window-interaction nil)
   (put seat :pending-action nil)
   (put seat :op-release nil)
-  (put seat :focus-source nil))
+  (put seat :focus-source nil)
+  (put seat :focus-changed nil)
+  (put seat :focus-output-changed nil)
+  (put seat :op-started nil)
+  (put seat :op-ended nil)
+  (put seat :warp-target nil))
 
-(defn render "Apply pointer move position during drag operations." [seat]
+(defn render "Compute pointer move position during drag operations (pure data)." [seat]
   (when-let [op (seat :op)]
     (when (= :move (op :type))
       (window/set-position (op :window)
