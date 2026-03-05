@@ -30,12 +30,15 @@ in {
       };
       Service = {
         ExecStart = lib.getExe cfg.package;
-        ExecStop = pkgs.writeShellScript "tidepool-save" ''
-          ${lib.getExe' cfg.package "tidepoolmsg"} save > "$XDG_RUNTIME_DIR/tidepool-state.jdn"
+        ExecStopPre = pkgs.writeShellScript "tidepool-save" ''
+          ${lib.getExe' cfg.package "tidepoolmsg"} save > "$XDG_RUNTIME_DIR/tidepool-state.jdn" || true
         '';
         ExecStartPost = pkgs.writeShellScript "tidepool-load" ''
           if [ -f "$XDG_RUNTIME_DIR/tidepool-state.jdn" ]; then
-            ${lib.getExe' cfg.package "tidepoolmsg"} load < "$XDG_RUNTIME_DIR/tidepool-state.jdn"
+            for i in $(seq 1 10); do
+              ${lib.getExe' cfg.package "tidepoolmsg"} load < "$XDG_RUNTIME_DIR/tidepool-state.jdn" && break
+              sleep 0.2
+            done
             rm -f "$XDG_RUNTIME_DIR/tidepool-state.jdn"
           fi
         '';
