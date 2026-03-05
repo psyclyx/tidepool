@@ -45,12 +45,21 @@
   (map |(get groups $) col-indices))
 
 (defn place
-  "Compute placement rect, returning :hidden if fully clipped."
+  "Compute placement rect, returning :hidden if fully clipped.
+  Drops inner padding on any axis where the cell is partially clipped,
+  so strut windows look like they continue beyond the screen edge."
   [x y w h clip-left clip-right clip-top clip-bottom inner]
-  (if (or (<= (+ x w (* 2 inner)) clip-left) (>= x clip-right)
-          (<= (+ y h (* 2 inner)) clip-top) (>= y clip-bottom))
+  (def cell-w (+ w (* 2 inner)))
+  (def cell-h (+ h (* 2 inner)))
+  (if (or (<= (+ x cell-w) clip-left) (>= x clip-right)
+          (<= (+ y cell-h) clip-top) (>= y clip-bottom))
     :hidden
-    {:x (+ x inner) :y (+ y inner) :w w :h h}))
+    (let [h-clipped (or (< x clip-left) (> (+ x cell-w) clip-right))
+          v-clipped (or (< y clip-top) (> (+ y cell-h) clip-bottom))
+          hp (if h-clipped 0 inner)
+          vp (if v-clipped 0 inner)]
+      {:x (+ x hp) :y (+ y vp)
+       :w (- cell-w (* 2 hp)) :h (- cell-h (* 2 vp))})))
 
 (defn col-width
   "Compute a column's pixel width from its ratio."
