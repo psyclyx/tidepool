@@ -8,7 +8,6 @@
 (import ./output-config)
 (import ./window)
 (import ./seat)
-(import ./indicator)
 (import ./actions :as action)
 (import ./pipeline)
 (import ./layout)
@@ -111,8 +110,6 @@
 
   (:set-handler (state/registry "river_window_manager_v1") wm/handle-event)
   (:roundtrip display)
-
-  (persist/load)
 
   (def repl-server (repl-server-create))
   (defer (:close repl-server)

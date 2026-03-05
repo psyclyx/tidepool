@@ -5,7 +5,6 @@
 (import ./animation)
 (import ./ipc)
 (import ./layout)
-(import ./persist)
 
 (var profile-last-manage 0)
 (var profile-count 0)
@@ -258,9 +257,7 @@
   (def prev-positions (save-positions config))
   (sort-outputs)
   (each o outputs (output/manage o outputs))
-  (each w windows
-    (window/manage w config seats)
-    (when (w :new) (persist/restore-window w)))
+  (each w windows (window/manage w config seats))
   (dispatch-pointer-ops render-order config)
   (each s seats (seat/manage s outputs windows render-order config))
   (reconcile-tags outputs
