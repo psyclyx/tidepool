@@ -1,4 +1,6 @@
-(defn compute "Compute tag/layout status strings (pure)." [windows outputs focused-output config]
+(defn compute
+  "Compute tag/layout status strings (pure)."
+  [windows outputs focused-output config]
   (unless (config :indicator-file) (break nil))
   (def occupied @{})
   (each window windows
@@ -33,7 +35,9 @@
     :global-layout global-layout
     :per-output per-output})
 
-(defn write "Write computed tag/layout status to runtime files (effectful)." [status]
+(defn write
+  "Write computed tag/layout status to runtime files (effectful)."
+  [status]
   (when status
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
       (spit (string rd "/tidepool-tags") (status :global-tags))
@@ -45,7 +49,9 @@
       (when (status :global-layout)
         (spit (string rd "/tidepool-layout") (status :global-layout))))))
 
-(defn layout-changed "Notify layout change via files and optionally notify-send." [o config]
+(defn layout-changed
+  "Notify layout change via files and optionally notify-send."
+  [o config]
   (when (config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
       (def name (string (o :layout)))

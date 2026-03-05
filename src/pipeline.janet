@@ -230,7 +230,9 @@
 
 # --- Main cycles ---
 
-(defn manage "Run the management cycle: layout, borders, animations, persistence." []
+(defn manage
+  "Run the management cycle: layout, borders, animations, persistence."
+  []
   (def t0 (when (state/config :debug) (os/clock)))
   (def cycle-dt (when t0 (if (> profile-last-manage 0) (- t0 profile-last-manage) 0)))
   (when t0 (set profile-last-manage t0))
@@ -300,7 +302,9 @@
       (set profile-render-total 0)
       (set profile-cycle-total 0))))
 
-(defn render "Run the render cycle: position windows, tick animations, clip." []
+(defn render
+  "Run the render cycle: position windows, tick animations, clip."
+  []
   (def t0 (when (state/config :debug) (os/clock)))
   (def now (os/clock))
   (def windows (state/wm :windows))

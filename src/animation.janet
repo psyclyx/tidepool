@@ -1,6 +1,11 @@
-(defn ease-out-cubic "Cubic ease-out easing function." [t] (- 1 (math/pow (- 1 t) 3)))
+(defn ease-out-cubic
+  "Cubic ease-out easing function."
+  [t]
+  (- 1 (math/pow (- 1 t) 3)))
 
-(defn start "Start an animation on a window (:open, :close, or :move)." [window type props now config]
+(defn start
+  "Start an animation on a window (:open, :close, or :move)."
+  [window type props now config]
   (when (config :animate)
     (put window :anim (merge @{:type type
                                 :start now
@@ -36,7 +41,9 @@
              (math/round (+ ch (* e (- th ch))))]))
         true))))
 
-(defn scroll-toward "Animate a scroll parameter toward a target value." [params key target now config]
+(defn scroll-toward
+  "Animate a scroll parameter toward a target value."
+  [params key target now config]
   (if (not (config :animate))
     (put params key target)
     (let [current (params key)
@@ -52,7 +59,9 @@
                   (put params anim-key nil)))
             (put params anim-key @{:from current :to target :start now :duration duration})))))))
 
-(defn scroll-update "Update an in-progress scroll animation by one frame. Returns true if active." [params key now]
+(defn scroll-update
+  "Update an in-progress scroll animation by one frame. Returns true if active."
+  [params key now]
   (def anim-key (keyword (string key "-anim")))
   (when-let [anim (params anim-key)]
     (def t (min 1.0 (/ (- now (anim :start)) (anim :duration))))

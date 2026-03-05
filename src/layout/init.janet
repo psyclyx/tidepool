@@ -25,7 +25,9 @@
     :dwindle dwindle/navigate
     :scroll scroll/navigate})
 
-(defn apply-geometry "Store computed geometry on window tables." [results config]
+(defn apply-geometry
+  "Store computed geometry on window tables."
+  [results config]
   (each r results
     (when (r :scroll-placed) (put (r :window) :scroll-placed true))
     (if (r :hidden)
@@ -34,7 +36,9 @@
         (window/set-position (r :window) (r :x) (r :y))
         (window/propose-dimensions (r :window) (r :w) (r :h) config)))))
 
-(defn apply "Apply the current layout to an output's tiled windows." [o windows seats config now]
+(defn apply
+  "Apply the current layout to an output's tiled windows."
+  [o windows seats config now]
   (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
                        (output/visible o windows)))
   (when (empty? visible) (break))

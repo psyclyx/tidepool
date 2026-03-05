@@ -1,4 +1,6 @@
-(defn layout "Arrange all windows fullscreen (stacked)." [usable windows params config focused &opt now focus-prev]
+(defn layout
+  "Arrange all windows fullscreen (stacked)."
+  [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
@@ -11,7 +13,9 @@
           :h (- total-h (* 2 inner))})
        windows))
 
-(defn navigate "Cycle through windows linearly." [n main-count i dir ctx]
+(defn navigate
+  "Cycle through windows linearly."
+  [n main-count i dir ctx]
   (case dir
     :right (when (< (+ i 1) n) (+ i 1))
     :down (when (< (+ i 1) n) (+ i 1))

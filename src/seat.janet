@@ -4,12 +4,16 @@
 
 (import xkbcommon)
 
-(defn focus-output "Set the seat's focused output (pure data mutation)." [seat o]
+(defn focus-output
+  "Set the seat's focused output (pure data mutation)."
+  [seat o]
   (unless (= o (seat :focused-output))
     (put seat :focused-output o)
     (put seat :focus-output-changed true)))
 
-(defn focus "Focus a window, respecting layer shell focus state (pure data mutation)." [seat win render-order config]
+(defn focus
+  "Focus a window, respecting layer shell focus state (pure data mutation)."
+  [seat win render-order config]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
       (when (seat :focused)
@@ -52,7 +56,9 @@
                      (put seat :focused nil))
     :none (focus-non-layer)))
 
-(defn pointer-move "Start a pointer-driven move operation on a window (pure data setup)." [seat win render-order config]
+(defn pointer-move
+  "Start a pointer-driven move operation on a window (pure data setup)."
+  [seat win render-order config]
   (unless (seat :op)
     (focus seat win render-order config)
     (window/set-float win true)
@@ -61,7 +67,9 @@
                     :dx 0 :dy 0})
     (put seat :op-started true)))
 
-(defn pointer-resize "Start a pointer-driven resize operation on a window (pure data setup)." [seat win edges render-order config]
+(defn pointer-resize
+  "Start a pointer-driven resize operation on a window (pure data setup)."
+  [seat win edges render-order config]
   (unless (seat :op)
     (focus seat win render-order config)
     (window/set-float win true)
@@ -71,7 +79,9 @@
                     :dx 0 :dy 0})
     (put seat :op-started true)))
 
-(defn xkb-binding/create "Register a keyboard binding for a keysym+mods combo." [seat keysym mods action]
+(defn xkb-binding/create
+  "Register a keyboard binding for a keysym+mods combo."
+  [seat keysym mods action]
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
                                         (seat :obj) (xkbcommon/keysym keysym) mods)})
   (defn handle-event [event]
@@ -81,7 +91,9 @@
   (:enable (binding :obj))
   (array/push (seat :xkb-bindings) binding))
 
-(defn pointer-binding/create "Register a pointer binding for a button+mods combo." [seat button mods action]
+(defn pointer-binding/create
+  "Register a pointer binding for a button+mods combo."
+  [seat button mods action]
   (def button-code {:left 0x110 :right 0x111 :middle 0x112})
   (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)})
   (defn handle-event [event]
@@ -91,12 +103,16 @@
   (:enable (binding :obj))
   (array/push (seat :pointer-bindings) binding))
 
-(defn manage-start "Flag removed seats for destruction." [seat]
+(defn manage-start
+  "Flag removed seats for destruction."
+  [seat]
   (if (seat :removed)
     (do (put seat :pending-destroy true) nil)
     seat))
 
-(defn manage "Process seat state: register bindings, focus, pointer ops." [seat outputs windows render-order config]
+(defn manage
+  "Process seat state: register bindings, focus, pointer ops."
+  [seat outputs windows render-order config]
   (when (seat :new)
     (each binding (config :xkb-bindings)
       (xkb-binding/create seat ;binding))
@@ -140,7 +156,9 @@
     (focus-output seat (window/tag-output ((seat :op) :window) outputs))
     (put seat :op nil)))
 
-(defn manage-finish "Clear per-frame transient state." [seat]
+(defn manage-finish
+  "Clear per-frame transient state."
+  [seat]
   (put seat :new nil)
   (put seat :window-interaction nil)
   (put seat :pending-action nil)
@@ -152,14 +170,18 @@
   (put seat :op-ended nil)
   (put seat :warp-target nil))
 
-(defn render "Compute pointer move position during drag operations (pure data)." [seat]
+(defn render
+  "Compute pointer move position during drag operations (pure data)."
+  [seat]
   (when-let [op (seat :op)]
     (when (= :move (op :type))
       (window/set-position (op :window)
                            (+ (op :start-x) (op :dx))
                            (+ (op :start-y) (op :dy))))))
 
-(defn create "Create a seat from a Wayland seat object." [obj]
+(defn create
+  "Create a seat from a Wayland seat object."
+  [obj]
   (def seat @{:obj obj
               :layer-shell (:get-seat (state/registry "river_layer_shell_v1") obj)
               :layer-focus :none

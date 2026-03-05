@@ -1,4 +1,6 @@
-(defn layout "Arrange windows in a main area (left) and stack area (right)." [usable windows params config focused &opt now focus-prev]
+(defn layout
+  "Arrange windows in a main area (left) and stack area (right)."
+  [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
@@ -47,7 +49,9 @@
              :h (- h (* 2 inner))})))))
   results)
 
-(defn navigate "Navigate between main and stack areas." [n main-count i dir ctx]
+(defn navigate
+  "Navigate between main and stack areas."
+  [n main-count i dir ctx]
   (def in-main (< i main-count))
   (if in-main
     (case dir
