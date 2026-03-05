@@ -31,11 +31,15 @@
   (for i 0 (length results)
     (def other (get results i))
     (when (and (not= i focused-idx) (not (other :hidden)))
-      (def ox (+ (other :x) (/ (other :w) 2)))
-      (def oy (+ (other :y) (/ (other :h) 2)))
-      (def dx (- ox cx))
-      (def dy (- oy cy))
-      (when (case dir :right (> dx 0) :left (< dx 0) :down (> dy 0) :up (< dy 0))
+      (def valid
+        (case dir
+          :right (>= (other :x) (+ (current :x) (current :w)))
+          :left (<= (+ (other :x) (other :w)) (current :x))
+          :down (>= (other :y) (+ (current :y) (current :h)))
+          :up (<= (+ (other :y) (other :h)) (current :y))))
+      (when valid
+        (def dx (- (+ (other :x) (/ (other :w) 2)) cx))
+        (def dy (- (+ (other :y) (/ (other :h) 2)) cy))
         (def dist (+ (* dx dx) (* dy dy)))
         (when (< dist best-dist)
           (set best i)
@@ -104,11 +108,12 @@
   (assert= (nav geo 2 :right) nil)
   (assert= (nav geo 2 :down) nil))
 
-(test "nav: 3 windows — window 0 reaches both sides via up/down"
+(test "nav: 3 windows — full-height window has no up/down"
   (def geo (dwindle-geometry 3))
-  # Full-height window can reach upper and lower neighbors
-  (assert= (nav geo 0 :up) 1 "0 up → 1")
-  (assert= (nav geo 0 :down) 2 "0 down → 2"))
+  # Window 0 spans the full height — nothing is above or below it
+  (assert= (nav geo 0 :left) nil "0 left")
+  (assert= (nav geo 0 :up) nil "0 up")
+  (assert= (nav geo 0 :down) nil "0 down"))
 
 # 4 windows:
 #   +-------+-------+

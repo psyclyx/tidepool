@@ -26,7 +26,10 @@
     :scroll scroll/navigate})
 
 (defn navigate-by-geometry
-  "Navigate by finding the nearest window center in the given direction."
+  "Navigate by finding the nearest window in the given direction.
+  Direction is determined by edges, not centers: a candidate is only
+  'to the right' if its left edge is past the current window's right edge.
+  Among valid candidates, the nearest by center distance wins."
   [results focused-idx dir]
   (def current (get results focused-idx))
   (def cx (+ (current :x) (/ (current :w) 2)))
@@ -36,11 +39,15 @@
   (for i 0 (length results)
     (def other (get results i))
     (when (and (not= i focused-idx) (not (other :hidden)))
-      (def ox (+ (other :x) (/ (other :w) 2)))
-      (def oy (+ (other :y) (/ (other :h) 2)))
-      (def dx (- ox cx))
-      (def dy (- oy cy))
-      (when (case dir :right (> dx 0) :left (< dx 0) :down (> dy 0) :up (< dy 0))
+      (def valid
+        (case dir
+          :right (>= (other :x) (+ (current :x) (current :w)))
+          :left (<= (+ (other :x) (other :w)) (current :x))
+          :down (>= (other :y) (+ (current :y) (current :h)))
+          :up (<= (+ (other :y) (other :h)) (current :y))))
+      (when valid
+        (def dx (- (+ (other :x) (/ (other :w) 2)) cx))
+        (def dy (- (+ (other :y) (/ (other :h) 2)) cy))
         (def dist (+ (* dx dx) (* dy dy)))
         (when (< dist best-dist)
           (set best i)
