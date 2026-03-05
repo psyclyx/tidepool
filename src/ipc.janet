@@ -62,9 +62,9 @@
 
 # --- Change tracking + emission ---
 
-(var- last-tags nil)
-(var- last-layout nil)
-(var- last-title nil)
+(var last-tags nil)
+(var last-layout nil)
+(var last-title nil)
 
 (defn- has-subscribers? [& topics]
   (some |(when-let [subs (get subscribers $)]
@@ -97,8 +97,15 @@
 
 # --- JSON watch (for tidepoolmsg watch) ---
 
+(defn- emit-json [topic data]
+  (when data
+    (def obj (merge-into @{"event" (string topic)} data))
+    (print (json/encode obj))
+    (flush)))
+
 (defn watch-json
-  "Watch multiple topics, printing JSON lines. Blocks until disconnect."
+  "Watch multiple topics, printing JSON lines. Blocks until disconnect.
+  Sends current state for each topic immediately on connect."
   [topics]
   (def channels @[])
   (def topic-map @{})
@@ -106,14 +113,19 @@
     (def ch (subscribe topic))
     (array/push channels ch)
     (put topic-map ch topic))
+  # Send current state immediately so new subscribers don't wait for a change.
+  (each topic topics
+    (def current (case topic
+                   :tags last-tags
+                   :layout last-layout
+                   :title last-title))
+    (emit-json topic current))
   (defer (each ch channels
            (unsubscribe (topic-map ch) ch))
     (forever
       (def [_ ch data] (ev/select ;channels))
       (def topic (get topic-map ch))
-      (def obj (merge-into @{"event" (string topic)} data))
-      (print (json/encode obj))
-      (flush))))
+      (emit-json topic data))))
 
 # --- Save/load wrappers ---
 
