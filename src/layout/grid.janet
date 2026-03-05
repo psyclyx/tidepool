@@ -1,6 +1,3 @@
-# Grid layout: arranges windows in a grid.
-# Pure — no imports required.
-
 (defn layout [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))

@@ -1,5 +1,3 @@
-# Image loading — decodes images into wl_shm buffers for wallpaper rendering.
-
 (import image-native :prefix "" :export true)
 (import ./state)
 

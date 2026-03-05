@@ -1,6 +1,3 @@
-# Centered-master layout: center column with left/right stacks.
-# Delegates to master-stack for n=2.
-
 (import ./master-stack)
 
 (defn layout [usable windows params config focused]
@@ -70,13 +67,12 @@
       (def left-count (math/ceil (/ side-count 2)))
       (def right-count (- side-count left-count))
       (cond
-        # Master (index 0): center column
         (= i 0)
         (case dir
           :left (when (> left-count 0) 1)
           :right (when (> right-count 0) (+ 1 left-count))
           :up nil :down nil)
-        # Left stack (indices 1..left-count)
+
         (<= i left-count)
         (let [li (- i 1)]
           (case dir
@@ -84,7 +80,7 @@
             :left nil
             :down (when (< (+ li 1) left-count) (+ i 1))
             :up (when (> li 0) (- i 1))))
-        # Right stack (indices left-count+1..)
+
         (let [ri (- i 1 left-count)]
           (case dir
             :left 0

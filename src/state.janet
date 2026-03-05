@@ -1,6 +1,3 @@
-# Shared mutable state for tidepool.
-# Entry point populates these tables; other modules import them.
-
 (def config
   @{:border-width 4
     :outer-padding 4
@@ -38,7 +35,6 @@
     :render-order @[]
     :anim-active false})
 
-# Per-tag layout storage: tag -> {:layout :kw :params @{...}}
 (def tag-layouts @{})
 
 (def output-state-cache @{})

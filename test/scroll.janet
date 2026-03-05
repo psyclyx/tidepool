@@ -1,11 +1,6 @@
-# Tests for scroll layout clipping and placement logic.
-#
-# These extract the pure math from layout/scroll and window/clip-to-output
-# so we can verify correctness without wayland/protocol dependencies.
+# Tests for scroll layout clipping and placement (see layout/scroll, window/clip-to-output).
 
 (defn sum [xs] (reduce + 0 xs))
-
-# --- Scroll target computation (extracted from layout/columns) ---
 
 (defn compute-scroll-target
   "Compute the target scroll offset given layout parameters.
@@ -22,8 +17,6 @@
     (set target (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
   (min max-scroll (max 0 target)))
 
-# --- Column geometry helpers ---
-
 (defn col-width [col total-w default-ratio]
   (math/round (* total-w (or ((first col) :col-width) default-ratio))))
 
@@ -38,8 +31,6 @@
 (defn total-content-width [cols col-xs total-w default-ratio]
   (+ (last col-xs) (col-width (last cols) total-w default-ratio)))
 
-# --- Place-window visibility check (extracted from columns/place-window) ---
-
 (defn place-window-result
   "Determine window placement. Returns {:hidden true} or {:x :y :pw :ph}
   where pw/ph are the proposed content dimensions (before bw subtraction)."
@@ -52,8 +43,6 @@
           (<= win-bottom clip-top) (>= win-top clip-bottom))
     {:hidden true}
     {:x (+ x inner) :y (+ y inner) :pw w :ph h}))
-
-# --- Clip-to-output computation (extracted from window/clip-to-output) ---
 
 (defn compute-clip
   "Compute clip box for a window on an output. Returns nil (no clip needed),
@@ -80,8 +69,6 @@
        (math/round clip-w) (math/round clip-h)])
     :clear))
 
-# --- Window geometry helpers for tests ---
-
 (defn window-positions
   "Given scroll, cols, col-xs, compute each window's content position.
   Returns array of {:col :x :y :w :h :hidden} for each window."
@@ -94,7 +81,6 @@
     (def cw (col-width col total-w default-ratio))
     (def x-off (- (get col-xs ci) scroll))
     (def num-rows (length col))
-    # Classic mode: proportional height
     (def total-weight (sum (map |(or ($ :col-weight) 1.0) col)))
     (var y-sum 0)
     (def heights @[])
@@ -127,9 +113,6 @@
       (set y-acc (+ y-acc h))))
   results)
 
-# ============================================================
-# Test helpers
-# ============================================================
 
 (var test-count 0)
 (var fail-count 0)
@@ -156,9 +139,6 @@
        (error (string (or ,msg "") " expected ~" vb " got " va
                        " (tolerance " ,tolerance ")")))))
 
-# ============================================================
-# Standard test fixtures
-# ============================================================
 
 # Gawfolk monitor: 3840x2560 at (0,0)
 (def gawfolk {:x 0 :y 0 :w 3840 :h 2560})
@@ -181,9 +161,6 @@
     (array/push cols @[(make-win ratio)]))
   cols)
 
-# ============================================================
-# Scroll target tests
-# ============================================================
 
 (test "scroll: 2 cols 50% — no scroll needed"
   (def cols (make-cols 2))
@@ -209,7 +186,6 @@
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
-  # First column: no left strut, flush left → scroll=0
   (assert= scroll 0 "first column should be flush left"))
 
 (test "scroll: 3 cols 50%, focus col 2 — flush right (no right strut)"
@@ -224,7 +200,6 @@
     :focused-x (get col-xs 2) :focused-col-w cw
     :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
-  # Last column: no right strut, flush right → scroll=max-scroll
   (assert= scroll max-scroll "last column should be flush right"))
 
 (test "scroll: 3 cols 50%, focus col 1 — both struts apply"
@@ -238,9 +213,6 @@
     :focused-x (get col-xs 1) :focused-col-w cw
     :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
-  # Middle column: both struts apply
-  # focused-x + col-w = 1916 + 1916 = 3832
-  # 3832 > target + 3832 - 32 = target + 3800 → target = 32
   (assert= scroll 32 "scroll centers col 1 with strut margin"))
 
 (test "scroll: no struts — clamps to [0, max-scroll]"
@@ -270,7 +242,6 @@
   (assert= scroll 0 "no scroll when content fits even with large struts"))
 
 (test "scroll: small overflow, focus col 0 — flush left"
-  # total-content-w barely exceeds total-w
   (def cols @[@[(make-win 0.6)] @[(make-win 0.6)]])
   (def col-xs (col-x-positions cols total-w 0.6))
   (def tcw (total-content-width cols col-xs total-w 0.6))
@@ -281,12 +252,8 @@
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
-  # First column: no left strut → flush left → scroll=0
   (assert= scroll 0 "first column flush left regardless of strut size"))
 
-# ============================================================
-# Window placement tests
-# ============================================================
 
 (test "placement: on-screen window gets positioned"
   (def result (place-window-result 100 100 400 300
@@ -306,7 +273,6 @@
   (assert (result :hidden) "fully right should be hidden"))
 
 (test "placement: exactly at clip-right boundary — hidden"
-  # win-left = clip-right → fully off-screen
   (def result (place-window-result clip-right 100 400 300
                 clip-left clip-right clip-top clip-bottom inner))
   (assert (result :hidden) "at clip-right boundary should be hidden"))
@@ -316,9 +282,6 @@
                 clip-left clip-right clip-top clip-bottom inner))
   (assert (not (result :hidden)) "1px inside should be visible"))
 
-# ============================================================
-# Clip-to-output tests
-# ============================================================
 
 (test "clip: fully on-screen — clear"
   (def result (compute-clip 100 100 200 200
@@ -330,12 +293,9 @@
                 (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
   (assert (not= result :clear) "should clip")
   (def [cx cy cw ch] result)
-  # inset = bw + outer = 8. ox = 0 + 8 = 8. clip-x = 8 - (-100) = 108
   (assert= cx 108 "clip-x")
-  # clip-w = min(-100+400, 8+3824) - max(-100, 8) = min(300, 3832) - 8 = 292
   (assert= cw 292 "clip-w")
   (assert= cy 0 "clip-y should be 0")
-  # Verify visible content starts at output edge + inset
   (def visible-left (+ -100 cx))
   (assert= visible-left 8 "visible content left = output-x + bw + outer"))
 
@@ -345,10 +305,7 @@
   (assert (not= result :clear) "should clip")
   (def [cx cy cw ch] result)
   (assert= cx 0 "clip-x should be 0")
-  # inset = 8. clip-w = min(3700+400, 8+3824) - max(3700, 8) = min(4100, 3832) - 3700 = 132
   (assert= cw 132 "clip-w")
-  # Border right = visible content right + bw = (3700 + 132) + 4 = 3836
-  # Output edge = 3840. Gap = 4 = outer padding preserved
   (def visible-right (+ 3700 0 cw))
   (assert= (+ visible-right bw outer) (+ (gawfolk :x) (gawfolk :w))
     "border right + outer = output edge"))
@@ -361,15 +318,11 @@
   (assert= cw 1 "fully off-screen clip-w clamped to 1"))
 
 (test "clip: window at inset from output edge — fully on-screen"
-  # Content at bw+outer from output edge
   (def inset (+ bw outer))
   (def result (compute-clip (+ (gawfolk :x) inset) (+ (gawfolk :y) inset) 100 100
                 (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
   (assert= result :clear "window at inset from edge should be fully on-screen"))
 
-# ============================================================
-# Integration: full window positions for columns layout
-# ============================================================
 
 (test "integration: 2 cols 50% — no overlap, correct gaps"
   (def cols (make-cols 2))
@@ -386,7 +339,6 @@
   (def w1 (get wins 1))
   (assert (not (w0 :hidden)) "col 0 visible")
   (assert (not (w1 :hidden)) "col 1 visible")
-  # Gap between borders
   (def gap (- (w1 :border-left) (w0 :border-right)))
   (assert= gap (* 2 inner) "gap between borders = 2*inner = 16"))
 
@@ -443,13 +395,11 @@
     :clip-top clip-top :clip-bottom clip-bottom))
   (def w2 (get wins 2))
   (assert (not (w2 :hidden)) "col 2 peeking")
-  # Compute clip for the peeking window
   (def clip (compute-clip
     (w2 :content-x) (w2 :content-y) (w2 :content-w) (w2 :content-h)
     (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
   (assert (not= clip :clear) "peek window should be clipped")
   (def [cx cy cw ch] clip)
-  # Border right should be at output edge minus outer padding
   (def visible-right (+ (w2 :content-x) cx cw))
   (assert= (+ visible-right bw outer) (+ (gawfolk :x) (gawfolk :w))
     "peek border right + outer = output edge"))
@@ -466,13 +416,11 @@
     :clip-top clip-top :clip-bottom clip-bottom))
   (def w0 (get wins 0))
   (assert (not (w0 :hidden)) "col 0 should be visible (peeking left)")
-  # Compute clip
   (def clip (compute-clip
     (w0 :content-x) (w0 :content-y) (w0 :content-w) (w0 :content-h)
     (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
   (assert (not= clip :clear) "peek window should be clipped")
   (def [cx cy cw ch] clip)
-  # Border left should be at output left edge plus outer padding
   (def visible-left (+ (w0 :content-x) cx))
   (assert= (- visible-left bw) (+ (gawfolk :x) outer)
     "peek border left = output edge + outer"))
@@ -496,9 +444,6 @@
         (string/format "scroll=%d: col %d border-right (%d) overlaps col %d border-left (%d)"
           scroll-val (a :col) (a :border-right) (b :col) (b :border-left))))))
 
-# ============================================================
-# Scroll + placement end-to-end
-# ============================================================
 
 (test "e2e: focus each column with struts — all produce valid peeks"
   (def cols (make-cols 3))
@@ -520,11 +465,9 @@
       :usable-x (gawfolk :x) :usable-y (gawfolk :y)
       :clip-left clip-left :clip-right clip-right
       :clip-top clip-top :clip-bottom clip-bottom))
-    # Focused column should always be visible
     (def focused-win (get wins focus-ci))
     (assert (not (focused-win :hidden))
       (string/format "focus col %d: focused column should be visible" focus-ci))
-    # At least one non-focused column should be visible (peek or full)
     (def others (filter |(and (not ($ :hidden)) (not= ($ :col) focus-ci)) wins))
     (assert (> (length others) 0)
       (string/format "focus col %d: should have visible non-focused columns" focus-ci))))
@@ -565,22 +508,16 @@
       :focused-x focused-x :focused-col-w cw
       :focused-col-idx focus-ci :num-cols num-cols
       :current-scroll 0))
-    # Effective struts: disabled for edge columns
     (def eff-strut-l (if (> focus-ci 0) strut-l 0))
     (def eff-strut-r (if (< focus-ci (- num-cols 1)) strut-r 0))
     (def zone-left (+ scroll eff-strut-l))
     (def zone-right (- (+ scroll total-w) eff-strut-r))
-    # Focused column should always be within zone
     (assert (>= focused-x zone-left)
       (string/format "focus col %d: left edge %d >= zone-left %d"
         focus-ci focused-x zone-left))
     (assert (<= (+ focused-x cw) (+ zone-right 1))
       (string/format "focus col %d: right edge %d <= zone-right %d"
         focus-ci (+ focused-x cw) zone-right))))
-
-# ============================================================
-# Report
-# ============================================================
 
 (printf "\n%d tests, %d failures" test-count fail-count)
 (when (> fail-count 0) (os/exit 1))

@@ -1,6 +1,3 @@
-# Window lifecycle, positioning, dimensions, clipping, borders, match-rule.
-# No seat dependency — pointer dispatch moved to pipeline.
-
 (import ./state)
 (import ./animation)
 (import ./output)
@@ -76,17 +73,13 @@
       (when (rule :tag)
         (put window :tag (rule :tag))))))
 
-# --- Window Lifecycle ---
-
 (defn manage-start [window]
   (cond
-    # Animation complete — actually destroy
     (window :anim-destroy)
     (do
       (:destroy (window :obj))
       (:destroy (window :node)))
 
-    # Closed: start close animation if enabled, else destroy immediately
     (window :closed)
     (if (and (state/config :animate) (not (window :closing)) (window :w) (window :h))
       (do
@@ -166,8 +159,6 @@
   (:set-user-data obj window)
   window)
 
-# --- Border Rendering ---
-
 (defn set-borders [window status]
   (def cfg state/config)
   (def rgb (case status
@@ -197,8 +188,6 @@
       (def cy (window :y))
       (def cw (window :w))
       (def ch (window :h))
-      # Inset output bounds by border width + outer padding so borders
-      # don't leak onto neighboring outputs and outer padding is preserved
       (def inset (+ bw outer))
       (def ox (+ (o :x) inset))
       (def oy (+ (o :y) inset))
@@ -210,12 +199,10 @@
         (do
           (def clip-x (max 0 (- ox cx)))
           (def clip-y (max 0 (- oy cy)))
-          # Use max 1 to prevent clip-w/h of 0, which disables clipping
           (def clip-w (max 1 (- (min (+ cx cw) (+ ox ow)) (max cx ox))))
           (def clip-h (max 1 (- (min (+ cy ch) (+ oy oh)) (max cy oy))))
           (:set-clip-box (window :obj)
             (math/round clip-x) (math/round clip-y)
             (math/round clip-w) (math/round clip-h)))
-        # Fully on-screen — clear clip unless window has a clip animation
         (when (not (and (window :anim) ((window :anim) :clip-from)))
           (:set-clip-box (window :obj) 0 0 0 0))))))

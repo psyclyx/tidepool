@@ -1,21 +1,14 @@
-# Scroll layout: scrollable columns with multi-window stacking.
-# Requires state, animation, output for scroll effects and context building.
-
 (import ../state)
 (import ../animation)
 (import ../output)
 
 (defn- sum [xs] (reduce + 0 xs))
 
-# Auto-assign column indices to windows that don't have one
 (defn assign [windows]
   (var max-col -1)
   (each win windows
     (when (win :column)
       (set max-col (max max-col (win :column)))))
-  # Find the focused window's column to insert new windows after it.
-  # The focused window may be the new (column-less) window itself, so
-  # fall back to focus-prev (the window that was focused before it).
   (def focused-win
     (find |(find (fn [s] (= (s :focused) $)) (state/wm :seats)) windows))
   (def prev-win
@@ -25,19 +18,16 @@
                      (and prev-win (prev-win :column)))]
       col
       max-col))
-  # Shift existing columns after the insertion point to make room
   (def new-windows (filter |(not ($ :column)) windows))
   (def num-new (length new-windows))
   (when (> num-new 0)
     (each win windows
       (when (and (win :column) (> (win :column) insert-after))
         (put win :column (+ (win :column) num-new)))))
-  # Assign new windows to columns right after the focused one
   (var next-col (+ insert-after 1))
   (each win new-windows
     (put win :column next-col)
     (++ next-col))
-  # Re-normalize: compact column indices to remove gaps
   (def col-set (sorted (distinct (map |($ :column) windows))))
   (def col-map @{})
   (for i 0 (length col-set)
@@ -45,7 +35,6 @@
   (each win windows
     (put win :column (get col-map (win :column)))))
 
-# Group windows by column, preserving order within each column
 (defn group [windows]
   (assign windows)
   (def groups @{})
@@ -56,18 +45,15 @@
   (def col-indices (sorted (keys groups)))
   (map |(get groups $) col-indices))
 
-# Pure placement check: returns :hidden or {:x :y :w :h} geometry spec.
 (defn place [x y w h clip-left clip-right clip-top clip-bottom inner]
   (if (or (<= (+ x w (* 2 inner)) clip-left) (>= x clip-right)
           (<= (+ y h (* 2 inner)) clip-top) (>= y clip-bottom))
     :hidden
     {:x (+ x inner) :y (+ y inner) :w w :h h}))
 
-# Get a column's pixel width from the first window's :col-width, or global default
 (defn col-width [col total-w default-ratio]
   (math/round (* total-w (or ((first col) :col-width) default-ratio))))
 
-# Compute cumulative x positions for variable-width columns
 (defn x-positions [cols total-w default-ratio]
   (def positions @[])
   (var x 0)
@@ -76,7 +62,6 @@
     (set x (+ x (col-width col total-w default-ratio))))
   positions)
 
-# Build shared context for columns layout (used by layout, navigation, and actions)
 (defn context [o &opt windows-override]
   (def windows (or windows-override
                    (filter |(not (or ($ :float) ($ :fullscreen)))
@@ -108,7 +93,6 @@
   (def default-ratio (params :column-width))
   (def row-h-ratio (or (config :column-row-height) 0))
 
-  # Build context from windows passed in (already filtered tiled)
   (when (empty? windows) (break @[]))
   (def cols (group windows))
   (def num-cols (length cols))
@@ -125,10 +109,6 @@
   (def strut-l (or (struts :left) 0))
   (def strut-r (or (struts :right) 0))
 
-  # Check if columns overflow the viewport at full size.
-  # If they do, shrink column widths by strut space so columns are narrower,
-  # creating natural peek room for off-screen neighbors.
-  # If they fit, use full viewport width (no wasted space).
   (def nominal-content-w
     (sum (map |(col-width $ total-w default-ratio) cols)))
   (def h-overflows (> nominal-content-w total-w))
@@ -141,12 +121,6 @@
   (def focused-x (get col-xs focused-col-idx))
   (def focused-col-w (col-width (get cols focused-col-idx) avail-w default-ratio))
 
-  # Compute scroll target — skip when no window is focused on this output
-  # so the scroll stays where it was when focus left.
-  # Only scroll when the focused column isn't already fully visible in the
-  # viewport. This prevents unnecessary scrolling when moving focus between
-  # two columns that both fit on screen (e.g. two 50% columns).
-  # When we do scroll, reserve strut space for neighbor peek visibility.
   (when focused-win
     (def max-scroll (max 0 (- total-content-w total-w)))
     (var target-scroll (params :scroll-offset))
@@ -175,7 +149,6 @@
     (def x-off (- (get col-xs ci) scroll))
     (def num-rows (length col))
 
-    # Row heights
     (def heights @[])
     (var overflows false)
     (if (> row-h-ratio 0)
@@ -205,7 +178,6 @@
           (array/push heights actual-h)
           (set y-sum (+ y-sum actual-h)))))
 
-    # Per-column vertical scroll (effect)
     (def scroll-key (keyword (string "scroll-y-" ci)))
     (var v-scroll 0)
     (if overflows
@@ -234,7 +206,6 @@
         (put params scroll-key 0)
         (put params (keyword (string "scroll-y-" ci "-anim")) nil)))
 
-    # Place windows (pure geometry)
     (var y-acc 0)
     (for ri 0 num-rows
       (def win (get col ri))

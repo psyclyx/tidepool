@@ -1,6 +1,3 @@
-# Output configuration via zwlr_output_manager_v1 protocol.
-# Applies declarative output layout (mode, position, scale) on startup.
-
 (import ./state)
 
 (def output-heads @{})
@@ -49,7 +46,6 @@
           [:cancelled] (eprint "tidepool: output configuration cancelled"))))
     (eachp [name head] output-heads
       (if-let [target (get outputs name)]
-        # Head is in config
         (if (not= false (target :enable))
           (let [cfg-head (:enable-head cfg (head :obj))]
             (when-let [[tw th] (target :mode)
@@ -60,7 +56,6 @@
             (when (target :scale)
               (:set-scale cfg-head (target :scale))))
           (:disable-head cfg (head :obj)))
-        # Head not in config — preserve current state
         (if (head :enabled)
           (let [cfg-head (:enable-head cfg (head :obj))]
             (when (head :current-mode)

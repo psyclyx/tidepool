@@ -1,5 +1,3 @@
-# Layout registry: layout-fns + navigate-fns tables, apply-geometry, apply.
-
 (import ../state)
 (import ../output)
 (import ../window)
@@ -26,7 +24,6 @@
     :dwindle dwindle/navigate
     :scroll scroll/navigate})
 
-# Apply geometry specs from a layout function to actual windows
 (defn apply-geometry [results]
   (each r results
     (when (r :scroll-placed) (put (r :window) :scroll-placed true))
@@ -44,12 +41,10 @@
   (def usable (output/usable-area o))
   (def params (o :layout-params))
   (def cfg state/config)
-  # Find focused window for this output
   (def focused
     (when-let [seat (first (state/wm :seats))]
       (when-let [w (seat :focused)]
         (when (find |(= $ w) windows) w))))
-  # Reset clip boxes for non-scroll layouts so stale clips don't persist
   (when (not= layout-fn scroll/layout)
     (each w windows (:set-clip-box (w :obj) 0 0 0 0)))
   (apply-geometry (layout-fn usable windows params cfg focused)))

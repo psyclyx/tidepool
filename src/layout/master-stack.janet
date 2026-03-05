@@ -1,6 +1,3 @@
-# Master-stack layout: main pane (left) + side pane (right).
-# Pure — no imports required.
-
 (defn layout [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))

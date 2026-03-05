@@ -1,5 +1,3 @@
-# Animation system: easing, window animations, scroll animations.
-
 (import ./state)
 
 (defn ease-out-cubic [t] (- 1 (math/pow (- 1 t) 3)))
@@ -40,7 +38,6 @@
         (put state/wm :anim-active true)
         true))))
 
-# Scroll animation state (per output, stored in layout-params)
 (defn scroll-toward [params key target]
   (if (not (state/config :animate))
     (put params key target)

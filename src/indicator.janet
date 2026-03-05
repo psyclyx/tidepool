@@ -1,5 +1,3 @@
-# Waybar/indicator file writing and notify-send.
-
 (import ./state)
 
 (defn tags-changed []
@@ -14,7 +12,6 @@
       (def occupied-tags (sorted (keys occupied)))
       (def occupied-str (string/join (map string occupied-tags) ","))
 
-      # Global file (backward compat)
       (def focused-tags
         (if focused-output
           (sorted (keys (focused-output :tags)))
@@ -23,7 +20,6 @@
       (spit (string rd "/tidepool-tags")
             (string "focused:" focused-str " occupied:" occupied-str))
 
-      # Per-output files
       (each o (state/wm :outputs)
         (def output-tags (sorted (keys (o :tags))))
         (def output-str (string/join (map string output-tags) ","))
@@ -35,7 +31,6 @@
         (spit (string rd "/tidepool-layout-" (o :x) "," (o :y))
               (string (o :layout) "\n")))
 
-      # Global layout file (focused output's layout)
       (when focused-output
         (spit (string rd "/tidepool-layout")
               (string (focused-output :layout) "\n"))))))

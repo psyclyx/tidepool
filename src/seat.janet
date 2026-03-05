@@ -1,6 +1,3 @@
-# Seat lifecycle, focus, pointer operations, bindings.
-# Imports window (one-way dependency).
-
 (import ./state)
 (import ./window)
 (import ./output)
@@ -15,7 +12,6 @@
 (defn focus [seat win]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
-      # Track focus history for focus-last
       (when (seat :focused)
         (put seat :focus-prev (seat :focused)))
       (:focus-window (seat :obj) (w :obj))
@@ -78,8 +74,6 @@
                     :start-w (win :w) :start-h (win :h)
                     :dx 0 :dy 0})))
 
-# --- XKB and Pointer Bindings ---
-
 (defn xkb-binding/create [seat keysym mods action]
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
                                         (seat :obj) (xkbcommon/keysym keysym) mods)})
@@ -99,8 +93,6 @@
   (:set-handler (binding :obj) handle-event)
   (:enable (binding :obj))
   (array/push (seat :pointer-bindings) binding))
-
-# --- Seat Lifecycle ---
 
 (defn manage-start [seat]
   (if (seat :removed)

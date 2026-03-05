@@ -1,6 +1,3 @@
-# Dwindle layout: spiral layout alternating split direction.
-# Pure — no imports required.
-
 (defn layout [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
@@ -37,8 +34,6 @@
   results)
 
 (defn navigate [n main-count i dir ctx]
-  # Dwindle alternates split direction, so left/up both go to parent
-  # and right/down both go to child. Treat as linear sequence.
   (case dir
     :left (when (> i 0) (- i 1))
     :up (when (> i 0) (- i 1))

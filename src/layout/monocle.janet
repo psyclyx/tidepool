@@ -1,6 +1,3 @@
-# Monocle layout: full-screen each window in sequence.
-# Pure — no imports required.
-
 (defn layout [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))

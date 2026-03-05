@@ -1,5 +1,3 @@
-# Output lifecycle, usable area, visible windows, background surfaces.
-
 (import ./state)
 (import ./animation)
 (import ./image)
@@ -9,8 +7,6 @@
    (* (band 0xff (brushift rgb 8)) (/ 0xffff_ffff 0xff))
    (* (band 0xff rgb) (/ 0xffff_ffff 0xff))
    0xffff_ffff])
-
-# --- Background Surface ---
 
 (defn bg/create []
   (def surface (:create-surface (state/registry "wl_compositor")))
@@ -27,12 +23,10 @@
   (def img-ratio (/ img-w img-h))
   (def out-ratio (/ out-w out-h))
   (if (> img-ratio out-ratio)
-    # Image wider than output — crop left/right
     (let [src-h img-h
           src-w (* src-h out-ratio)
           src-x (/ (- img-w src-w) 2)]
       [src-x 0 src-w src-h])
-    # Image taller — crop top/bottom
     (let [src-w img-w
           src-h (/ src-w out-ratio)
           src-y (/ (- img-h src-h) 2)]
@@ -44,7 +38,6 @@
   (:set-position (bg :node) (output :x) (output :y))
   (def wallpaper (state/config :wallpaper))
   (if (string? wallpaper)
-    # Image wallpaper
     (let [img (image/create-buffer wallpaper)
           [sx sy sw sh] (bg/fill-source (img :width) (img :height)
                                         (output :w) (output :h))]
@@ -53,7 +46,6 @@
       (:attach (bg :surface) (img :buffer) 0 0)
       (:damage-buffer (bg :surface) 0 0 (img :width) (img :height))
       (:commit (bg :surface)))
-    # Solid color
     (let [[r g b a] (rgb-to-u32-rgba (or (state/config :background) 0))
           buffer (:create-u32-rgba-buffer
                    (state/registry "wp_single_pixel_buffer_manager_v1")
@@ -71,8 +63,6 @@
   (:destroy (bg :surface))
   (:destroy (bg :node)))
 
-# --- Output Management ---
-
 (defn visible [output windows]
   (let [tags (output :tags)]
     (filter |(and (tags ($ :tag)) (not ($ :closing))) windows)))
@@ -85,7 +75,6 @@
 (defn manage-start [output]
   (if (output :removed)
     (do
-      # Save state for restoration after VT switch
       (when (and (output :x) (output :y))
         (put state/output-state-cache (string (output :x) "," (output :y))
              @{:tags (table/clone (output :tags))

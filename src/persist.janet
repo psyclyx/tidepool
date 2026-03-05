@@ -1,6 +1,3 @@
-# Persist window management state across tidepool restarts.
-# State is saved as JDN (Janet Data Notation) to $XDG_RUNTIME_DIR.
-
 (import ./state)
 
 (def- saved-windows @[])
@@ -58,7 +55,6 @@
   (unless (dictionary? data)
     (break))
 
-  # Restore output state into cache (output/manage already reads this)
   (when-let [outputs (data :outputs)]
     (each o outputs
       (when (o :position)
@@ -67,12 +63,10 @@
                :layout (or (o :layout) (state/config :default-layout))
                :layout-params (or (o :layout-params) @{})}))))
 
-  # Restore tag-layouts
   (when-let [tl (data :tag-layouts)]
     (eachp [tag saved] tl
       (put state/tag-layouts tag saved)))
 
-  # Store window entries for restore-window to consume
   (array/clear saved-windows)
   (when-let [windows (data :windows)]
     (array/concat saved-windows windows)))
