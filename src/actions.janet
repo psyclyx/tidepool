@@ -235,7 +235,15 @@
       (def params (o :layout-params))
       (case (o :layout)
         :scroll (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
-        :dwindle (put params :dwindle-ratio (max 0.1 (min 0.9 (+ (params :dwindle-ratio) delta))))
+        :dwindle (when-let [w (seat :focused)
+                           visible (output/visible o (state/wm :windows))
+                           tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
+                           ti (index-of w tiled)]
+                   (when (< ti (- (length tiled) 1))
+                     (def ratios (or (params :dwindle-ratios) @{}))
+                     (def current (or (get ratios ti) (params :dwindle-ratio)))
+                     (put ratios ti (max 0.1 (min 0.9 (+ current delta))))
+                     (put params :dwindle-ratios ratios)))
         (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta)))))
       (tag-layout/save o state/tag-layouts))))
 

@@ -6,7 +6,8 @@
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
   (def total-h (max 0 (- (usable :h) (* 2 outer))))
   (def n (length windows))
-  (def ratio (params :dwindle-ratio))
+  (def default-ratio (params :dwindle-ratio))
+  (def ratios (params :dwindle-ratios))
   (var x (+ (usable :x) outer))
   (var y (+ (usable :y) outer))
   (var w total-w)
@@ -18,21 +19,22 @@
         {:window (get windows i)
          :x (+ x inner) :y (+ y inner)
          :w (- w (* 2 inner)) :h (- h (* 2 inner))})
-      (if (= 0 (% i 2))
-        (let [split-w (math/round (* w ratio))]
-          (array/push results
-            {:window (get windows i)
-             :x (+ x inner) :y (+ y inner)
-             :w (- split-w (* 2 inner)) :h (- h (* 2 inner))})
-          (set x (+ x split-w))
-          (set w (- w split-w)))
-        (let [split-h (math/round (* h ratio))]
-          (array/push results
-            {:window (get windows i)
-             :x (+ x inner) :y (+ y inner)
-             :w (- w (* 2 inner)) :h (- split-h (* 2 inner))})
-          (set y (+ y split-h))
-          (set h (- h split-h))))))
+      (let [ratio (or (get ratios i) default-ratio)]
+        (if (= 0 (% i 2))
+          (let [split-w (math/round (* w ratio))]
+            (array/push results
+              {:window (get windows i)
+               :x (+ x inner) :y (+ y inner)
+               :w (- split-w (* 2 inner)) :h (- h (* 2 inner))})
+            (set x (+ x split-w))
+            (set w (- w split-w)))
+          (let [split-h (math/round (* h ratio))]
+            (array/push results
+              {:window (get windows i)
+               :x (+ x inner) :y (+ y inner)
+               :w (- w (* 2 inner)) :h (- split-h (* 2 inner))})
+            (set y (+ y split-h))
+            (set h (- h split-h)))))))
   results)
 
 (defn navigate
