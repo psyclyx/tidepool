@@ -14,6 +14,7 @@
 (import ./layout)
 (import ./layout/scroll)
 (import ./persist)
+(import ./ipc)
 
 (def interfaces
   "Wayland protocol interface definitions."

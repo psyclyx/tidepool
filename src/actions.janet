@@ -2,7 +2,6 @@
 (import ./window)
 (import ./output)
 (import ./seat)
-(import ./indicator)
 (import ./layout)
 (import ./layout/scroll :as scroll)
 
@@ -271,8 +270,7 @@
                     :next (% (+ i 1) (length layouts))
                     :prev (% (+ (- i 1) (length layouts)) (length layouts))))
       (put o :layout (get layouts next-i))
-      (tag-layout/save o state/tag-layouts)
-      (indicator/layout-changed o state/config))))
+      (tag-layout/save o state/tag-layouts))))
 
 (defn set-layout
   "Action: set the layout on the focused output."
@@ -280,8 +278,7 @@
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
       (put o :layout lo)
-      (tag-layout/save o state/tag-layouts)
-      (indicator/layout-changed o state/config))))
+      (tag-layout/save o state/tag-layouts))))
 
 (defn adjust-column-width
   "Action: adjust the default column width by delta."
