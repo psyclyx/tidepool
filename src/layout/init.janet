@@ -17,13 +17,35 @@
     :scroll scroll/layout})
 
 (def navigate-fns
-  "Navigation function dispatch table."
+  "Navigation function dispatch table.
+  Layouts without an entry here fall back to navigate-by-geometry."
   @{:master-stack master-stack/navigate
     :monocle monocle/navigate
     :grid grid/navigate
     :centered-master centered-master/navigate
-    :dwindle dwindle/navigate
     :scroll scroll/navigate})
+
+(defn navigate-by-geometry
+  "Navigate by finding the nearest window center in the given direction."
+  [results focused-idx dir]
+  (def current (get results focused-idx))
+  (def cx (+ (current :x) (/ (current :w) 2)))
+  (def cy (+ (current :y) (/ (current :h) 2)))
+  (var best nil)
+  (var best-dist math/inf)
+  (for i 0 (length results)
+    (def other (get results i))
+    (when (and (not= i focused-idx) (not (other :hidden)))
+      (def ox (+ (other :x) (/ (other :w) 2)))
+      (def oy (+ (other :y) (/ (other :h) 2)))
+      (def dx (- ox cx))
+      (def dy (- oy cy))
+      (when (case dir :right (> dx 0) :left (< dx 0) :down (> dy 0) :up (< dy 0))
+        (def dist (+ (* dx dx) (* dy dy)))
+        (when (< dist best-dist)
+          (set best i)
+          (set best-dist dist)))))
+  best)
 
 (defn apply-geometry
   "Store computed geometry on window tables."

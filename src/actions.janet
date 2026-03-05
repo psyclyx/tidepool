@@ -55,15 +55,18 @@
       (let [tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
             ti (index-of w tiled)]
         (when ti
-          (let [n (length tiled)
-                lo (o :layout)
-                main-count (get-in o [:layout-params :main-count] 1)
-                nav-fn (get layout/navigate-fns lo (layout/navigate-fns :master-stack))
-                nav-ctx (when (= lo :scroll)
-                          (scroll/context o windows w (seat :focus-prev)))
-                target-i (nav-fn n main-count ti dir
-                           (or nav-ctx {:output o :windows tiled :focused w}))]
-            (when target-i (get tiled target-i))))))))
+          (def lo (o :layout))
+          (def target-i
+            (if-let [nav-fn (get layout/navigate-fns lo)]
+              (let [nav-ctx (when (= lo :scroll)
+                              (scroll/context o windows w (seat :focus-prev)))]
+                (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
+                  (or nav-ctx {:output o :windows tiled :focused w})))
+              (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
+                    results (layout-fn (output/usable-area o) tiled
+                              (o :layout-params) state/config w)]
+                (layout/navigate-by-geometry results ti dir))))
+          (when target-i (get tiled target-i)))))))
 
 (defn- scroll/focused-column [seat]
   (when-let [o (seat :focused-output)]
