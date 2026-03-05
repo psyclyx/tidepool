@@ -228,6 +228,12 @@
           {:window win :hidden true :scroll-placed true}
           (merge placement {:window win :scroll-placed true})))
       (set y-acc (+ y-acc h))))
+
+  (put params :scroll-animating
+    (if (or (params :scroll-offset-anim)
+            (find |(params (keyword (string "scroll-y-" $ "-anim")))
+                  (range 0 num-cols)))
+      true nil))
   results)
 
 (defn navigate

@@ -76,9 +76,6 @@
     (put w :scroll-placed nil))
   (put state/wm :anim-active false))
 
-(defn- restore-windows []
-  (each w (state/wm :windows)
-    (persist/restore-window w)))
 
 (defn- sanitize []
   (each w (state/wm :windows)
@@ -261,8 +258,9 @@
   (def prev-positions (save-positions config))
   (sort-outputs)
   (each o outputs (output/manage o outputs))
-  (each w windows (window/manage w config seats))
-  (restore-windows)
+  (each w windows
+    (window/manage w config seats)
+    (when (w :new) (persist/restore-window w)))
   (dispatch-pointer-ops render-order config)
   (each s seats (seat/manage s outputs windows render-order config))
   (reconcile-tags outputs
@@ -272,10 +270,8 @@
   (clear-layout-state)
   (each o outputs (layout/apply o windows seats config now))
   (each o outputs
-    (def params (o :layout-params))
-    (eachk k params
-      (when (and (params k) (string/has-suffix? "-anim" (string k)))
-        (put state/wm :anim-active true))))
+    (when (get-in o [:layout-params :scroll-animating])
+      (put state/wm :anim-active true)))
   (compute-borders seats config)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)
