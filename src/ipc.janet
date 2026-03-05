@@ -22,11 +22,17 @@
       (array/remove subs i))))
 
 (defn emit
-  "Emit an event to all subscribers of a topic."
+  "Emit an event to all subscribers of a topic.
+  Non-blocking: drops events for stale/full channels."
   [topic data]
   (when-let [subs (subscribers topic)]
+    (def stale @[])
     (each ch subs
-      (ev/give ch data))))
+      (def [status] (ev/select [ch data] [:timeout 0]))
+      (when (= status :timeout)
+        (array/push stale ch)))
+    (each ch stale
+      (unsubscribe topic ch))))
 
 # --- Per-topic state computation ---
 
