@@ -3,7 +3,7 @@
 (import ./window)
 (import ./seat)
 (import ./animation)
-(import ./indicator)
+(import ./ipc)
 (import ./layout)
 (import ./persist)
 
@@ -23,6 +23,15 @@
   (each w (state/wm :windows) (window/manage-start w now config))
   (each s (state/wm :seats) (seat/manage-start s)))
 
+(defn- remove-destroyed
+  "Remove elements with :pending-destroy from an array in place."
+  [arr]
+  (var i 0)
+  (while (< i (length arr))
+    (if ((arr i) :pending-destroy)
+      (array/remove arr i)
+      (++ i))))
+
 (defn- apply-destroys []
   (each o (state/wm :outputs)
     (when (o :pending-destroy)
@@ -35,11 +44,10 @@
   (each s (state/wm :seats)
     (when (s :pending-destroy)
       (:destroy (s :obj))))
-  (defn- alive? [x] (not (x :pending-destroy)))
-  (update state/wm :outputs |(filter alive? $))
-  (update state/wm :windows |(filter alive? $))
-  (update state/wm :seats |(filter alive? $))
-  (update state/wm :render-order |(filter alive? $)))
+  (remove-destroyed (state/wm :outputs))
+  (remove-destroyed (state/wm :windows))
+  (remove-destroyed (state/wm :seats))
+  (remove-destroyed (state/wm :render-order)))
 
 (defn- lifecycle-finish []
   (each o (state/wm :outputs) (output/manage-finish o))
@@ -263,6 +271,11 @@
   (sanitize)
   (clear-layout-state)
   (each o outputs (layout/apply o windows seats config now))
+  (each o outputs
+    (def params (o :layout-params))
+    (eachk k params
+      (when (and (params k) (string/has-suffix? "-anim" (string k)))
+        (put state/wm :anim-active true))))
   (compute-borders seats config)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)
@@ -270,17 +283,14 @@
   # --- Effect application ---
   (apply-lifecycle-effects windows)
   (apply-focus-effects seats)
-  (apply-positions windows)
   (apply-borders-effects windows)
   (apply-fullscreen-effects windows outputs)
   (apply-visibility windows)
   (each o outputs (output/bg/manage (o :bg) o config state/registry))
 
+  (ipc/emit-state outputs windows seats)
+
   (lifecycle-finish)
-  (persist/save windows outputs state/tag-layouts)
-  (indicator/write (indicator/compute windows outputs
-                     (when-let [s (first seats)] (s :focused-output))
-                     config))
   (:manage-finish (state/registry "river_window_manager_v1"))
 
   (when (state/config :debug)
