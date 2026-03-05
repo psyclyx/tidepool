@@ -13,7 +13,7 @@ pub fn build(b: *Build) !void {
         .linkage = .static,
     });
 
-    // --- Spork (rawterm native module) ---
+    // --- Spork (rawterm + json native modules) ---
     const spork = b.dependency("spork", .{});
     const rawterm = b.addLibrary(.{
         .name = "rawterm",
@@ -40,6 +40,32 @@ pub fn build(b: *Build) !void {
         .flags = &.{"-DJANET_ENTRY_NAME=janet_module_entry_rawterm"},
     });
     rawterm_static.root_module.linkLibrary(janet_static.artifact("janet"));
+
+    const json = b.addLibrary(.{
+        .name = "json",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .link_libc = true,
+        }),
+        .linkage = .dynamic,
+    });
+    json.addCSourceFile(.{ .file = spork.path("src/json.c") });
+    json.root_module.linkLibrary(janet.artifact("janet"));
+
+    const json_static = b.addLibrary(.{
+        .name = "json",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+        .linkage = .static,
+    });
+    json_static.addCSourceFile(.{
+        .file = spork.path("src/json.c"),
+        .flags = &.{"-DJANET_ENTRY_NAME=janet_module_entry_json"},
+    });
+    json_static.root_module.linkLibrary(janet_static.artifact("janet"));
 
     // --- Lemongrass ---
     const lemongrass = b.dependency("lemongrass", .{});
@@ -183,6 +209,9 @@ pub fn build(b: *Build) !void {
     gen_c.addArgs(&.{ "--native", "spork/rawterm", "janet_module_entry_rawterm" });
     gen_c.addArtifactArg(rawterm);
 
+    gen_c.addArgs(&.{ "--native", "spork/json", "janet_module_entry_json" });
+    gen_c.addArtifactArg(json);
+
     gen_c.addArgs(&.{ "--source", "xkbcommon" });
     gen_c.addFileArg(janet_xkbcommon.path("src/xkbcommon.janet"));
 
@@ -207,6 +236,7 @@ pub fn build(b: *Build) !void {
     tidepool.linkLibrary(janet_static.artifact("janet"));
     tidepool.linkLibrary(wayland_native_static);
     tidepool.linkLibrary(rawterm_static);
+    tidepool.linkLibrary(json_static);
     tidepool.linkLibrary(xkbcommon_native_static);
     tidepool.linkLibrary(image_native_static);
 
