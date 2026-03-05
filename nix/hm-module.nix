@@ -30,8 +30,9 @@ in {
       };
       Service = {
         ExecStart = lib.getExe cfg.package;
-        ExecStopPre = pkgs.writeShellScript "tidepool-save" ''
+        ExecStop = pkgs.writeShellScript "tidepool-stop" ''
           ${lib.getExe' cfg.package "tidepoolmsg"} save > "$XDG_RUNTIME_DIR/tidepool-state.jdn" || true
+          kill -TERM "$MAINPID"
         '';
         ExecStartPost = pkgs.writeShellScript "tidepool-load" ''
           if [ -f "$XDG_RUNTIME_DIR/tidepool-state.jdn" ]; then
