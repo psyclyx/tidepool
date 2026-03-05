@@ -1,5 +1,4 @@
 (import ./state)
-(import ./animation)
 (import ./image)
 
 (defn rgb-to-u32-rgba "Convert an RGB integer to [R G B A] u32 components." [rgb]
@@ -8,10 +7,10 @@
    (* (band 0xff rgb) (/ 0xffff_ffff 0xff))
    0xffff_ffff])
 
-(defn bg/create "Create background surface and viewport for an output." []
-  (def surface (:create-surface (state/registry "wl_compositor")))
-  (def viewport (:get-viewport (state/registry "wp_viewporter") surface))
-  (def shell-surface (:get-shell-surface (state/registry "river_window_manager_v1") surface))
+(defn bg/create "Create background surface and viewport for an output." [registry]
+  (def surface (:create-surface (registry "wl_compositor")))
+  (def viewport (:get-viewport (registry "wp_viewporter") surface))
+  (def shell-surface (:get-shell-surface (registry "river_window_manager_v1") surface))
   @{:surface surface
     :viewport viewport
     :shell-surface shell-surface
@@ -32,11 +31,11 @@
           src-y (/ (- img-h src-h) 2)]
       [0 src-y src-w src-h])))
 
-(defn bg/manage "Render the output background (wallpaper image or solid color)." [bg output]
+(defn bg/manage "Render the output background (wallpaper image or solid color)." [bg output config registry]
   (:sync-next-commit (bg :shell-surface))
   (:place-bottom (bg :node))
   (:set-position (bg :node) (output :x) (output :y))
-  (def wallpaper (state/config :wallpaper))
+  (def wallpaper (config :wallpaper))
   (if (string? wallpaper)
     (let [img (image/create-buffer wallpaper)
           [sx sy sw sh] (bg/fill-source (img :width) (img :height)
@@ -46,9 +45,9 @@
       (:attach (bg :surface) (img :buffer) 0 0)
       (:damage-buffer (bg :surface) 0 0 (img :width) (img :height))
       (:commit (bg :surface)))
-    (let [[r g b a] (rgb-to-u32-rgba (or (state/config :background) 0))
+    (let [[r g b a] (rgb-to-u32-rgba (or (config :background) 0))
           buffer (:create-u32-rgba-buffer
-                   (state/registry "wp_single_pixel_buffer_manager_v1")
+                   (registry "wp_single_pixel_buffer_manager_v1")
                    r g b a)]
       (:set-source (bg :viewport) -1 -1 -1 -1)
       (:set-destination (bg :viewport) (output :w) (output :h))
@@ -72,7 +71,7 @@
     {:x x :y y :w w :h h}
     {:x (output :x) :y (output :y) :w (output :w) :h (output :h)}))
 
-(defn manage-start "Cache state and destroy removed outputs, or pass through." [output]
+(defn manage-start "Cache state and flag removed outputs for destruction." [output]
   (if (output :removed)
     (do
       (when (and (output :x) (output :y))
@@ -80,12 +79,11 @@
              @{:tags (table/clone (output :tags))
                :layout (output :layout)
                :layout-params (table/clone (output :layout-params))}))
-      (:destroy (output :obj))
-      (bg/destroy (output :bg)))
+      (put output :pending-destroy true)
+      nil)
     output))
 
-(defn manage "Set up background and assign tags for new outputs." [output]
-  (bg/manage (output :bg) output)
+(defn manage "Assign tags for new outputs (pure data)." [output outputs]
   (when (output :new)
     (def cache-key (when (and (output :x) (output :y))
                      (string (output :x) "," (output :y))))
@@ -95,24 +93,24 @@
         (put output :layout (saved :layout))
         (merge-into (output :layout-params) (saved :layout-params))
         (put state/output-state-cache cache-key nil))
-      (let [unused (find (fn [tag] (not (find |(($ :tags) tag) (state/wm :outputs)))) (range 1 10))]
+      (let [unused (find (fn [tag] (not (find |(($ :tags) tag) outputs))) (range 1 10))]
         (put (output :tags) unused true)))))
 
 (defn manage-finish "Clear per-frame transient state." [output]
   (put output :new nil))
 
-(defn create "Create an output from a Wayland output object." [obj]
+(defn create "Create an output from a Wayland output object." [obj config registry]
   (def output @{:obj obj
-                :bg (bg/create)
-                :layer-shell (:get-output (state/registry "river_layer_shell_v1") obj)
+                :bg (bg/create registry)
+                :layer-shell (:get-output (registry "river_layer_shell_v1") obj)
                 :new true
                 :tags @{}
-                :layout (state/config :default-layout)
-                :layout-params @{:main-ratio (state/config :main-ratio)
-                                 :main-count (state/config :main-count)
+                :layout (config :default-layout)
+                :layout-params @{:main-ratio (config :main-ratio)
+                                 :main-count (config :main-count)
                                  :scroll-offset 0
-                                 :column-width (state/config :column-width)
-                                 :dwindle-ratio (state/config :dwindle-ratio)}})
+                                 :column-width (config :column-width)
+                                 :dwindle-ratio (config :dwindle-ratio)}})
   (defn handle-event [event]
     (match event
       [:removed] (put output :removed true)
