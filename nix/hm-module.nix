@@ -21,6 +21,8 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
+    home.packages = [ cfg.package ];
+
     systemd.user.services.tidepool = {
       Unit = {
         Description = "Tidepool window manager";
