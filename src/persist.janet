@@ -13,11 +13,11 @@
       (put out k v)))
   out)
 
-(defn save "Serialize window, output, and tag-layout state to disk." []
-  (def windows @[])
-  (each w (state/wm :windows)
+(defn save "Serialize window, output, and tag-layout state to disk." [windows outputs tag-layouts]
+  (def win-data @[])
+  (each w windows
     (when (and (w :app-id) (not (w :closing)) (not (w :closed)))
-      (array/push windows
+      (array/push win-data
         @{:app-id (w :app-id)
           :title (w :title)
           :tag (w :tag)
@@ -26,22 +26,22 @@
           :col-weight (w :col-weight)
           :float (w :float)})))
 
-  (def outputs @[])
-  (each o (state/wm :outputs)
+  (def out-data @[])
+  (each o outputs
     (when (and (o :x) (o :y))
-      (array/push outputs
+      (array/push out-data
         @{:position (string (o :x) "," (o :y))
           :tags (table/clone (o :tags))
           :layout (o :layout)
           :layout-params (filter-anim-keys (o :layout-params))})))
 
-  (def tag-layouts @{})
-  (eachp [tag saved] state/tag-layouts
-    (put tag-layouts tag
+  (def tl-data @{})
+  (eachp [tag saved] tag-layouts
+    (put tl-data tag
          @{:layout (saved :layout)
            :params (filter-anim-keys (saved :params))}))
 
-  (def data @{:windows windows :outputs outputs :tag-layouts tag-layouts})
+  (def data @{:windows win-data :outputs out-data :tag-layouts tl-data})
   (spit (state-path) (string/format "%j" data)))
 
 (defn load "Restore persisted state on startup." []
