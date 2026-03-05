@@ -1,5 +1,3 @@
-# All action/* functions, navigation, find-adjacent-output, tag-layout save/restore.
-
 (import ./state)
 (import ./window)
 (import ./output)
@@ -11,8 +9,6 @@
 (defn- clamp [x lo hi] (min hi (max lo x)))
 (defn- wrap [x n] (% (+ (% x n) n) n))
 
-# --- Tag-Layout Save/Restore ---
-
 (defn- output/primary-tag [o]
   (min-of (keys (o :tags))))
 
@@ -21,20 +17,6 @@
     (put state/tag-layouts tag
          @{:layout (o :layout)
            :params (table/clone (o :layout-params))})))
-
-(defn tag-layout/restore [o]
-  (when-let [tag (output/primary-tag o)
-             saved (state/tag-layouts tag)]
-    (put o :layout (saved :layout))
-    (merge-into (o :layout-params) (saved :params))))
-
-(defn- fallback-tags [outputs]
-  (for tag 1 10
-    (unless (find |(($ :tags) tag) outputs)
-      (when-let [o (find |(empty? ($ :tags)) outputs)]
-        (put (o :tags) tag true)))))
-
-# --- Adjacent Output ---
 
 (defn- find-adjacent-output [current dir]
   (var best nil)
@@ -56,8 +38,6 @@
         (set best-dist dist))))
   best)
 
-# --- Navigation Target ---
-
 (defn target [seat dir]
   (when-let [w (seat :focused)
              o (window/tag-output w)
@@ -66,7 +46,6 @@
     (case dir
       :next (get visible (+ i 1) (first visible))
       :prev (get visible (- i 1) (last visible))
-      # Spatial navigation uses tiled-only indices to match layout positions
       (let [tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
             ti (index-of w tiled)]
         (when ti
@@ -78,15 +57,11 @@
                            {:output o :windows tiled :focused w})]
             (when target-i (get tiled target-i))))))))
 
-# --- Scroll Helpers ---
-
 (defn- scroll/focused-column [seat]
   (when-let [o (seat :focused-output)]
     (when (= (o :layout) :scroll)
       (when-let [ctx (scroll/context o)]
         (get (ctx :cols) (ctx :focused-col))))))
-
-# --- Actions ---
 
 (defn spawn [command]
   (fn [seat binding]
@@ -112,7 +87,6 @@
   (fn [seat binding]
     (if-let [t (target seat dir)]
       (seat/focus seat t)
-      # No target in current output — try adjacent monitor
       (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w))
                              (seat :focused-output))
                  adjacent (find-adjacent-output current dir)]
@@ -126,7 +100,6 @@
                wi (index-of w (state/wm :windows))
                ti (index-of t (state/wm :windows))]
         (do
-          # Swap column/sizing assignments for scroll layout
           (def wc (w :column))
           (def tc (t :column))
           (put w :column tc)
@@ -141,7 +114,6 @@
           (put t :col-weight wcwt)
           (put (state/wm :windows) wi t)
           (put (state/wm :windows) ti w))
-        # No target in current output — move to adjacent monitor
         (when-let [current (window/tag-output w)
                    adjacent (find-adjacent-output current dir)]
           (put w :tag (or (min-of (keys (adjacent :tags))) 1))
@@ -153,12 +125,10 @@
 (defn focus-output [&opt dir]
   (fn [seat binding]
     (if dir
-      # Directional: focus adjacent output in given direction
       (when-let [current (or (seat :focused-output) (first (state/wm :outputs)))
                  adjacent (find-adjacent-output current dir)]
         (seat/focus-output seat adjacent)
         (seat/focus seat nil))
-      # No direction: cycle to next output
       (when-let [focused (seat :focused-output)
                  i (assert (index-of focused (state/wm :outputs)))
                  t (or (get (state/wm :outputs) (+ i 1)) (first (state/wm :outputs)))]
@@ -200,30 +170,18 @@
 (defn focus-tag [tag]
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (tag-layout/save o)
-      (each out (state/wm :outputs) (put (out :tags) tag nil))
-      (put o :tags @{tag true})
-      (fallback-tags (state/wm :outputs))
-      (tag-layout/restore o)
-      (indicator/layout-changed o))))
+      (put o :tags @{tag true}))))
 
 (defn toggle-tag [tag]
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (tag-layout/save o)
       (if ((o :tags) tag)
         (put (o :tags) tag nil)
-        (do
-          (each out (state/wm :outputs) (put (out :tags) tag nil))
-          (put (o :tags) tag true)))
-      (fallback-tags (state/wm :outputs))
-      (tag-layout/restore o)
-      (indicator/layout-changed o))))
+        (put (o :tags) tag true)))))
 
 (defn focus-all-tags []
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (each out (state/wm :outputs) (put out :tags @{}))
       (put o :tags (table ;(mapcat |[$ true] (range 1 10)))))))
 
 (defn adjust-ratio [delta]
@@ -293,7 +251,6 @@
       (when (and presets (> (length presets) 0))
         (def current (or ((first col) :col-width)
                          (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
-        # Find next preset (first one larger than current, or wrap to first)
         (def next-width
           (or (find |(> $ (+ current 0.01)) (sorted presets))
               (first (sorted presets))))

@@ -1,5 +1,3 @@
-# Manage/render pipeline: orchestrates per-frame lifecycle.
-
 (import ./state)
 (import ./output)
 (import ./window)
@@ -9,14 +7,11 @@
 (import ./layout)
 (import ./persist)
 
-# --- Profiling ---
 (var profile-last-manage 0)
 (var profile-count 0)
 (var profile-manage-total 0)
 (var profile-render-total 0)
 (var profile-cycle-total 0)
-
-# --- Show/Hide ---
 
 (defn show-hide []
   (def all-tags @{})
@@ -31,8 +26,6 @@
                  (or (not (w :layout-hidden)) (w :anim))))
       (:show (w :obj))
       (:hide (w :obj)))))
-
-# --- Pipeline Phases ---
 
 (defn- prune-closed []
   (update state/wm :render-order |(filter (fn [w] (not (and (w :closed) (not (w :closing))))) $)))
@@ -96,34 +89,19 @@
   (each w (state/wm :windows) (window/manage-finish w))
   (each s (state/wm :seats) (seat/manage-finish s)))
 
-# --- Restore Persisted Window State ---
-
 (defn- restore-windows []
   (each w (state/wm :windows)
     (persist/restore-window w)))
 
-# --- Pipeline Sanitizer ---
-
 (defn- sanitize []
-  (def all-tags @{})
-  (each o (state/wm :outputs)
-    (merge-into all-tags (o :tags)))
   (each w (state/wm :windows)
     (when (and (not (w :closing)) (not (w :closed)))
-      # Window tag must reference an active output tag
-      (unless (all-tags (w :tag))
-        (when-let [fallback (min-of (keys all-tags))]
-          (put w :tag fallback)))
-      # Clamp col-width
       (when-let [cw (w :col-width)]
         (when (or (< cw 0.1) (> cw 1.0))
           (put w :col-width nil)))
-      # col-weight must be positive
       (when-let [cw (w :col-weight)]
         (when (<= cw 0)
           (put w :col-weight nil))))))
-
-# --- Pointer Dispatch (extracted from window/manage) ---
 
 (defn- dispatch-pointer-ops []
   (each w (state/wm :windows)
@@ -132,7 +110,39 @@
     (when-let [resize (w :pointer-resize-requested)]
       (seat/pointer-resize (resize :seat) w (resize :edges)))))
 
-# --- Main Pipeline ---
+(defn reconcile-tags
+  ``Enforce tag invariants: each tag 1-9 on at most one output (focused wins),
+  tag 0 (scratchpad) exempt, every output has at least one tag,
+  and primary-tag changes trigger layout save/restore.``
+  [outputs focused tag-layouts]
+
+  # Tags 1-9: focused output wins conflicts
+  (when focused
+    (for tag 1 10
+      (when ((focused :tags) tag)
+        (each o outputs
+          (when (not= o focused)
+            (put (o :tags) tag nil))))))
+
+  # Assign orphaned tags to empty outputs
+  (for tag 1 10
+    (unless (find |(($ :tags) tag) outputs)
+      (when-let [o (find |(empty? ($ :tags)) outputs)]
+        (put (o :tags) tag true))))
+
+  # Save/restore per-tag layouts on primary-tag change
+  (each o outputs
+    (def prev (o :primary-tag))
+    (def curr (min-of (keys (o :tags))))
+    (when (not= prev curr)
+      (when prev
+        (put tag-layouts prev
+             @{:layout (o :layout)
+               :params (table/clone (o :layout-params))}))
+      (when-let [saved (get tag-layouts curr)]
+        (put o :layout (saved :layout))
+        (merge-into (o :layout-params) (saved :params)))
+      (put o :primary-tag curr))))
 
 (defn manage []
   (def t0 (when (state/config :debug) (os/clock)))
@@ -148,6 +158,9 @@
   (restore-windows)
   (dispatch-pointer-ops)
   (each s (state/wm :seats) (seat/manage s))
+  (reconcile-tags (state/wm :outputs)
+                  (when-let [s (first (state/wm :seats))] (s :focused-output))
+                  state/tag-layouts)
   (sanitize)
   (clear-layout-state)
   (each o (state/wm :outputs) (layout/apply o))
