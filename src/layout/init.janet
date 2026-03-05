@@ -1,4 +1,3 @@
-(import ../state)
 (import ../output)
 (import ../window)
 (import ./master-stack)
@@ -26,27 +25,27 @@
     :dwindle dwindle/navigate
     :scroll scroll/navigate})
 
-(defn apply-geometry "Position and size windows from layout results." [results]
+(defn apply-geometry "Store computed geometry on window tables." [results config]
   (each r results
     (when (r :scroll-placed) (put (r :window) :scroll-placed true))
     (if (r :hidden)
       (put (r :window) :layout-hidden true)
       (do
         (window/set-position (r :window) (r :x) (r :y))
-        (window/propose-dimensions (r :window) (r :w) (r :h))))))
+        (window/propose-dimensions (r :window) (r :w) (r :h) config)))))
 
-(defn apply "Apply the current layout to an output's tiled windows." [o]
-  (def windows (filter |(not (or ($ :float) ($ :fullscreen)))
-                       (output/visible o (state/wm :windows))))
-  (when (empty? windows) (break))
+(defn apply "Apply the current layout to an output's tiled windows." [o windows seats config now]
+  (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
+                       (output/visible o windows)))
+  (when (empty? visible) (break))
   (def layout-fn (get layout-fns (o :layout) master-stack/layout))
   (def usable (output/usable-area o))
   (def params (o :layout-params))
-  (def cfg state/config)
   (def focused
-    (when-let [seat (first (state/wm :seats))]
+    (when-let [seat (first seats)]
       (when-let [w (seat :focused)]
-        (when (find |(= $ w) windows) w))))
-  (when (not= layout-fn scroll/layout)
-    (each w windows (:set-clip-box (w :obj) 0 0 0 0)))
-  (apply-geometry (layout-fn usable windows params cfg focused)))
+        (when (find |(= $ w) visible) w))))
+  (def focus-prev
+    (when-let [seat (first seats)]
+      (seat :focus-prev)))
+  (apply-geometry (layout-fn usable visible params config focused now focus-prev) config))

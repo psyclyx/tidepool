@@ -1,6 +1,6 @@
 (import ./master-stack)
 
-(defn layout "Arrange a center master with left and right stacks." [usable windows params config focused]
+(defn layout "Arrange a center master with left and right stacks." [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))

@@ -1,4 +1,4 @@
-(defn layout "Arrange windows in recursive alternating splits." [usable windows params config focused]
+(defn layout "Arrange windows in recursive alternating splits." [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))

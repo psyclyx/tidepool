@@ -1,21 +1,16 @@
-(import ../state)
 (import ../animation)
 (import ../output)
 
 (defn- sum [xs] (reduce + 0 xs))
 
-(defn assign "Assign column indices to windows, inserting new ones after focus." [windows]
+(defn assign "Assign column indices to windows, inserting new ones after focus." [windows focused &opt focus-prev]
   (var max-col -1)
   (each win windows
     (when (win :column)
       (set max-col (max max-col (win :column)))))
-  (def focused-win
-    (find |(find (fn [s] (= (s :focused) $)) (state/wm :seats)) windows))
-  (def prev-win
-    (find |(find (fn [s] (= (s :focus-prev) $)) (state/wm :seats)) windows))
   (def insert-after
-    (if-let [col (or (and focused-win (focused-win :column))
-                     (and prev-win (prev-win :column)))]
+    (if-let [col (or (and focused (focused :column))
+                     (and focus-prev (focus-prev :column)))]
       col
       max-col))
   (def new-windows (filter |(not ($ :column)) windows))
@@ -35,8 +30,8 @@
   (each win windows
     (put win :column (get col-map (win :column)))))
 
-(defn group "Group windows into ordered columns." [windows]
-  (assign windows)
+(defn group "Group windows into ordered columns." [windows focused &opt focus-prev]
+  (assign windows focused focus-prev)
   (def groups @{})
   (each win windows
     (def col (win :column))
@@ -62,27 +57,24 @@
     (set x (+ x (col-width col total-w default-ratio))))
   positions)
 
-(defn context "Get the scroll layout context (columns, focus) for an output." [o &opt windows-override]
-  (def windows (or windows-override
-                   (filter |(not (or ($ :float) ($ :fullscreen)))
-                           (output/visible o (state/wm :windows)))))
-  (when (empty? windows) (break nil))
-  (def cols (group windows))
+(defn context "Get the scroll layout context (columns, focus) for an output." [o windows focused &opt focus-prev]
+  (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
+                       (output/visible o windows)))
+  (when (empty? visible) (break nil))
+  (def cols (group visible focused focus-prev))
   (def num-cols (length cols))
-  (def focused-win
-    (find |(find (fn [s] (= (s :focused) $)) (state/wm :seats)) windows))
   (var focused-col 0)
   (var focused-row 0)
   (for ci 0 num-cols
     (def col (get cols ci))
     (for ri 0 (length col)
-      (when (= (get col ri) focused-win)
+      (when (= (get col ri) focused)
         (set focused-col ci)
         (set focused-row ri))))
-  @{:windows windows :cols cols :num-cols num-cols
-    :focused-win focused-win :focused-col focused-col :focused-row focused-row})
+  @{:windows visible :cols cols :num-cols num-cols
+    :focused-win focused :focused-col focused-col :focused-row focused-row})
 
-(defn layout "Arrange windows in horizontally scrollable columns." [usable windows params config focused]
+(defn layout "Arrange windows in horizontally scrollable columns." [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def struts (or (config :struts) {:left 0 :right 0 :top 0 :bottom 0}))
@@ -94,7 +86,7 @@
   (def row-h-ratio (or (config :column-row-height) 0))
 
   (when (empty? windows) (break @[]))
-  (def cols (group windows))
+  (def cols (group windows focused focus-prev))
   (def num-cols (length cols))
   (def focused-win focused)
   (var focused-col-idx 0)
@@ -133,8 +125,8 @@
       (when (> col-right (- (+ target-scroll total-w) eff-strut-r))
         (set target-scroll (+ (- col-right total-w) eff-strut-r))))
     (set target-scroll (min max-scroll (max 0 target-scroll)))
-    (animation/scroll-toward params :scroll-offset target-scroll))
-  (animation/scroll-update params :scroll-offset)
+    (animation/scroll-toward params :scroll-offset target-scroll now config))
+  (animation/scroll-update params :scroll-offset now)
   (def scroll (params :scroll-offset))
 
   (def clip-left (+ (usable :x) outer))
@@ -199,8 +191,8 @@
           (when (> (+ focused-y focused-h) (- (+ target-v total-h) strut-b))
             (set target-v (+ (- (+ focused-y focused-h) total-h) strut-b)))
           (set target-v (min max-v-scroll-adj (max min-v-scroll target-v)))
-          (animation/scroll-toward params scroll-key target-v))
-        (animation/scroll-update params scroll-key)
+          (animation/scroll-toward params scroll-key target-v now config))
+        (animation/scroll-update params scroll-key now)
         (set v-scroll (or (params scroll-key) 0)))
       (do
         (put params scroll-key 0)
@@ -225,9 +217,7 @@
   results)
 
 (defn navigate "Navigate between columns and rows." [n main-count i dir ctx]
-  (when-let [seat (first (state/wm :seats))
-             o (when-let [w (seat :focused)] (find |(($ :tags) (w :tag)) (state/wm :outputs)))
-             col-ctx (context o)]
+  (when-let [col-ctx ctx]
     (def {:cols cols :num-cols num-cols
           :focused-col my-col :focused-row my-row :windows tiled} col-ctx)
     (var target nil)
