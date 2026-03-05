@@ -211,4 +211,27 @@ pub fn build(b: *Build) !void {
     tidepool.linkLibrary(image_native_static);
 
     b.installArtifact(tidepool);
+
+    // --- tidepoolmsg (REPL client helper) ---
+    const gen_msg = b.addRunArtifact(janet.artifact("janet-bin"));
+    gen_msg.has_side_effects = true;
+    gen_msg.addFileArg(b.path("build/gen-c-source.janet"));
+    gen_msg.addFileArg(b.path("src/tidepoolmsg.janet"));
+    _ = gen_msg.addOutputFileArg("tidepoolmsg.jimage");
+    const msg_generated = gen_msg.addOutputFileArg("tidepoolmsg.c");
+
+    b.getInstallStep().dependOn(&gen_msg.step);
+
+    const tidepoolmsg = b.addExecutable(.{
+        .name = "tidepoolmsg",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    tidepoolmsg.addCSourceFile(.{ .file = msg_generated });
+    tidepoolmsg.linkLibrary(janet_static.artifact("janet"));
+
+    b.installArtifact(tidepoolmsg);
 }
