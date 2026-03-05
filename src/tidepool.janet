@@ -16,6 +16,7 @@
 (import ./persist)
 
 (def interfaces
+  "Wayland protocol interface definitions."
   (wayland/scan
     :wayland-xml protocols/wayland-xml
     :system-protocols-dir protocols/wayland-protocols
@@ -28,6 +29,7 @@
                             "/wlr-output-management-unstable-v1.xml"])))
 
 (def required-interfaces
+  "Minimum required compositor interface versions."
   @{"wl_compositor" 4
     "wl_shm" 1
     "wp_viewporter" 1
@@ -37,6 +39,7 @@
     "river_xkb_bindings_v1" 1})
 
 (def optional-interfaces
+  "Optional compositor interfaces."
   @{"zwlr_output_manager_v1" 1})
 
 # Re-exports for user config
@@ -45,7 +48,7 @@
 (def xkb-binding/create seat/xkb-binding/create)
 (def pointer-binding/create seat/pointer-binding/create)
 
-(defn wm/handle-event [event]
+(defn wm/handle-event "Dispatch window manager protocol events." [event]
   (match event
     [:unavailable] (do (print "tidepool: another window manager is already running")
                        (os/exit 1))
@@ -56,7 +59,7 @@
     [:seat obj] (array/push (state/wm :seats) (seat/create obj))
     [:window obj] (array/insert (state/wm :windows) 0 (window/create obj))))
 
-(defn registry/handle-event [event]
+(defn registry/handle-event "Bind required Wayland globals from the registry." [event]
   (match event
     [:global name interface version]
     (when-let [min-version (or (get required-interfaces interface)
@@ -73,14 +76,14 @@
 
 (def repl-env (curenv))
 
-(defn repl-server-create []
+(defn repl-server-create "Start a REPL server on a Unix socket." []
   (def path (string/format "%s/tidepool-%s"
                            (assert (os/getenv "XDG_RUNTIME_DIR"))
                            (assert (os/getenv "WAYLAND_DISPLAY"))))
   (protect (os/rm path))
   (netrepl/server :unix path repl-env))
 
-(defn main [& args]
+(defn main "Connect to Wayland, load config, and run the event loop." [& args]
   (def display (wayland/connect interfaces))
   (os/setenv "WAYLAND_DEBUG" nil)
 

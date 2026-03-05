@@ -4,7 +4,7 @@
 (var output-mgr-serial nil)
 (var output-config-applied false)
 
-(defn handle-mode [head mode-obj]
+(defn handle-mode "Track an output mode's dimensions and refresh rate." [head mode-obj]
   (def mode @{:obj mode-obj})
   (:set-handler mode-obj
     (fn [event]
@@ -14,7 +14,7 @@
         [:preferred] (put mode :preferred true))))
   (array/push (head :modes) mode))
 
-(defn handle-head [head-obj]
+(defn handle-head "Track an output head with its modes and properties." [head-obj]
   (def head @{:obj head-obj :modes @[]})
   (:set-handler head-obj
     (fn [event]
@@ -27,10 +27,10 @@
         [:scale s] (put head :scale s)
         [:finished] (when (head :name) (put output-heads (head :name) nil))))))
 
-(defn find-mode [head w h]
+(defn find-mode "Find a mode matching the given width and height." [head w h]
   (find |(and (= ($ :width) w) (= ($ :height) h)) (head :modes)))
 
-(defn apply-config []
+(defn apply-config "Apply user output configuration (mode, position, scale)." []
   (when output-config-applied (break))
   (when-let [outputs (state/config :outputs)
              mgr (get state/registry "zwlr_output_manager_v1")
@@ -65,7 +65,7 @@
           (:disable-head cfg (head :obj)))))
     (:apply cfg)))
 
-(defn handle-event [event]
+(defn handle-event "Dispatch output manager events." [event]
   (match event
     [:head head-obj] (handle-head head-obj)
     [:done serial] (do (set output-mgr-serial serial)

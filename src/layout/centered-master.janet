@@ -1,6 +1,6 @@
 (import ./master-stack)
 
-(defn layout [usable windows params config focused]
+(defn layout "Arrange a center master with left and right stacks." [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
@@ -59,7 +59,7 @@
                :h (- h (* 2 inner))}))))
       results)))
 
-(defn navigate [n main-count i dir ctx]
+(defn navigate "Navigate between center, left stack, and right stack." [n main-count i dir ctx]
   (cond
     (<= n 2) (master-stack/navigate n 1 i dir ctx)
     (do

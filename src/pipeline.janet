@@ -13,7 +13,7 @@
 (var profile-render-total 0)
 (var profile-cycle-total 0)
 
-(defn show-hide []
+(defn show-hide "Show/hide windows based on tag visibility." []
   (def all-tags @{})
   (each o (state/wm :outputs)
     (merge-into all-tags (o :tags))
@@ -144,7 +144,7 @@
         (merge-into (o :layout-params) (saved :params)))
       (put o :primary-tag curr))))
 
-(defn manage []
+(defn manage "Run the management cycle: layout, borders, animations, persistence." []
   (def t0 (when (state/config :debug) (os/clock)))
   (def cycle-dt (when t0 (if (> profile-last-manage 0) (- t0 profile-last-manage) 0)))
   (when t0 (set profile-last-manage t0))
@@ -191,7 +191,7 @@
       (set profile-render-total 0)
       (set profile-cycle-total 0))))
 
-(defn render []
+(defn render "Run the render cycle: position windows, tick animations, clip." []
   (def t0 (when (state/config :debug) (os/clock)))
   (each w (state/wm :windows) (window/render w))
   (each w (state/wm :windows) (animation/tick w))

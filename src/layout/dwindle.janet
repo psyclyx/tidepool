@@ -1,4 +1,4 @@
-(defn layout [usable windows params config focused]
+(defn layout "Arrange windows in recursive alternating splits." [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
@@ -33,7 +33,7 @@
           (set h (- h split-h))))))
   results)
 
-(defn navigate [n main-count i dir ctx]
+(defn navigate "Navigate linearly through the dwindle chain." [n main-count i dir ctx]
   (case dir
     :left (when (> i 0) (- i 1))
     :up (when (> i 0) (- i 1))

@@ -9,6 +9,7 @@
 (import ./scroll)
 
 (def layout-fns
+  "Layout function dispatch table."
   @{:master-stack master-stack/layout
     :monocle monocle/layout
     :grid grid/layout
@@ -17,6 +18,7 @@
     :scroll scroll/layout})
 
 (def navigate-fns
+  "Navigation function dispatch table."
   @{:master-stack master-stack/navigate
     :monocle monocle/navigate
     :grid grid/navigate
@@ -24,7 +26,7 @@
     :dwindle dwindle/navigate
     :scroll scroll/navigate})
 
-(defn apply-geometry [results]
+(defn apply-geometry "Position and size windows from layout results." [results]
   (each r results
     (when (r :scroll-placed) (put (r :window) :scroll-placed true))
     (if (r :hidden)
@@ -33,7 +35,7 @@
         (window/set-position (r :window) (r :x) (r :y))
         (window/propose-dimensions (r :window) (r :w) (r :h))))))
 
-(defn apply [o]
+(defn apply "Apply the current layout to an output's tiled windows." [o]
   (def windows (filter |(not (or ($ :float) ($ :fullscreen)))
                        (output/visible o (state/wm :windows))))
   (when (empty? windows) (break))

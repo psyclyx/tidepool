@@ -2,13 +2,13 @@
 (import ./animation)
 (import ./image)
 
-(defn rgb-to-u32-rgba [rgb]
+(defn rgb-to-u32-rgba "Convert an RGB integer to [R G B A] u32 components." [rgb]
   [(* (band 0xff (brushift rgb 16)) (/ 0xffff_ffff 0xff))
    (* (band 0xff (brushift rgb 8)) (/ 0xffff_ffff 0xff))
    (* (band 0xff rgb) (/ 0xffff_ffff 0xff))
    0xffff_ffff])
 
-(defn bg/create []
+(defn bg/create "Create background surface and viewport for an output." []
   (def surface (:create-surface (state/registry "wl_compositor")))
   (def viewport (:get-viewport (state/registry "wp_viewporter") surface))
   (def shell-surface (:get-shell-surface (state/registry "river_window_manager_v1") surface))
@@ -32,7 +32,7 @@
           src-y (/ (- img-h src-h) 2)]
       [0 src-y src-w src-h])))
 
-(defn bg/manage [bg output]
+(defn bg/manage "Render the output background (wallpaper image or solid color)." [bg output]
   (:sync-next-commit (bg :shell-surface))
   (:place-bottom (bg :node))
   (:set-position (bg :node) (output :x) (output :y))
@@ -57,22 +57,22 @@
       (:commit (bg :surface))
       (:destroy buffer))))
 
-(defn bg/destroy [bg]
+(defn bg/destroy "Destroy background surface resources." [bg]
   (:destroy (bg :viewport))
   (:destroy (bg :shell-surface))
   (:destroy (bg :surface))
   (:destroy (bg :node)))
 
-(defn visible [output windows]
+(defn visible "Filter windows visible on this output's tags." [output windows]
   (let [tags (output :tags)]
     (filter |(and (tags ($ :tag)) (not ($ :closing))) windows)))
 
-(defn usable-area [output]
+(defn usable-area "Get the output area excluding layer shell exclusive zones." [output]
   (if-let [[x y w h] (output :non-exclusive-area)]
     {:x x :y y :w w :h h}
     {:x (output :x) :y (output :y) :w (output :w) :h (output :h)}))
 
-(defn manage-start [output]
+(defn manage-start "Cache state and destroy removed outputs, or pass through." [output]
   (if (output :removed)
     (do
       (when (and (output :x) (output :y))
@@ -84,7 +84,7 @@
       (bg/destroy (output :bg)))
     output))
 
-(defn manage [output]
+(defn manage "Set up background and assign tags for new outputs." [output]
   (bg/manage (output :bg) output)
   (when (output :new)
     (def cache-key (when (and (output :x) (output :y))
@@ -98,10 +98,10 @@
       (let [unused (find (fn [tag] (not (find |(($ :tags) tag) (state/wm :outputs)))) (range 1 10))]
         (put (output :tags) unused true)))))
 
-(defn manage-finish [output]
+(defn manage-finish "Clear per-frame transient state." [output]
   (put output :new nil))
 
-(defn create [obj]
+(defn create "Create an output from a Wayland output object." [obj]
   (def output @{:obj obj
                 :bg (bg/create)
                 :layer-shell (:get-output (state/registry "river_layer_shell_v1") obj)

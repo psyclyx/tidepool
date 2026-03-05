@@ -13,7 +13,7 @@
       (put out k v)))
   out)
 
-(defn save []
+(defn save "Serialize window, output, and tag-layout state to disk." []
   (def windows @[])
   (each w (state/wm :windows)
     (when (and (w :app-id) (not (w :closing)) (not (w :closed)))
@@ -44,7 +44,7 @@
   (def data @{:windows windows :outputs outputs :tag-layouts tag-layouts})
   (spit (state-path) (string/format "%j" data)))
 
-(defn load []
+(defn load "Restore persisted state on startup." []
   (def path (state-path))
   (unless (os/stat path)
     (break))
@@ -71,7 +71,7 @@
   (when-let [windows (data :windows)]
     (array/concat saved-windows windows)))
 
-(defn restore-window [window]
+(defn restore-window "Apply saved attributes (tag, float, column) to a new window." [window]
   (when (window :new)
     (var idx nil)
     (for i 0 (length saved-windows)

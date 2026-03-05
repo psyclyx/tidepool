@@ -1,6 +1,6 @@
 (import ./state)
 
-(defn tags-changed []
+(defn tags-changed "Write tag/layout status to runtime files for external bars." []
   (when (state/config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
       (def focused-output (when-let [seat (first (state/wm :seats))]
@@ -35,7 +35,7 @@
         (spit (string rd "/tidepool-layout")
               (string (focused-output :layout) "\n"))))))
 
-(defn layout-changed [o]
+(defn layout-changed "Notify layout change via files and optionally notify-send." [o]
   (def name (string (o :layout)))
   (when (state/config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]

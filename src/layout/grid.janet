@@ -1,4 +1,4 @@
-(defn layout [usable windows params config focused]
+(defn layout "Arrange windows in a grid of rows and columns." [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
@@ -23,7 +23,7 @@
        :h (- cell-h (* 2 inner))}))
   results)
 
-(defn navigate [n main-count i dir ctx]
+(defn navigate "Navigate the grid directionally." [n main-count i dir ctx]
   (def cols (math/ceil (math/sqrt n)))
   (def row (div i cols))
   (def col (% i cols))

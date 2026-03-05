@@ -4,12 +4,12 @@
 
 (import xkbcommon)
 
-(defn focus-output [seat o]
+(defn focus-output "Set the seat's focused output." [seat o]
   (unless (= o (seat :focused-output))
     (put seat :focused-output o)
     (when o (:set-default (o :layer-shell)))))
 
-(defn focus [seat win]
+(defn focus "Focus a window, respecting layer shell focus state." [seat win]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
       (when (seat :focused)
@@ -55,7 +55,7 @@
                      (put seat :focused nil))
     :none (focus-non-layer)))
 
-(defn pointer-move [seat win]
+(defn pointer-move "Start a pointer-driven move operation on a window." [seat win]
   (unless (seat :op)
     (focus seat win)
     (window/set-float win true)
@@ -64,7 +64,7 @@
                     :start-x (win :x) :start-y (win :y)
                     :dx 0 :dy 0})))
 
-(defn pointer-resize [seat win edges]
+(defn pointer-resize "Start a pointer-driven resize operation on a window." [seat win edges]
   (unless (seat :op)
     (focus seat win)
     (window/set-float win true)
@@ -74,7 +74,7 @@
                     :start-w (win :w) :start-h (win :h)
                     :dx 0 :dy 0})))
 
-(defn xkb-binding/create [seat keysym mods action]
+(defn xkb-binding/create "Register a keyboard binding for a keysym+mods combo." [seat keysym mods action]
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
                                         (seat :obj) (xkbcommon/keysym keysym) mods)})
   (defn handle-event [event]
@@ -84,7 +84,7 @@
   (:enable (binding :obj))
   (array/push (seat :xkb-bindings) binding))
 
-(defn pointer-binding/create [seat button mods action]
+(defn pointer-binding/create "Register a pointer binding for a button+mods combo." [seat button mods action]
   (def button-code {:left 0x110 :right 0x111 :middle 0x112})
   (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)})
   (defn handle-event [event]
@@ -94,12 +94,12 @@
   (:enable (binding :obj))
   (array/push (seat :pointer-bindings) binding))
 
-(defn manage-start [seat]
+(defn manage-start "Destroy removed seats or pass through." [seat]
   (if (seat :removed)
     (:destroy (seat :obj))
     seat))
 
-(defn manage [seat]
+(defn manage "Process seat state: register bindings, focus, pointer ops." [seat]
   (when (seat :new)
     (each binding (state/config :xkb-bindings)
       (xkb-binding/create seat ;binding))
@@ -142,21 +142,21 @@
     (focus-output seat (window/tag-output ((seat :op) :window)))
     (put seat :op nil)))
 
-(defn manage-finish [seat]
+(defn manage-finish "Clear per-frame transient state." [seat]
   (put seat :new nil)
   (put seat :window-interaction nil)
   (put seat :pending-action nil)
   (put seat :op-release nil)
   (put seat :focus-source nil))
 
-(defn render [seat]
+(defn render "Apply pointer move position during drag operations." [seat]
   (when-let [op (seat :op)]
     (when (= :move (op :type))
       (window/set-position (op :window)
                            (+ (op :start-x) (op :dx))
                            (+ (op :start-y) (op :dy))))))
 
-(defn create [obj]
+(defn create "Create a seat from a Wayland seat object." [obj]
   (def seat @{:obj obj
               :layer-shell (:get-seat (state/registry "river_layer_shell_v1") obj)
               :layer-focus :none

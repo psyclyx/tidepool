@@ -1,4 +1,5 @@
 (def config
+  "Default configuration values."
   @{:border-width 4
     :outer-padding 4
     :inner-padding 8
@@ -28,6 +29,7 @@
     :xcursor-size 24})
 
 (def wm
+  "Global window manager state."
   @{:config config
     :outputs @[]
     :seats @[]
@@ -35,7 +37,7 @@
     :render-order @[]
     :anim-active false})
 
-(def tag-layouts @{})
+(def tag-layouts "Per-tag layout persistence cache." @{})
 
-(def output-state-cache @{})
-(def registry @{})
+(def output-state-cache "Cached output state for reconnecting monitors." @{})
+(def registry "Wayland protocol object registry." @{})

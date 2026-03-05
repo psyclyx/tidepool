@@ -2,23 +2,23 @@
 (import ./animation)
 (import ./output)
 
-(defn set-position [window x y]
+(defn set-position "Set the window's position on screen." [window x y]
   (put window :x x)
   (put window :y y)
   (:set-position (window :node) x y))
 
-(defn propose-dimensions [window w h]
+(defn propose-dimensions "Request dimensions from the client, accounting for borders." [window w h]
   (def bw (state/config :border-width))
   (:propose-dimensions (window :obj) (max 1 (- w (* 2 bw))) (max 1 (- h (* 2 bw)))))
 
-(defn fixed-size? [window]
+(defn fixed-size? "True if the window has equal min and max size hints." [window]
   (let [min-w (window :min-w) max-w (window :max-w)
         min-h (window :min-h) max-h (window :max-h)]
     (and min-w (> min-w 0) max-w (> max-w 0)
          min-h (> min-h 0) max-h (> max-h 0)
          (= min-w max-w) (= min-h max-h))))
 
-(defn set-float [window float]
+(defn set-float "Set floating state and clear column layout attributes." [window float]
   (if float
     (:set-tiled (window :obj) {})
     (:set-tiled (window :obj) {:left true :bottom true :top true :right true}))
@@ -27,7 +27,7 @@
   (put window :col-width nil)
   (put window :col-weight nil))
 
-(defn set-fullscreen [window fullscreen-output]
+(defn set-fullscreen "Enter or exit fullscreen on the given output." [window fullscreen-output]
   (if-let [o fullscreen-output]
     (do
       (put window :fullscreen true)
@@ -38,10 +38,10 @@
       (:inform-not-fullscreen (window :obj))
       (:exit-fullscreen (window :obj)))))
 
-(defn tag-output [window]
+(defn tag-output "Find the output displaying this window's tag." [window]
   (find |(($ :tags) (window :tag)) (state/wm :outputs)))
 
-(defn max-overlap-output [window]
+(defn max-overlap-output "Find the output with the largest area overlap." [window]
   (when (and window (window :x) (window :w) (window :y) (window :h))
     (var max-overlap 0)
     (var max-output nil)
@@ -57,12 +57,12 @@
           (set max-output o))))
     max-output))
 
-(defn update-tag [window]
+(defn update-tag "Reassign the window's tag to match its most-overlapping output." [window]
   (when-let [o (max-overlap-output window)]
     (unless (= o (tag-output window))
       (put window :tag (or (min-of (keys (o :tags))) 1)))))
 
-(defn match-rule [window]
+(defn match-rule "Apply config rules matching the window's app-id/title." [window]
   (each rule (state/config :rules)
     (when (and (or (nil? (rule :app-id))
                    (= (rule :app-id) (window :app-id)))
@@ -73,7 +73,7 @@
       (when (rule :tag)
         (put window :tag (rule :tag))))))
 
-(defn manage-start [window]
+(defn manage-start "Handle window close: animate or destroy." [window]
   (cond
     (window :anim-destroy)
     (do
@@ -101,7 +101,7 @@
 
     window))
 
-(defn manage [window]
+(defn manage "Process new window setup and fullscreen requests." [window]
   (when (window :new)
     (:use-ssd (window :obj))
     (if-let [parent (window :parent)]
@@ -125,13 +125,13 @@
     [:enter o] (set-fullscreen window o)
     [:exit] (set-fullscreen window nil)))
 
-(defn manage-finish [window]
+(defn manage-finish "Clear per-frame transient state." [window]
   (put window :new nil)
   (put window :pointer-move-requested nil)
   (put window :pointer-resize-requested nil)
   (put window :fullscreen-requested nil))
 
-(defn create [obj]
+(defn create "Create a window from a Wayland toplevel object." [obj]
   (def window @{:obj obj
                 :node (:get-node obj)
                 :new true
@@ -159,7 +159,7 @@
   (:set-user-data obj window)
   window)
 
-(defn set-borders [window status]
+(defn set-borders "Set border color for the given status (:focused/:normal/:urgent)." [window status]
   (def cfg state/config)
   (def rgb (case status
              :normal (cfg :border-normal)
@@ -170,7 +170,7 @@
                 (cfg :border-width)
                 ;(output/rgb-to-u32-rgba rgb)))
 
-(defn render [window]
+(defn render "Center unplaced windows (e.g. dialogs) on their parent output." [window]
   (when (and (not (window :x)) (window :w))
     (if-let [o (max-overlap-output (window :parent))]
       (set-position window
@@ -178,7 +178,7 @@
                     (+ (o :y) (div (- (o :h) (window :h)) 2)))
       (set-position window 0 0))))
 
-(defn clip-to-output [window]
+(defn clip-to-output "Clip the window geometry to its output bounds." [window]
   (when-let [o (tag-output window)]
     (when (and (window :x) (window :w)
                (or (not (window :layout-hidden)) (window :anim)))

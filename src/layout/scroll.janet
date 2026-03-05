@@ -4,7 +4,7 @@
 
 (defn- sum [xs] (reduce + 0 xs))
 
-(defn assign [windows]
+(defn assign "Assign column indices to windows, inserting new ones after focus." [windows]
   (var max-col -1)
   (each win windows
     (when (win :column)
@@ -35,7 +35,7 @@
   (each win windows
     (put win :column (get col-map (win :column)))))
 
-(defn group [windows]
+(defn group "Group windows into ordered columns." [windows]
   (assign windows)
   (def groups @{})
   (each win windows
@@ -45,16 +45,16 @@
   (def col-indices (sorted (keys groups)))
   (map |(get groups $) col-indices))
 
-(defn place [x y w h clip-left clip-right clip-top clip-bottom inner]
+(defn place "Compute placement rect, returning :hidden if fully clipped." [x y w h clip-left clip-right clip-top clip-bottom inner]
   (if (or (<= (+ x w (* 2 inner)) clip-left) (>= x clip-right)
           (<= (+ y h (* 2 inner)) clip-top) (>= y clip-bottom))
     :hidden
     {:x (+ x inner) :y (+ y inner) :w w :h h}))
 
-(defn col-width [col total-w default-ratio]
+(defn col-width "Compute a column's pixel width from its ratio." [col total-w default-ratio]
   (math/round (* total-w (or ((first col) :col-width) default-ratio))))
 
-(defn x-positions [cols total-w default-ratio]
+(defn x-positions "Compute cumulative x offsets for each column." [cols total-w default-ratio]
   (def positions @[])
   (var x 0)
   (each col cols
@@ -62,7 +62,7 @@
     (set x (+ x (col-width col total-w default-ratio))))
   positions)
 
-(defn context [o &opt windows-override]
+(defn context "Get the scroll layout context (columns, focus) for an output." [o &opt windows-override]
   (def windows (or windows-override
                    (filter |(not (or ($ :float) ($ :fullscreen)))
                            (output/visible o (state/wm :windows)))))
@@ -82,7 +82,7 @@
   @{:windows windows :cols cols :num-cols num-cols
     :focused-win focused-win :focused-col focused-col :focused-row focused-row})
 
-(defn layout [usable windows params config focused]
+(defn layout "Arrange windows in horizontally scrollable columns." [usable windows params config focused]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def struts (or (config :struts) {:left 0 :right 0 :top 0 :bottom 0}))
@@ -224,7 +224,7 @@
       (set y-acc (+ y-acc h))))
   results)
 
-(defn navigate [n main-count i dir ctx]
+(defn navigate "Navigate between columns and rows." [n main-count i dir ctx]
   (when-let [seat (first (state/wm :seats))
              o (when-let [w (seat :focused)] (find |(($ :tags) (w :tag)) (state/wm :outputs)))
              col-ctx (context o)]

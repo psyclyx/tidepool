@@ -1,15 +1,15 @@
 (import ./state)
 
-(defn ease-out-cubic [t] (- 1 (math/pow (- 1 t) 3)))
+(defn ease-out-cubic "Cubic ease-out easing function." [t] (- 1 (math/pow (- 1 t) 3)))
 
-(defn start [window type props]
+(defn start "Start an animation on a window (:open, :close, or :move)." [window type props]
   (when (state/config :animate)
     (put window :anim (merge @{:type type
                                 :start (os/clock)
                                 :duration (state/config :animation-duration)}
                               props))))
 
-(defn tick [window]
+(defn tick "Advance a window's animation by one frame. Returns true if active." [window]
   (when-let [anim (window :anim)]
     (def t (min 1.0 (/ (- (os/clock) (anim :start)) (anim :duration))))
     (def e (ease-out-cubic t))
@@ -38,7 +38,7 @@
         (put state/wm :anim-active true)
         true))))
 
-(defn scroll-toward [params key target]
+(defn scroll-toward "Animate a scroll parameter toward a target value." [params key target]
   (if (not (state/config :animate))
     (put params key target)
     (let [current (params key)
@@ -55,7 +55,7 @@
                   (put params anim-key nil)))
             (put params anim-key @{:from current :to target :start now :duration duration})))))))
 
-(defn scroll-update [params key]
+(defn scroll-update "Update an in-progress scroll animation by one frame." [params key]
   (def anim-key (keyword (string key "-anim")))
   (when-let [anim (params anim-key)]
     (def t (min 1.0 (/ (- (os/clock) (anim :start)) (anim :duration))))
