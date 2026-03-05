@@ -57,7 +57,14 @@
     [:render-start] (pipeline/render)
     [:output obj] (array/push (state/wm :outputs) (output/create obj state/config state/registry))
     [:seat obj] (array/push (state/wm :seats) (seat/create obj))
-    [:window obj] (array/insert (state/wm :windows) 0 (window/create obj))))
+    [:window obj]
+    (let [windows (state/wm :windows)
+          pos (if-let [seat (first (state/wm :seats))
+                       focused (seat :focused)
+                       i (index-of focused windows)]
+                (+ i 1)
+                0)]
+      (array/insert windows pos (window/create obj)))))
 
 (defn registry/handle-event "Bind required Wayland globals from the registry." [event]
   (match event
