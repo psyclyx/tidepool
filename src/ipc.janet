@@ -46,18 +46,19 @@
 (defn- compute-layout
   "Compute layout state: per-output layout name."
   [outputs focused-output]
-  (seq [o :in outputs]
-    @{:x (o :x) :y (o :y)
-      :layout (o :layout)
-      :focused (= o focused-output)}))
+  @{:outputs (seq [o :in outputs]
+      @{:x (o :x) :y (o :y)
+        :layout (o :layout)
+        :focused (= o focused-output)})})
 
 (defn- compute-title
   "Compute focused window title."
   [seats]
-  (when-let [s (first seats)
-             w (s :focused)]
+  (if-let [s (first seats)
+           w (s :focused)]
     @{:title (or (w :title) "")
-      :app-id (or (w :app-id) "")}))
+      :app-id (or (w :app-id) "")}
+    @{:title "" :app-id ""}))
 
 # --- Change tracking + emission ---
 
