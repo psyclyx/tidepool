@@ -28,6 +28,15 @@ in {
       };
       Service = {
         ExecStart = lib.getExe cfg.package;
+        ExecStop = pkgs.writeShellScript "tidepool-save" ''
+          ${lib.getExe' cfg.package "tidepoolmsg"} save > "$XDG_RUNTIME_DIR/tidepool-state.jdn"
+        '';
+        ExecStartPost = pkgs.writeShellScript "tidepool-load" ''
+          if [ -f "$XDG_RUNTIME_DIR/tidepool-state.jdn" ]; then
+            ${lib.getExe' cfg.package "tidepoolmsg"} load < "$XDG_RUNTIME_DIR/tidepool-state.jdn"
+            rm -f "$XDG_RUNTIME_DIR/tidepool-state.jdn"
+          fi
+        '';
         Restart = "on-failure";
         RestartSec = 2;
       };
