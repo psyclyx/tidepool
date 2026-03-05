@@ -2,10 +2,6 @@
 
 (def- saved-windows @[])
 
-(defn- state-path []
-  (string (os/getenv "XDG_RUNTIME_DIR") "/tidepool-"
-          (os/getenv "WAYLAND_DISPLAY") "-state.jdn"))
-
 (defn- filter-anim-keys [params]
   (def out @{})
   (eachp [k v] params
@@ -13,8 +9,8 @@
       (put out k v)))
   out)
 
-(defn save
-  "Serialize window, output, and tag-layout state to disk."
+(defn serialize
+  "Serialize window, output, and tag-layout state to a JDN string."
   [windows outputs tag-layouts]
   (def win-data @[])
   (each w windows
@@ -44,18 +40,11 @@
            :params (filter-anim-keys (saved :params))}))
 
   (def data @{:windows win-data :outputs out-data :tag-layouts tl-data})
-  (spit (state-path) (string/format "%j" data)))
+  (string/format "%j" data))
 
-(defn load
-  "Restore persisted state on startup."
-  []
-  (def path (state-path))
-  (unless (os/stat path)
-    (break))
-
-  (def data (try (parse (slurp path))
-              ([err] (eprintf "tidepool: persist/load parse error: %s" err)
-                     (break))))
+(defn apply-state
+  "Apply parsed state data to output-state-cache and tag-layouts."
+  [data]
   (unless (dictionary? data)
     (break))
 

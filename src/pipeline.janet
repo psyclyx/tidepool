@@ -281,7 +281,7 @@
   (apply-visibility windows)
   (each o outputs (output/bg/manage (o :bg) o config state/registry))
 
-  (ipc/emit-state outputs windows seats)
+  (ipc/emit-events outputs windows seats)
 
   (lifecycle-finish)
   (:manage-finish (state/registry "river_window_manager_v1"))

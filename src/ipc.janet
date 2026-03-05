@@ -1,5 +1,6 @@
 (import ./state)
 (import ./persist)
+(import spork/json)
 
 (def- subscribers
   "Topic -> array of channels."
@@ -27,18 +28,10 @@
     (each ch subs
       (ev/give ch data))))
 
-(defn watch
-  "Watch events on a topic, printing each as JSON. Blocks until disconnect.
-  For use from the REPL socket."
-  [topic]
-  (def ch (subscribe topic))
-  (defer (unsubscribe topic ch)
-    (forever
-      (printf "%j" (ev/take ch))
-      (flush))))
+# --- Per-topic state computation ---
 
-(defn- compute-state
-  "Build a state summary for IPC consumers."
+(defn- compute-tags
+  "Compute tag state: per-output tag assignments + occupied tags."
   [outputs windows focused-output]
   (def occupied @{})
   (each w windows
@@ -47,24 +40,89 @@
   @{:outputs (seq [o :in outputs]
       @{:x (o :x) :y (o :y)
         :tags (sorted (keys (o :tags)))
-        :layout (o :layout)
         :focused (= o focused-output)})
     :occupied (sorted (keys occupied))})
 
-(var- last-state nil)
+(defn- compute-layout
+  "Compute layout state: per-output layout name."
+  [outputs focused-output]
+  (seq [o :in outputs]
+    @{:x (o :x) :y (o :y)
+      :layout (o :layout)
+      :focused (= o focused-output)}))
 
-(defn emit-state
-  "Compute current state and emit if changed. No-op when no subscribers."
+(defn- compute-title
+  "Compute focused window title."
+  [seats]
+  (when-let [s (first seats)
+             w (s :focused)]
+    @{:title (or (w :title) "")
+      :app-id (or (w :app-id) "")}))
+
+# --- Change tracking + emission ---
+
+(var- last-tags nil)
+(var- last-layout nil)
+(var- last-title nil)
+
+(defn- has-subscribers? [& topics]
+  (some |(when-let [subs (get subscribers $)]
+           (> (length subs) 0))
+        topics))
+
+(defn emit-events
+  "Compute per-topic state and emit only changed topics."
   [outputs windows seats]
-  (when-let [subs (get subscribers :state)]
-    (when (> (length subs) 0)
-      (def focused-output (when-let [s (first seats)] (s :focused-output)))
-      (def s (compute-state outputs windows focused-output))
-      (unless (deep= s last-state)
-        (set last-state s)
-        (emit :state s)))))
+  (when (has-subscribers? :tags :layout :title)
+    (def focused-output (when-let [s (first seats)] (s :focused-output)))
 
-(defn save-state
-  "Save current window/output/tag-layout state to disk."
+    (when (has-subscribers? :tags)
+      (def tags (compute-tags outputs windows focused-output))
+      (unless (deep= tags last-tags)
+        (set last-tags tags)
+        (emit :tags tags)))
+
+    (when (has-subscribers? :layout)
+      (def layout (compute-layout outputs focused-output))
+      (unless (deep= layout last-layout)
+        (set last-layout layout)
+        (emit :layout layout)))
+
+    (when (has-subscribers? :title)
+      (def title (compute-title seats))
+      (unless (deep= title last-title)
+        (set last-title title)
+        (emit :title title)))))
+
+# --- JSON watch (for tidepoolmsg watch) ---
+
+(defn watch-json
+  "Watch multiple topics, printing JSON lines. Blocks until disconnect."
+  [topics]
+  (def channels @[])
+  (def topic-map @{})
+  (each topic topics
+    (def ch (subscribe topic))
+    (array/push channels ch)
+    (put topic-map ch topic))
+  (defer (each ch channels
+           (unsubscribe (topic-map ch) ch))
+    (forever
+      (def [_ ch data] (ev/select ;channels))
+      (def topic (get topic-map ch))
+      (def obj (merge-into @{"event" (string topic)} data))
+      (print (json/encode obj))
+      (flush))))
+
+# --- Save/load wrappers ---
+
+(defn serialize-state
+  "Serialize current state as JDN, prints to stdout."
   []
-  (persist/save (state/wm :windows) (state/wm :outputs) state/tag-layouts))
+  (print (persist/serialize (state/wm :windows) (state/wm :outputs) state/tag-layouts))
+  (flush))
+
+(defn apply-state
+  "Apply parsed state data."
+  [data]
+  (persist/apply-state data))
