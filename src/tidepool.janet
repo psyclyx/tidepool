@@ -55,7 +55,7 @@
     [:finished] (os/exit 0)
     [:manage-start] (pipeline/manage)
     [:render-start] (pipeline/render)
-    [:output obj] (array/push (state/wm :outputs) (output/create obj))
+    [:output obj] (array/push (state/wm :outputs) (output/create obj state/config state/registry))
     [:seat obj] (array/push (state/wm :seats) (seat/create obj))
     [:window obj] (array/insert (state/wm :windows) 0 (window/create obj))))
 
