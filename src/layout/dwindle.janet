@@ -36,10 +36,14 @@
   results)
 
 (defn navigate
-  "Navigate linearly through the dwindle chain."
+  "Navigate spatially through the dwindle tree.
+  Each split level alternates: even=vertical, odd=horizontal.
+  Window i is the first child (left/top) of split i."
   [n main-count i dir ctx]
   (case dir
-    :left (when (> i 0) (- i 1))
-    :up (when (> i 0) (- i 1))
-    :right (when (< (+ i 1) n) (+ i 1))
-    :down (when (< (+ i 1) n) (+ i 1))))
+    :right (when (and (= 0 (% i 2)) (< (+ i 1) n)) (+ i 1))
+    :down (when (and (= 1 (% i 2)) (< (+ i 1) n)) (+ i 1))
+    :left (let [j (- i (if (= 0 (% i 2)) 2 1))]
+            (when (>= j 0) j))
+    :up (let [j (- i (if (= 1 (% i 2)) 2 1))]
+          (when (>= j 0) j))))
