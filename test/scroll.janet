@@ -28,8 +28,8 @@
     (set x (+ x (col-width col total-w default-ratio))))
   positions)
 
-(defn total-content-width [cols col-xs total-w default-ratio]
-  (+ (last col-xs) (col-width (last cols) total-w default-ratio)))
+(defn total-content-width [cols col-xs content-w inner default-ratio]
+  (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
 
 (defn place-window-result
   "Determine window placement. Returns {:hidden true} or {:x :y :pw :ph}
@@ -76,8 +76,9 @@
   (def results @[])
   (for ci 0 (length cols)
     (def col (get cols ci))
-    (def cw (col-width col total-w default-ratio))
-    (def x-off (- (get col-xs ci) scroll))
+    (def content-w (- total-w (* 2 inner)))
+    (def cw (col-width col content-w default-ratio))
+    (def x-off (- (+ inner (get col-xs ci)) scroll))
     (def num-rows (length col))
     (def total-weight (sum (map |(or ($ :col-weight) 1.0) col)))
     (var y-sum 0)
@@ -145,6 +146,7 @@
 (def inner 8)
 (def total-w (- (gawfolk :w) (* 2 outer)))  # 3832
 (def total-h (- (gawfolk :h) (* 2 outer)))  # 2552
+(def content-w (- total-w (* 2 inner)))     # 3816
 (def clip-left (gawfolk :x))                 # 0
 (def clip-right (+ (gawfolk :x) (gawfolk :w))) # 3840
 (def clip-top (gawfolk :y))                  # 0
@@ -162,93 +164,94 @@
 
 (test "scroll: 2 cols 50% — no scroll needed"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
   (assert= tcw total-w "total-content-w should equal total-w")
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x 0 :focused-col-w (col-width (first cols) total-w 0.5)
+    :focused-x inner :focused-col-w (col-width (first cols) content-w 0.5)
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
 (test "scroll: 3 cols 50%, focus col 0 — flush left (no left peek)"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x 0 :focused-col-w cw
+    :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
   (assert= scroll 0 "first column should be flush left"))
 
 (test "scroll: 3 cols 50%, focus col 2 — flush right (no right peek)"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
-  (def max-scroll (- tcw total-w))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
+  (def focused-x (+ inner (get col-xs 2)))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x (get col-xs 2) :focused-col-w cw
+    :focused-x focused-x :focused-col-w cw
     :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
-  (assert= scroll max-scroll "last column should be flush right"))
+  (assert= scroll (- (+ focused-x cw) total-w)
+    "last column right edge flush with viewport"))
 
 (test "scroll: 3 cols 50%, focus col 1 — both peeks apply"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
   (def peek (* 2 inner))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x (get col-xs 1) :focused-col-w cw
+    :focused-x (+ inner (get col-xs 1)) :focused-col-w cw
     :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
-  (assert= scroll peek "scroll shows peek of col 0"))
+  (assert= scroll inner "scroll shows edge gap of col 0"))
 
 (test "scroll: zero inner — no peek, clamps to [0, max-scroll]"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner 0
-    :focused-x 0 :focused-col-w cw
+    :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
   (assert= scroll 0 "no peek, focus col 0 → scroll=0"))
 
 (test "scroll: content fits — no scroll"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x 0 :focused-col-w cw
+    :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
 (test "scroll: small overflow, focus col 0 — flush left"
   (def cols @[@[(make-win 0.6)] @[(make-win 0.6)]])
-  (def col-xs (col-x-positions cols total-w 0.6))
-  (def tcw (total-content-width cols col-xs total-w 0.6))
-  (def cw (col-width (first cols) total-w 0.6))
+  (def col-xs (col-x-positions cols content-w 0.6))
+  (def tcw (total-content-width cols col-xs content-w inner 0.6))
+  (def cw (col-width (first cols) content-w 0.6))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
     :inner inner
-    :focused-x 0 :focused-col-w cw
+    :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "first column flush left"))
@@ -325,7 +328,7 @@
 
 (test "integration: 2 cols 50% — no overlap, correct gaps"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 0 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -343,7 +346,7 @@
 
 (test "integration: 2 cols 50% — no border overlap with output edge"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 0 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -358,7 +361,7 @@
 
 (test "integration: 3 cols 50%, scroll=32 — col 2 peeks"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 32 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -371,7 +374,7 @@
 
 (test "integration: 3 cols 50%, scroll=0 — col 2 barely peeks (outer padding only)"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 0 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -385,7 +388,7 @@
 
 (test "integration: 3 cols 50%, scroll=32 — peek clips at output edge"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 32 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -406,7 +409,7 @@
 
 (test "integration: 3 cols 50%, scroll=1884 — col 0 peeks left at output edge"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (def wins (window-positions
     :scroll 1884 :cols cols :col-xs col-xs
     :total-w total-w :total-h total-h :default-ratio 0.5
@@ -427,7 +430,7 @@
 
 (test "integration: no windows overlap"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
   (for scroll-val 0 200 10
     (def wins (window-positions
       :scroll scroll-val :cols cols :col-xs col-xs
@@ -447,15 +450,15 @@
 
 (test "e2e: focus each column — all produce valid peeks"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def cw (col-width (first cols) total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def cw (col-width (first cols) content-w 0.5))
 
   (for focus-ci 0 3
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
       :inner inner
-      :focused-x (get col-xs focus-ci) :focused-col-w cw
+      :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 3
       :current-scroll 0))
     (def wins (window-positions
@@ -474,16 +477,16 @@
 
 (test "e2e: scroll target is within valid bounds"
   (def cols (make-cols 4))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
   (def max-scroll (- tcw total-w))
 
   (for focus-ci 0 4
-    (def cw (col-width (get cols focus-ci) total-w 0.5))
+    (def cw (col-width (get cols focus-ci) content-w 0.5))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
       :inner inner
-      :focused-x (get col-xs focus-ci) :focused-col-w cw
+      :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 4
       :current-scroll 0))
     (assert (>= scroll 0)
@@ -493,14 +496,14 @@
 
 (test "e2e: focused column always within preferred zone"
   (def cols (make-cols 4))
-  (def col-xs (col-x-positions cols total-w 0.5))
-  (def tcw (total-content-width cols col-xs total-w 0.5))
+  (def col-xs (col-x-positions cols content-w 0.5))
+  (def tcw (total-content-width cols col-xs content-w inner 0.5))
   (def peek (* 2 inner))
   (def num-cols 4)
 
   (for focus-ci 0 num-cols
-    (def cw (col-width (get cols focus-ci) total-w 0.5))
-    (def focused-x (get col-xs focus-ci))
+    (def cw (col-width (get cols focus-ci) content-w 0.5))
+    (def focused-x (+ inner (get col-xs focus-ci)))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
       :inner inner

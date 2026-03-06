@@ -113,12 +113,13 @@
         (set focused-row-idx ri))))
 
 
-  (def col-xs (x-positions cols total-w default-ratio))
+  (def content-w (- total-w (* 2 inner)))
+  (def col-xs (x-positions cols content-w default-ratio))
   (def total-content-w
-    (+ (last col-xs) (col-width (last cols) total-w default-ratio)))
+    (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
 
-  (def focused-x (get col-xs focused-col-idx))
-  (def focused-col-w (col-width (get cols focused-col-idx) total-w default-ratio))
+  (def focused-x (+ inner (get col-xs focused-col-idx)))
+  (def focused-col-w (col-width (get cols focused-col-idx) content-w default-ratio))
 
   (when focused-win
     (def max-scroll (max 0 (- total-content-w total-w)))
@@ -140,8 +141,8 @@
   (def results @[])
   (for ci 0 num-cols
     (def col (get cols ci))
-    (def cw (col-width col total-w default-ratio))
-    (def x-off (- (get col-xs ci) scroll))
+    (def cw (col-width col content-w default-ratio))
+    (def x-off (- (+ inner (get col-xs ci)) scroll))
     (def num-rows (length col))
 
     (def heights @[])
