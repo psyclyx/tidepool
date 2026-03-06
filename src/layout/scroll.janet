@@ -45,21 +45,14 @@
   (map |(get groups $) col-indices))
 
 (defn place
-  "Compute placement rect, returning :hidden if fully clipped.
-  Drops inner padding on any axis where the cell is partially clipped,
-  so strut windows look like they continue beyond the screen edge."
+  "Compute placement rect, returning :hidden if fully outside clip bounds."
   [x y w h clip-left clip-right clip-top clip-bottom inner]
   (def cell-w (+ w (* 2 inner)))
   (def cell-h (+ h (* 2 inner)))
   (if (or (<= (+ x cell-w) clip-left) (>= x clip-right)
           (<= (+ y cell-h) clip-top) (>= y clip-bottom))
     :hidden
-    (let [h-clipped (or (< x clip-left) (> (+ x cell-w) clip-right))
-          v-clipped (or (< y clip-top) (> (+ y cell-h) clip-bottom))
-          hp (if h-clipped 0 inner)
-          vp (if v-clipped 0 inner)]
-      {:x (+ x hp) :y (+ y vp)
-       :w (- cell-w (* 2 hp)) :h (- cell-h (* 2 vp))})))
+    {:x (+ x inner) :y (+ y inner) :w w :h h}))
 
 (defn col-width
   "Compute a column's pixel width from its ratio."
@@ -100,9 +93,7 @@
   [usable windows params config focused &opt now focus-prev]
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
-  (def struts (or (config :struts) {:left 0 :right 0 :top 0 :bottom 0}))
-  (def strut-t (or (struts :top) 0))
-  (def strut-b (or (struts :bottom) 0))
+  (def peek (* 2 inner))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
   (def total-h (max 0 (- (usable :h) (* 2 outer))))
   (def default-ratio (params :column-width))
@@ -121,46 +112,35 @@
         (set focused-col-idx ci)
         (set focused-row-idx ri))))
 
-  (def strut-l (or (struts :left) 0))
-  (def strut-r (or (struts :right) 0))
 
-  (def nominal-content-w
-    (sum (map |(col-width $ total-w default-ratio) cols)))
-  (def h-overflows (> nominal-content-w total-w))
-  (def avail-w (if h-overflows (max 0 (- total-w strut-l strut-r)) total-w))
-
-  (def col-xs (x-positions cols avail-w default-ratio))
+  (def col-xs (x-positions cols total-w default-ratio))
   (def total-content-w
-    (+ (last col-xs) (col-width (last cols) avail-w default-ratio)))
+    (+ (last col-xs) (col-width (last cols) total-w default-ratio)))
 
   (def focused-x (get col-xs focused-col-idx))
-  (def focused-col-w (col-width (get cols focused-col-idx) avail-w default-ratio))
+  (def focused-col-w (col-width (get cols focused-col-idx) total-w default-ratio))
 
   (when focused-win
     (def max-scroll (max 0 (- total-content-w total-w)))
-    (var target-scroll (params :scroll-offset))
     (def col-right (+ focused-x focused-col-w))
-    (when (or (< focused-x target-scroll) (> col-right (+ target-scroll total-w)))
-      (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
-      (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
-      (when (< focused-x (+ target-scroll eff-strut-l))
-        (set target-scroll (- focused-x eff-strut-l)))
-      (when (> col-right (- (+ target-scroll total-w) eff-strut-r))
-        (set target-scroll (+ (- col-right total-w) eff-strut-r))))
-    (set target-scroll (min max-scroll (max 0 target-scroll)))
+    (def peek-l (if (> focused-col-idx 0) peek 0))
+    (def peek-r (if (< focused-col-idx (- num-cols 1)) peek 0))
+    (def min-s (max 0 (- col-right (- total-w peek-r))))
+    (def max-s (min max-scroll (- focused-x peek-l)))
+    (def target-scroll (min max-s (max min-s (params :scroll-offset))))
     (animation/scroll-toward params :scroll-offset target-scroll now config))
   (animation/scroll-update params :scroll-offset now)
   (def scroll (params :scroll-offset))
 
-  (def clip-left (+ (usable :x) outer))
-  (def clip-right (+ clip-left total-w))
-  (def clip-top (+ (usable :y) outer))
-  (def clip-bottom (+ clip-top total-h))
+  (def clip-left (usable :x))
+  (def clip-right (+ (usable :x) (usable :w)))
+  (def clip-top (usable :y))
+  (def clip-bottom (+ (usable :y) (usable :h)))
 
   (def results @[])
   (for ci 0 num-cols
     (def col (get cols ci))
-    (def cw (col-width col avail-w default-ratio))
+    (def cw (col-width col total-w default-ratio))
     (def x-off (- (get col-xs ci) scroll))
     (def num-rows (length col))
 
@@ -205,14 +185,14 @@
           (def focused-h (get heights focused-row-idx))
           (def col-content-h (sum heights))
           (def max-v-scroll (max 0 (- col-content-h total-h)))
-          (def can-v-peek (>= max-v-scroll (+ strut-t strut-b)))
-          (def min-v-scroll (if can-v-peek strut-b 0))
-          (def max-v-scroll-adj (if can-v-peek (- max-v-scroll strut-t) max-v-scroll))
+          (def can-v-peek (>= max-v-scroll (* 2 peek)))
+          (def min-v-scroll (if can-v-peek peek 0))
+          (def max-v-scroll-adj (if can-v-peek (- max-v-scroll peek) max-v-scroll))
           (var target-v (params scroll-key))
-          (when (< focused-y (+ target-v strut-t))
-            (set target-v (- focused-y strut-t)))
-          (when (> (+ focused-y focused-h) (- (+ target-v total-h) strut-b))
-            (set target-v (+ (- (+ focused-y focused-h) total-h) strut-b)))
+          (when (< focused-y (+ target-v peek))
+            (set target-v (- focused-y peek)))
+          (when (> (+ focused-y focused-h) (- (+ target-v total-h) peek))
+            (set target-v (+ (- (+ focused-y focused-h) total-h) peek)))
           (set target-v (min max-v-scroll-adj (max min-v-scroll target-v)))
           (animation/scroll-toward params scroll-key target-v now config))
         (animation/scroll-update params scroll-key now)

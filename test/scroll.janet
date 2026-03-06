@@ -4,18 +4,18 @@
 
 (defn compute-scroll-target
   "Compute the target scroll offset given layout parameters.
-  Returns the clamped target scroll value."
-  [&named total-w total-content-w strut-l strut-r
+  Clamps current scroll into the valid range [min-s, max-s] for minimum pan.
+  Peek amount is derived from inner padding (gap = 2*inner)."
+  [&named total-w total-content-w inner
           focused-x focused-col-w focused-col-idx num-cols current-scroll]
+  (def peek (* 2 inner))
   (def max-scroll (max 0 (- total-content-w total-w)))
-  (def eff-strut-l (if (> focused-col-idx 0) strut-l 0))
-  (def eff-strut-r (if (< focused-col-idx (- num-cols 1)) strut-r 0))
-  (var target current-scroll)
-  (when (< focused-x (+ target eff-strut-l))
-    (set target (- focused-x eff-strut-l)))
-  (when (> (+ focused-x focused-col-w) (- (+ target total-w) eff-strut-r))
-    (set target (+ (- (+ focused-x focused-col-w) total-w) eff-strut-r)))
-  (min max-scroll (max 0 target)))
+  (def col-right (+ focused-x focused-col-w))
+  (def peek-l (if (> focused-col-idx 0) peek 0))
+  (def peek-r (if (< focused-col-idx (- num-cols 1)) peek 0))
+  (def min-s (max 0 (- col-right (- total-w peek-r))))
+  (def max-s (min max-scroll (- focused-x peek-l)))
+  (min max-s (max min-s current-scroll)))
 
 (defn col-width [col total-w default-ratio]
   (math/round (* total-w (or ((first col) :col-width) default-ratio))))
@@ -33,14 +33,12 @@
 
 (defn place-window-result
   "Determine window placement. Returns {:hidden true} or {:x :y :pw :ph}
-  where pw/ph are the proposed content dimensions (before bw subtraction)."
+  where pw/ph are the fixed content dimensions (before bw subtraction)."
   [x y w h clip-left clip-right clip-top clip-bottom inner]
-  (def win-left x)
-  (def win-right (+ x w (* 2 inner)))
-  (def win-top y)
-  (def win-bottom (+ y h (* 2 inner)))
-  (if (or (<= win-right clip-left) (>= win-left clip-right)
-          (<= win-bottom clip-top) (>= win-top clip-bottom))
+  (def cell-w (+ w (* 2 inner)))
+  (def cell-h (+ h (* 2 inner)))
+  (if (or (<= (+ x cell-w) clip-left) (>= x clip-right)
+          (<= (+ y cell-h) clip-top) (>= y clip-bottom))
     {:hidden true}
     {:x (+ x inner) :y (+ y inner) :pw w :ph h}))
 
@@ -48,9 +46,9 @@
   "Compute clip box for a window on an output. Returns nil (no clip needed),
   :clear (clip should be disabled), or [clip-x clip-y clip-w clip-h]."
   [window-x window-y window-w window-h
-   output-x output-y output-w output-h bw &opt outer-pad]
+   output-x output-y output-w output-h bw &opt outer-pad scroll-placed]
   (default outer-pad 0)
-  (def inset (+ bw outer-pad))
+  (def inset (if scroll-placed 0 (+ bw outer-pad)))
   (def ox (+ output-x inset))
   (def oy (+ output-y inset))
   (def ow (- output-w (* 2 inset)))
@@ -147,10 +145,10 @@
 (def inner 8)
 (def total-w (- (gawfolk :w) (* 2 outer)))  # 3832
 (def total-h (- (gawfolk :h) (* 2 outer)))  # 2552
-(def clip-left (+ (gawfolk :x) outer))       # 4
-(def clip-right (+ clip-left total-w))       # 3836
-(def clip-top (+ (gawfolk :y) outer))        # 4
-(def clip-bottom (+ clip-top total-h))       # 2556
+(def clip-left (gawfolk :x))                 # 0
+(def clip-right (+ (gawfolk :x) (gawfolk :w))) # 3840
+(def clip-top (gawfolk :y))                  # 0
+(def clip-bottom (+ (gawfolk :y) (gawfolk :h))) # 2560
 
 (defn make-win [&opt col-override]
   @{:col-width col-override})
@@ -169,26 +167,26 @@
   (assert= tcw total-w "total-content-w should equal total-w")
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 32 :strut-r 32
+    :inner inner
     :focused-x 0 :focused-col-w (col-width (first cols) total-w 0.5)
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
-(test "scroll: 3 cols 50%, focus col 0 — flush left (no left strut)"
+(test "scroll: 3 cols 50%, focus col 0 — flush left (no left peek)"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
   (def cw (col-width (first cols) total-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 32 :strut-r 32
+    :inner inner
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
   (assert= scroll 0 "first column should be flush left"))
 
-(test "scroll: 3 cols 50%, focus col 2 — flush right (no right strut)"
+(test "scroll: 3 cols 50%, focus col 2 — flush right (no right peek)"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -196,37 +194,38 @@
   (def max-scroll (- tcw total-w))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 32 :strut-r 32
+    :inner inner
     :focused-x (get col-xs 2) :focused-col-w cw
     :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
   (assert= scroll max-scroll "last column should be flush right"))
 
-(test "scroll: 3 cols 50%, focus col 1 — both struts apply"
+(test "scroll: 3 cols 50%, focus col 1 — both peeks apply"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
   (def cw (col-width (first cols) total-w 0.5))
+  (def peek (* 2 inner))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 32 :strut-r 32
+    :inner inner
     :focused-x (get col-xs 1) :focused-col-w cw
     :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
-  (assert= scroll 32 "scroll centers col 1 with strut margin"))
+  (assert= scroll peek "scroll shows peek of col 0"))
 
-(test "scroll: no struts — clamps to [0, max-scroll]"
+(test "scroll: zero inner — no peek, clamps to [0, max-scroll]"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
   (def cw (col-width (first cols) total-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 0 :strut-r 0
+    :inner 0
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
-  (assert= scroll 0 "no struts, focus col 0 → scroll=0"))
+  (assert= scroll 0 "no peek, focus col 0 → scroll=0"))
 
 (test "scroll: content fits — no scroll"
   (def cols (make-cols 2))
@@ -235,11 +234,11 @@
   (def cw (col-width (first cols) total-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 200 :strut-r 200
+    :inner inner
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
-  (assert= scroll 0 "no scroll when content fits even with large struts"))
+  (assert= scroll 0 "no scroll when content fits"))
 
 (test "scroll: small overflow, focus col 0 — flush left"
   (def cols @[@[(make-win 0.6)] @[(make-win 0.6)]])
@@ -248,11 +247,11 @@
   (def cw (col-width (first cols) total-w 0.6))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :strut-l 400 :strut-r 400
+    :inner inner
     :focused-x 0 :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
-  (assert= scroll 0 "first column flush left regardless of strut size"))
+  (assert= scroll 0 "first column flush left"))
 
 
 (test "placement: on-screen window gets positioned"
@@ -370,7 +369,7 @@
   (def w2 (get wins 2))
   (assert (not (w2 :hidden)) "col 2 should be visible (peeking)"))
 
-(test "integration: 3 cols 50%, scroll=0 — col 2 hidden (no peek)"
+(test "integration: 3 cols 50%, scroll=0 — col 2 barely peeks (outer padding only)"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def wins (window-positions
@@ -381,9 +380,10 @@
     :clip-left clip-left :clip-right clip-right
     :clip-top clip-top :clip-bottom clip-bottom))
   (def w2 (get wins 2))
-  (assert (w2 :hidden) "col 2 hidden at scroll=0"))
+  # With clip at output edge, col 2 starts at x=3836 (4px inside the 3840 edge)
+  (assert (not (w2 :hidden)) "col 2 barely visible at scroll=0"))
 
-(test "integration: 3 cols 50%, scroll=32 — peek clip preserves outer padding"
+(test "integration: 3 cols 50%, scroll=32 — peek clips at output edge"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def wins (window-positions
@@ -397,14 +397,14 @@
   (assert (not (w2 :hidden)) "col 2 peeking")
   (def clip (compute-clip
     (w2 :content-x) (w2 :content-y) (w2 :content-w) (w2 :content-h)
-    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
+    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer true))
   (assert (not= clip :clear) "peek window should be clipped")
   (def [cx cy cw ch] clip)
   (def visible-right (+ (w2 :content-x) cx cw))
-  (assert= (+ visible-right bw outer) (+ (gawfolk :x) (gawfolk :w))
-    "peek border right + outer = output edge"))
+  (assert= visible-right (+ (gawfolk :x) (gawfolk :w))
+    "peek clips at output edge"))
 
-(test "integration: 3 cols 50%, scroll=1884 — col 0 peeks left with padding"
+(test "integration: 3 cols 50%, scroll=1884 — col 0 peeks left at output edge"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def wins (window-positions
@@ -418,12 +418,12 @@
   (assert (not (w0 :hidden)) "col 0 should be visible (peeking left)")
   (def clip (compute-clip
     (w0 :content-x) (w0 :content-y) (w0 :content-w) (w0 :content-h)
-    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
+    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer true))
   (assert (not= clip :clear) "peek window should be clipped")
   (def [cx cy cw ch] clip)
   (def visible-left (+ (w0 :content-x) cx))
-  (assert= (- visible-left bw) (+ (gawfolk :x) outer)
-    "peek border left = output edge + outer"))
+  (assert= visible-left (gawfolk :x)
+    "peek clips at output edge"))
 
 (test "integration: no windows overlap"
   (def cols (make-cols 3))
@@ -445,7 +445,7 @@
           scroll-val (a :col) (a :border-right) (b :col) (b :border-left))))))
 
 
-(test "e2e: focus each column with struts — all produce valid peeks"
+(test "e2e: focus each column — all produce valid peeks"
   (def cols (make-cols 3))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
@@ -454,7 +454,7 @@
   (for focus-ci 0 3
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :strut-l 32 :strut-r 32
+      :inner inner
       :focused-x (get col-xs focus-ci) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 3
       :current-scroll 0))
@@ -482,7 +482,7 @@
     (def cw (col-width (get cols focus-ci) total-w 0.5))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :strut-l 32 :strut-r 32
+      :inner inner
       :focused-x (get col-xs focus-ci) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 4
       :current-scroll 0))
@@ -495,8 +495,7 @@
   (def cols (make-cols 4))
   (def col-xs (col-x-positions cols total-w 0.5))
   (def tcw (total-content-width cols col-xs total-w 0.5))
-  (def strut-l 32)
-  (def strut-r 32)
+  (def peek (* 2 inner))
   (def num-cols 4)
 
   (for focus-ci 0 num-cols
@@ -504,14 +503,14 @@
     (def focused-x (get col-xs focus-ci))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :strut-l strut-l :strut-r strut-r
+      :inner inner
       :focused-x focused-x :focused-col-w cw
       :focused-col-idx focus-ci :num-cols num-cols
       :current-scroll 0))
-    (def eff-strut-l (if (> focus-ci 0) strut-l 0))
-    (def eff-strut-r (if (< focus-ci (- num-cols 1)) strut-r 0))
-    (def zone-left (+ scroll eff-strut-l))
-    (def zone-right (- (+ scroll total-w) eff-strut-r))
+    (def peek-l (if (> focus-ci 0) peek 0))
+    (def peek-r (if (< focus-ci (- num-cols 1)) peek 0))
+    (def zone-left (+ scroll peek-l))
+    (def zone-right (- (+ scroll total-w) peek-r))
     (assert (>= focused-x zone-left)
       (string/format "focus col %d: left edge %d >= zone-left %d"
         focus-ci focused-x zone-left))

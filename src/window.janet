@@ -218,7 +218,7 @@
       (def cy (window :y))
       (def cw (window :w))
       (def ch (window :h))
-      (def inset (+ bw outer))
+      (def inset (if (window :scroll-placed) 0 (+ bw outer)))
       (def ox (+ (o :x) inset))
       (def oy (+ (o :y) inset))
       (def ow (- (o :w) (* 2 inset)))

@@ -51,7 +51,6 @@ The init script runs in the tidepool environment with `config` and `wm` tables a
 | `:column-width` | `0.5` | Default column width as fraction (scroll layout) |
 | `:column-presets` | `[0.333 0.5 0.667 1.0]` | Preset widths cycled by `preset-column-width` |
 | `:column-row-height` | `0` | Row height ratio for scroll layout (0 = fill) |
-| `:struts` | `{:left 0 :right 0 ...}` | Pixels of neighbor visibility at edges (scroll layout) |
 | `:animate` | `true` | Enable open/close/move animations |
 | `:animation-duration` | `0.2` | Animation duration in seconds |
 | `:background` | `0x000000` | Background color (RGB hex) |

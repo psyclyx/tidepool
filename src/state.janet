@@ -10,7 +10,6 @@
     :column-width 0.5
     :column-presets [0.333 0.5 0.667 1.0]
     :column-row-height 0
-    :struts {:left 0 :right 0 :top 0 :bottom 0}
     :animate true
     :animation-duration 0.2
     :main-count 1
