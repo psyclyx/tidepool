@@ -95,7 +95,7 @@
     (eprint "usage: tidepoolmsg watch <topic> [topic...]")
     (eprint "topics: tags, layout, title")
     (os/exit 1))
-  (def topic-keywords (map keyword topics))
+  (def topic-keywords @[;(map keyword topics)])
   (def expr (string/format "(ipc/watch-json %j)" topic-keywords))
   (msg-send stream (string expr "\n"))
   (stream-output stream))
@@ -112,8 +112,108 @@
   (def expr (string "(ipc/apply-state (parse ``" data "``))"))
   (send-eval stream expr))
 
+(defn- usage []
+  (eprint ```
+usage: tidepoolmsg <command> [args...]
+
+commands:
+  repl               interactive REPL (default)
+  eval <expr>        evaluate a Janet expression
+  watch <topic...>   stream topic updates as JSON lines
+  save               serialize current state to stdout
+  load               apply state from stdin
+
+watch topics: tags, layout, title
+```)
+  (os/exit 1))
+
+(defn- cmd-completions [shell]
+  (case shell
+    "bash" (print ```
+_tidepoolmsg() {
+    local cur prev commands topics
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="repl eval watch save load help completions"
+    topics="tags layout title"
+
+    case "$prev" in
+        tidepoolmsg)
+            COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+            ;;
+        watch)
+            COMPREPLY=($(compgen -W "$topics" -- "$cur"))
+            ;;
+    esac
+
+    # Complete topics for any arg after 'watch'
+    if [[ ${COMP_WORDS[1]} == "watch" && $COMP_CWORD -ge 2 ]]; then
+        COMPREPLY=($(compgen -W "$topics" -- "$cur"))
+    fi
+}
+complete -F _tidepoolmsg tidepoolmsg
+```)
+    "zsh" (print ```
+#compdef tidepoolmsg
+
+_tidepoolmsg() {
+    local -a commands topics
+    commands=(
+        'repl:interactive REPL'
+        'eval:evaluate a Janet expression'
+        'watch:stream topic updates as JSON lines'
+        'save:serialize current state to stdout'
+        'load:apply state from stdin'
+        'help:show usage information'
+        'completions:output shell completions'
+    )
+    topics=(tags layout title)
+
+    if (( CURRENT == 2 )); then
+        _describe 'command' commands
+    else
+        case "$words[2]" in
+            watch)
+                _values 'topic' $topics
+                ;;
+            eval)
+                _message 'expression'
+                ;;
+            completions)
+                _values 'shell' bash zsh fish
+                ;;
+        esac
+    fi
+}
+
+_tidepoolmsg "$@"
+```)
+    "fish" (print ```
+complete -c tidepoolmsg -f
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a repl -d 'interactive REPL'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a eval -d 'evaluate a Janet expression'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a watch -d 'stream topic updates as JSON lines'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a save -d 'serialize current state to stdout'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a load -d 'apply state from stdin'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a help -d 'show usage information'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a completions -d 'output shell completions'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from watch' -a 'tags layout title'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
+```)
+    (do
+      (eprint "usage: tidepoolmsg completions <bash|zsh|fish>")
+      (os/exit 1))))
+
 (defn main [& args]
   (def subcmd (get args 1))
+
+  (when (or (= subcmd "-h") (= subcmd "--help") (= subcmd "help"))
+    (usage))
+
+  (when (= subcmd "completions")
+    (cmd-completions (get args 2))
+    (os/exit 0))
 
   (with [stream (connect)]
     (match subcmd

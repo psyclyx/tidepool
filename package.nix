@@ -4,6 +4,7 @@
   bison,
   callPackage,
   expat,
+  installShellFiles,
   libffi,
   libxml2,
   libxkbcommon,
@@ -22,6 +23,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     bison
+    installShellFiles
     pkg-config
     zig_0_15
   ];
@@ -38,6 +40,13 @@ stdenv.mkDerivation (finalAttrs: {
     "--system"
     "${finalAttrs.deps}"
   ];
+
+  postInstall = ''
+    installShellCompletion --cmd tidepoolmsg \
+      --bash <($out/bin/tidepoolmsg completions bash) \
+      --zsh <($out/bin/tidepoolmsg completions zsh) \
+      --fish <($out/bin/tidepoolmsg completions fish)
+  '';
 
   meta = {
     description = "Janet-based window manager for River";
