@@ -97,21 +97,21 @@
   (def focused-output (when-let [s (first seats)] (s :focused-output)))
 
   (def tags (compute-tags outputs windows focused-output))
-  (def tags-jdn (string/format "%j" tags))
+  (def tags-jdn (string/format "%j" (freeze tags)))
   (unless (= tags-jdn last-tags-jdn)
     (set last-tags-jdn tags-jdn)
     (set last-tags tags)
     (emit :tags tags))
 
   (def layout (compute-layout outputs focused-output))
-  (def layout-jdn (string/format "%j" layout))
+  (def layout-jdn (string/format "%j" (freeze layout)))
   (unless (= layout-jdn last-layout-jdn)
     (set last-layout-jdn layout-jdn)
     (set last-layout layout)
     (emit :layout layout))
 
   (def title (compute-title seats))
-  (def title-jdn (string/format "%j" title))
+  (def title-jdn (string/format "%j" (freeze title)))
   (unless (= title-jdn last-title-jdn)
     (set last-title-jdn title-jdn)
     (set last-title title)
@@ -153,7 +153,10 @@
       (def [_ ch data] (ev/select ;channels))
       (def topic (get topic-map ch))
       (log "watch-json event %s (ch count: %d)" topic (ev/count ch))
-      (emit-json topic data))))
+      (emit-json topic data)
+      (when (> (length (dyn :out)) 65536)
+        (log "watch-json outbuf overflow, flusher likely dead")
+        (break)))))
 
 # --- Introspection ---
 

@@ -61,9 +61,9 @@
   (forever
     (def msg (msg-recv stream))
     (unless msg (break))
-    (when (and (> (length msg) 0) (= (msg 0) 0xFF))
-      (prin (string/slice msg 1))
-      (flush))))
+    (if (and (> (length msg) 0) (= (msg 0) 0xFF))
+      (do (prin (string/slice msg 1)) (flush))
+      (break))))
 
 (defn- cmd-eval [stream args]
   (def expr (string/join args " "))

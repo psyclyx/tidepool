@@ -111,6 +111,8 @@
   (:set-handler (state/registry "river_window_manager_v1") wm/handle-event)
   (:roundtrip display)
 
+  (ipc/emit-events (state/wm :outputs) (state/wm :windows) (state/wm :seats))
+
   (def repl-server (repl-server-create))
   (defer (:close repl-server)
     (forever (:dispatch display))))
