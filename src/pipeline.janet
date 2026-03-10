@@ -355,6 +355,19 @@
     (+= profile-manage-total manage-dt)
     (when (> cycle-dt 0) (+= profile-cycle-total cycle-dt))
     (++ profile-count)
+    # Per-frame summary
+    (def new-wins (count |($ :new) windows))
+    (def closing-wins (count |($ :closing) windows))
+    (def pending-action (when-let [s (first seats)] (s :pending-action)))
+    (when (or (> new-wins 0) (> closing-wins 0) pending-action (> manage-dt 0.016))
+      (eprintf "DEBUG manage #%d: %.1fms wins=%d(+%d -%d) outputs=%d action=%s\n"
+        profile-count (* manage-dt 1000)
+        (length windows) new-wins closing-wins (length outputs)
+        (if pending-action
+          (let [[b a] pending-action]
+            (if (table? a) (string (a :name) " " (string/join (map string (or (a :args) [])) " "))
+              "anon"))
+          "none")))
     (when (= (% profile-count 10) 0)
       (def avg-manage (/ profile-manage-total profile-count))
       (def avg-render (/ profile-render-total profile-count))

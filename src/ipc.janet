@@ -214,7 +214,7 @@
       @{"name" name})))
 
 (defn list-bindings
-  "Return array of all keyboard bindings with action metadata and key combos."
+  "Return all keyboard bindings with action metadata as a JSON string."
   []
   (def result @[])
   (each seat (state/wm :seats)
@@ -227,7 +227,17 @@
         (when (and args (> (length args) 0))
           (put entry "args" (map string args))))
       (array/push result entry)))
-  result)
+  (json/encode result))
+
+# --- Debug ---
+
+(defn set-debug
+  "Toggle or set debug mode. Returns current state."
+  [&opt val]
+  (def new-val (if (nil? val) (not (state/config :debug)) val))
+  (put state/config :debug new-val)
+  (eprintf "tidepool: debug %s" (if new-val "enabled" "disabled"))
+  new-val)
 
 # --- Save/load wrappers ---
 

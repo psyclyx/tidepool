@@ -127,7 +127,17 @@
   (send-eval stream expr))
 
 (defn- cmd-bindings [stream]
-  (send-eval stream "(print (json/encode (ipc/list-bindings)))"))
+  (send-eval stream "(print (ipc/list-bindings))"))
+
+(defn- cmd-debug [stream args]
+  (def val (get args 0))
+  (def expr
+    (case val
+      "on" "(ipc/set-debug true)"
+      "off" "(ipc/set-debug false)"
+      nil "(ipc/set-debug)"
+      (do (eprint "usage: tidepoolmsg debug [on|off]") (os/exit 1))))
+  (send-eval stream expr))
 
 (defn- usage []
   (eprint ```
@@ -138,6 +148,7 @@ commands:
   eval <expr>        evaluate a Janet expression
   action <name> [a]  execute a named action
   bindings           list all keybindings as JSON
+  debug [on|off]     toggle debug/profiling mode
   watch <topic...>   stream topic updates as JSON lines
   save               serialize current state to stdout
   load               apply state from stdin
@@ -154,7 +165,7 @@ _tidepoolmsg() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="repl eval action bindings watch save load help completions"
+    commands="repl eval action bindings debug watch save load help completions"
     topics="tags layout title"
     actions="spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit"
 
@@ -186,6 +197,7 @@ _tidepoolmsg() {
         'eval:evaluate a Janet expression'
         'action:execute a named action'
         'bindings:list all keybindings as JSON'
+        'debug:toggle debug/profiling mode'
         'watch:stream topic updates as JSON lines'
         'save:serialize current state to stdout'
         'load:apply state from stdin'
@@ -208,6 +220,9 @@ _tidepoolmsg() {
             eval)
                 _message 'expression'
                 ;;
+            debug)
+                _values 'state' on off
+                ;;
             completions)
                 _values 'shell' bash zsh fish
                 ;;
@@ -223,6 +238,8 @@ complete -c tidepoolmsg -n '__fish_use_subcommand' -a repl -d 'interactive REPL'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a eval -d 'evaluate a Janet expression'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a action -d 'execute a named action'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a bindings -d 'list all keybindings as JSON'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a debug -d 'toggle debug mode'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from debug' -a 'on off'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a watch -d 'stream topic updates as JSON lines'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a save -d 'serialize current state to stdout'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a load -d 'apply state from stdin'
@@ -253,6 +270,7 @@ complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zs
       "eval" (cmd-eval stream (slice args 2))
       "action" (cmd-action stream (slice args 2))
       "bindings" (cmd-bindings stream)
+      "debug" (cmd-debug stream (slice args 2))
       "watch" (cmd-watch stream (slice args 2))
       "save" (cmd-save stream)
       "load" (cmd-load stream)
