@@ -186,6 +186,7 @@
              :normal (config :border-normal)
              :focused (config :border-focused)
              :tabbed (config :border-tabbed)
+             :sibling (or (config :border-sibling) (config :border-normal))
              :urgent (config :border-urgent)))
   (put window :border-status status)
   (put window :border-rgb rgb)

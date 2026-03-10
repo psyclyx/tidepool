@@ -15,6 +15,7 @@
     :border-normal 0x646464
     :border-urgent 0xff0000
     :border-tabbed 0x88aaff
+    :border-sibling 0x888888
     :xkb-bindings @[]
     :pointer-bindings @[]
     :rules @[]
