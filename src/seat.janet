@@ -150,7 +150,12 @@
   (put seat :focus-source :keyboard)
   (when-let [[binding action] (seat :pending-action)]
     (def action-fn (if (table? action) (action :fn) action))
-    (action-fn seat binding))
+    (def action-name (if (table? action) (action :name) "anon"))
+    (try
+      (action-fn seat binding)
+      ([err fib]
+        (eprintf "tidepool: action %s failed: %s" action-name err)
+        (debug/stacktrace fib err ""))))
 
   (put seat :focus-source :pointer)
   (focus seat nil render-order config)

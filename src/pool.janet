@@ -183,3 +183,21 @@
     (def idx (child-index parent pool))
     (remove-child parent idx)
     (maybe-prune parent)))
+
+(defn validate
+  "Walk the tree and return an array of error strings. Empty = valid."
+  [node &opt parent depth]
+  (default depth 0)
+  (def errors @[])
+  (unless (dictionary? node)
+    (array/push errors (string/format "depth %d: non-table node: %q" depth node))
+    (break errors))
+  (when (and parent (not= (node :parent) parent))
+    (array/push errors (string/format "depth %d: :parent mismatch" depth)))
+  (when (pool? node)
+    (when (not (array? (node :children)))
+      (array/push errors (string/format "depth %d: :children is %q, not array" depth (type (node :children))))
+      (break errors))
+    (each child (node :children)
+      (array/concat errors (validate child node (+ depth 1)))))
+  errors)

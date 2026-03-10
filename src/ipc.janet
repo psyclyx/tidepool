@@ -247,6 +247,21 @@
   (eprintf "tidepool: trace %s" (if new-val "enabled" "disabled"))
   new-val)
 
+# --- Tree validation ---
+
+(defn validate-tree
+  "Validate all output pool trees. Returns JSON array of errors."
+  []
+  (def errors @[])
+  (each o (state/wm :outputs)
+    (when-let [root (o :pool)]
+      (def errs (pool/validate root))
+      (when (> (length errs) 0)
+        (array/push errors
+          @{"output" (string (o :x) "," (o :y))
+            "errors" errs}))))
+  (json/encode errors))
+
 # --- Save/load wrappers ---
 
 (defn serialize-state

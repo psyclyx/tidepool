@@ -158,10 +158,15 @@
   (each tag-idx tags-to-render
     (def tag-pool (get (root :children) tag-idx))
     (when tag-pool
-      (def result (pool-render/render-pool tag-pool usable config focused now))
-      (apply-geometry (result :placements) config)
-      (when (result :animating)
-        (put state/wm :anim-active true)))))
+      (try
+        (do
+          (def result (pool-render/render-pool tag-pool usable config focused now))
+          (apply-geometry (result :placements) config)
+          (when (result :animating)
+            (put state/wm :anim-active true)))
+        ([err fib]
+          (eprintf "tidepool: render tag %d failed: %s" tag-idx err)
+          (debug/stacktrace fib err ""))))))
 
 (defn- in-tabbed-pool?
   "True if window is the active child of a tabbed pool."

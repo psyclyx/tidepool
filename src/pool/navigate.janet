@@ -6,6 +6,7 @@
 (defn- first-leaf
   "Find the first (topmost/leftmost) window leaf in a subtree."
   [node]
+  (when (not (dictionary? node)) (break nil))
   (if (pool/window? node)
     node
     (when (and (node :children) (> (length (node :children)) 0))
@@ -18,6 +19,7 @@
   "Enter a pool from outside, picking the appropriate child.
   For tabbed: pick active. For others: pick first child."
   [node]
+  (when (not (dictionary? node)) (break nil))
   (if (pool/window? node)
     node
     (first-leaf node)))
