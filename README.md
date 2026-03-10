@@ -2,9 +2,7 @@
 
 **Work in progress.** APIs, config format, and behavior will change.
 
-Window manager for [River](https://codeberg.org/river/river) (0.4+), written in [Janet](https://janet-lang.org/). Inspired by [rijan](https://codeberg.org/river/rijan).
-
-Handles layout, focus, keybindings, borders, backgrounds, wallpaper, and output configuration via River's window management protocol. Configured with a Janet init script.
+Window manager for [River](https://codeberg.org/river/river) (0.4+), written in [Janet](https://janet-lang.org/). Handles layout, focus, keybindings, borders, backgrounds, wallpaper, and output configuration via River's window management protocol. Configured with a Janet init script.
 
 ## Building
 
@@ -24,13 +22,51 @@ nix build
 
 ## Usage
 
-tidepool connects to a running River compositor and takes over window management. It looks for a config file at `$XDG_CONFIG_HOME/tidepool/init.janet` (or pass a path as the first argument).
+tidepool connects to a running River compositor and takes over window management. Config is read from `$XDG_CONFIG_HOME/tidepool/init.janet` (or pass a path as the first argument).
 
 ```sh
 tidepool [init-path]
 ```
 
 A netrepl server is created at `$XDG_RUNTIME_DIR/tidepool-$WAYLAND_DISPLAY` for live interaction.
+
+`tidepoolmsg` sends commands and queries over the netrepl socket:
+
+```sh
+tidepoolmsg save > layout.jdn    # serialize layout tree
+tidepoolmsg load < layout.jdn    # restore layout tree
+tidepoolmsg eval '(pp (state/wm :outputs))'
+```
+
+## Layout model
+
+tidepool is transitioning from named layout algorithms to a recursive pool architecture. Both systems currently coexist.
+
+### Named layouts (current)
+
+Six layout algorithms, selected per-output:
+
+- **master-stack** -- main area left, stack right
+- **monocle** -- single window, cycle through
+- **grid** -- automatic grid
+- **centered-master** -- center column with side stacks
+- **dwindle** -- recursive spiral splits
+- **scroll** -- horizontally scrollable columns with variable widths and neighbor peeking
+
+### Pools (in progress)
+
+A pool is a recursive container with a mode that determines how its children are arranged. Four modes replace all named layouts and enable arbitrary composition:
+
+| Mode | Arrangement |
+|------|-------------|
+| `stack-h` | Children side by side horizontally |
+| `stack-v` | Children stacked vertically |
+| `tabbed` | One child visible at a time, cycle through |
+| `scroll` | 2D grid of rows x columns, one row visible, horizontal scroll within |
+
+Tags are pools. Columns are pools. Tabbed groups are pools. Any pool can contain any pool. Named layouts like master-stack emerge from pool composition (e.g., `stack-h` with a window and a `stack-v` group).
+
+See `docs/design-pools.md` for the full architecture.
 
 ## Configuration
 
@@ -47,23 +83,24 @@ The init script runs in the tidepool environment with `config` and `wm` tables a
 | `:inner-padding` | `8` | Gap between windows |
 | `:main-ratio` | `0.55` | Master area ratio (master-stack, centered-master) |
 | `:main-count` | `1` | Number of master windows |
-| `:dwindle-ratio` | `0.5` | Split ratio for dwindle layout |
-| `:column-width` | `0.5` | Default column width as fraction (scroll layout) |
-| `:column-presets` | `[0.333 0.5 0.667 1.0]` | Preset widths cycled by `preset-column-width` |
-| `:column-row-height` | `0` | Row height ratio for scroll layout (0 = fill) |
-| `:animate` | `true` | Enable open/close/move animations |
+| `:dwindle-ratio` | `0.5` | Split ratio for dwindle |
+| `:column-width` | `0.5` | Default scroll column width as fraction |
+| `:column-presets` | `[0.333 0.5 0.667 1.0]` | Preset widths for scroll columns |
+| `:column-row-height` | `0` | Scroll row height ratio (0 = fill) |
+| `:animate` | `true` | Enable animations |
 | `:animation-duration` | `0.2` | Animation duration in seconds |
 | `:background` | `0x000000` | Background color (RGB hex) |
-| `:wallpaper` | `nil` | Wallpaper: file path for image fill, `true` for transparent (external daemon), `nil` for solid color |
+| `:wallpaper` | `nil` | File path for image, `true` for transparent (external daemon), `nil` for solid color |
 | `:border-focused` | `0xffffff` | Focused border color |
 | `:border-normal` | `0x646464` | Unfocused border color |
 | `:border-urgent` | `0xff0000` | Urgent border color |
-| `:debug` | `false` | Enable frame profiling and verbose logging to stderr |
+| `:border-tabbed` | `0x88aaff` | Tabbed group border color |
+| `:debug` | `false` | Frame profiling and verbose logging to stderr |
 | `:warp-pointer` | `false` | Warp pointer to focused window |
 | `:xcursor-theme` | `"Adwaita"` | Cursor theme name |
 | `:xcursor-size` | `24` | Cursor size |
-| `:rules` | `@[]` | Window match rules (see below) |
-| `:outputs` | — | Output configuration map (connector to mode/pos/scale) |
+| `:rules` | `@[]` | Window match rules |
+| `:outputs` | -- | Output configuration map |
 
 ### Keybindings
 
@@ -98,18 +135,9 @@ Windows with fixed min/max size constraints are automatically floated.
 
 Applied via `zwlr_output_manager_v1` on startup.
 
-## Layouts
-
-- **master-stack** — main area left, stack right
-- **monocle** — one window fullscreen, cycle through
-- **grid** — automatic grid arrangement
-- **centered-master** — center column with side stacks
-- **dwindle** — recursive spiral splits
-- **scroll** — horizontally scrollable columns with per-column vertical stacking, variable column widths, and strut-based neighbor peeking
-
 ## Actions
 
-All actions are functions that return closures, suitable for use in keybindings.
+All actions return closures for use in keybindings.
 
 **Window**: `spawn`, `close`, `zoom`, `float`, `fullscreen`
 
@@ -119,20 +147,28 @@ All actions are functions that return closures, suitable for use in keybindings.
 
 **Layout**: `cycle-layout`, `set-layout`, `adjust-ratio`, `adjust-main-count`
 
-**Scroll layout**: `adjust-column-width`, `resize-column`, `resize-window`, `preset-column-width`, `equalize-column`, `consume-column`, `expel-column`
+**Scroll**: `adjust-column-width`, `resize-column`, `resize-window`, `preset-column-width`, `equalize-column`, `consume-column`, `expel-column`
 
 **Input**: `pointer-move`, `pointer-resize`, `passthrough`
 
 **Session**: `restart`, `exit`
 
+### Pool actions (in progress)
+
+The pool system consolidates the above into 13 actions that work uniformly across all pool modes:
+
+`focus`, `swap`, `consume`, `expel`, `resize`, `set-mode`, `cycle-preset`, `zoom`, `focus-pool`, `send-to-pool`, `toggle-pool`, `focus-last`, `float`
+
 ## State persistence
 
-Window tags, column assignments, output layouts, and tag-layout associations are saved to `$XDG_RUNTIME_DIR/tidepool-$WAYLAND_DISPLAY-state.jdn` on every manage cycle. On restart (within the same login session), windows are matched by `(app-id, title)` and restored to their previous tags and column positions.
+Layout state is saved to `$XDG_RUNTIME_DIR/tidepool-$WAYLAND_DISPLAY-state.jdn` on every manage cycle. On restart, windows are matched by `(app-id, title)` and restored to their previous positions.
+
+The pool system serializes the full tree as pretty-printed JDN via `tidepoolmsg save`/`load`.
 
 ## Project structure
 
 ```
-src/                    Janet source modules
+src/
   tidepool.janet          entry point: protocol setup, config, event dispatch
   state.janet             shared mutable state tables
   pipeline.janet          per-frame manage/render lifecycle
@@ -140,35 +176,39 @@ src/                    Janet source modules
   output-config.janet     output mode/position/scale configuration
   window.janet            window lifecycle, positioning, borders
   seat.janet              seat, focus, pointer, XKB bindings
-  actions.janet           all action functions for keybindings
+  actions.janet           keybinding action functions
   animation.janet         animation system (ease-out-cubic)
-  indicator.janet         waybar file writing and notifications
+  indicator.janet         waybar indicator file writing
+  ipc.janet               netrepl IPC and state serialization
   image.janet             image decoding into wl_shm buffers
   persist.janet           state persistence across restarts
-  layout/                 layout algorithms
+  tidepoolmsg.janet       CLI client for netrepl socket
+  pool.janet              pool tree primitives (make, insert, remove, walk, find)
+  pool/
+    render.janet            recursive pool rendering
+    navigate.janet          structural navigation with bubble-up traversal
+    actions.janet           pool tree manipulation (consume, expel, swap, etc.)
+    persist.janet           pool tree serialization as JDN
+  layout/
     init.janet              layout registry and dispatch
+    util.janet              shared layout helpers
     master-stack.janet      main + stack
     monocle.janet           fullscreen cycle
     grid.janet              automatic grid
     centered-master.janet   center column with side stacks
     dwindle.janet           recursive spiral
     scroll.janet            scrollable columns
-  native/                 C native modules
+  native/
     image-native.c          stb_image wrapper for wl_shm buffers
     stb_image.h             vendored stb_image v2.30
 build/                  build-time scripts
-  gen-c-source.janet      marshal Janet bytecode into C
-  gen-protocols.janet     generate protocol jimages from XML
 protocol/               Wayland protocol XML
 test/                   tests
-  scroll.janet            scroll layout geometry verification
-nix/                    Nix integration
-  hm-module.nix           home-manager module
+docs/                   design documents
+nix/                    Nix integration (home-manager module)
 ```
 
 ## Included protocols
-
-The `protocol/` directory contains Wayland protocol XML files used at build time:
 
 | Protocol | Version | License | Copyright |
 |----------|---------|---------|-----------|
