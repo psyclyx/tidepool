@@ -83,7 +83,12 @@
   "Register a keyboard binding for a keysym+mods combo."
   [seat keysym mods action]
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
-                                        (seat :obj) (xkbcommon/keysym keysym) mods)})
+                                        (seat :obj) (xkbcommon/keysym keysym) mods)
+                 :keysym keysym :mods mods})
+  (when (table? action)
+    (put binding :action-name (action :name))
+    (put binding :action-args (action :args))
+    (put binding :action-desc (action :desc)))
   (defn handle-event [event]
     (match event
       [:pressed] (put seat :pending-action [binding action])))
@@ -95,7 +100,12 @@
   "Register a pointer binding for a button+mods combo."
   [seat button mods action]
   (def button-code {:left 0x110 :right 0x111 :middle 0x112})
-  (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)})
+  (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)
+                 :button button :mods mods})
+  (when (table? action)
+    (put binding :action-name (action :name))
+    (put binding :action-args (action :args))
+    (put binding :action-desc (action :desc)))
   (defn handle-event [event]
     (match event
       [:pressed] (put seat :pending-action [binding action])))
@@ -139,7 +149,8 @@
 
   (put seat :focus-source :keyboard)
   (when-let [[binding action] (seat :pending-action)]
-    (action seat binding))
+    (def action-fn (if (table? action) (action :fn) action))
+    (action-fn seat binding))
 
   (put seat :focus-source :pointer)
   (focus seat nil render-order config)

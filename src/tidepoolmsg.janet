@@ -112,6 +112,23 @@
   (def expr (string "(ipc/apply-state (parse ``" data "``))"))
   (send-eval stream expr))
 
+(defn- cmd-action [stream args]
+  (when (= (length args) 0)
+    (eprint "usage: tidepoolmsg action <name> [args...]")
+    (os/exit 1))
+  (def name (get args 0))
+  (def action-args (slice args 1))
+  (def quoted-args (string/join (map |(string/format "%q" $) action-args) " "))
+  (def expr (string "(ipc/dispatch " (string/format "%q" name)
+                     (if (> (length action-args) 0)
+                       (string " " quoted-args)
+                       "")
+                     ")"))
+  (send-eval stream expr))
+
+(defn- cmd-bindings [stream]
+  (send-eval stream "(print (json/encode (ipc/list-bindings)))"))
+
 (defn- usage []
   (eprint ```
 usage: tidepoolmsg <command> [args...]
@@ -119,6 +136,8 @@ usage: tidepoolmsg <command> [args...]
 commands:
   repl               interactive REPL (default)
   eval <expr>        evaluate a Janet expression
+  action <name> [a]  execute a named action
+  bindings           list all keybindings as JSON
   watch <topic...>   stream topic updates as JSON lines
   save               serialize current state to stdout
   load               apply state from stdin
@@ -131,12 +150,13 @@ watch topics: tags, layout, title
   (case shell
     "bash" (print ```
 _tidepoolmsg() {
-    local cur prev commands topics
+    local cur prev commands topics actions
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="repl eval watch save load help completions"
+    commands="repl eval action bindings watch save load help completions"
     topics="tags layout title"
+    actions="spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit"
 
     case "$prev" in
         tidepoolmsg)
@@ -145,9 +165,11 @@ _tidepoolmsg() {
         watch)
             COMPREPLY=($(compgen -W "$topics" -- "$cur"))
             ;;
+        action)
+            COMPREPLY=($(compgen -W "$actions" -- "$cur"))
+            ;;
     esac
 
-    # Complete topics for any arg after 'watch'
     if [[ ${COMP_WORDS[1]} == "watch" && $COMP_CWORD -ge 2 ]]; then
         COMPREPLY=($(compgen -W "$topics" -- "$cur"))
     fi
@@ -158,10 +180,12 @@ complete -F _tidepoolmsg tidepoolmsg
 #compdef tidepoolmsg
 
 _tidepoolmsg() {
-    local -a commands topics
+    local -a commands topics actions
     commands=(
         'repl:interactive REPL'
         'eval:evaluate a Janet expression'
+        'action:execute a named action'
+        'bindings:list all keybindings as JSON'
         'watch:stream topic updates as JSON lines'
         'save:serialize current state to stdout'
         'load:apply state from stdin'
@@ -169,6 +193,7 @@ _tidepoolmsg() {
         'completions:output shell completions'
     )
     topics=(tags layout title)
+    actions=(spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit)
 
     if (( CURRENT == 2 )); then
         _describe 'command' commands
@@ -176,6 +201,9 @@ _tidepoolmsg() {
         case "$words[2]" in
             watch)
                 _values 'topic' $topics
+                ;;
+            action)
+                _values 'action' $actions
                 ;;
             eval)
                 _message 'expression'
@@ -193,11 +221,14 @@ _tidepoolmsg "$@"
 complete -c tidepoolmsg -f
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a repl -d 'interactive REPL'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a eval -d 'evaluate a Janet expression'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a action -d 'execute a named action'
+complete -c tidepoolmsg -n '__fish_use_subcommand' -a bindings -d 'list all keybindings as JSON'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a watch -d 'stream topic updates as JSON lines'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a save -d 'serialize current state to stdout'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a load -d 'apply state from stdin'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a help -d 'show usage information'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a completions -d 'output shell completions'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from action' -a 'spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit'
 complete -c tidepoolmsg -n '__fish_seen_subcommand_from watch' -a 'tags layout title'
 complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
 ```)
@@ -220,6 +251,8 @@ complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zs
       nil (cmd-repl stream)
       "repl" (cmd-repl stream)
       "eval" (cmd-eval stream (slice args 2))
+      "action" (cmd-action stream (slice args 2))
+      "bindings" (cmd-bindings stream)
       "watch" (cmd-watch stream (slice args 2))
       "save" (cmd-save stream)
       "load" (cmd-load stream)

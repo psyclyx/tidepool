@@ -1,6 +1,7 @@
 (import ./state)
 (import ./persist)
 (import ./pool)
+(import ./actions :as action)
 (import spork/json)
 
 # --- Debug logging ---
@@ -169,6 +170,64 @@
     :last-tags (if last-tags :cached :nil)
     :last-layout (if last-layout :cached :nil)
     :last-title (if last-title :cached :nil)})
+
+# --- Action dispatch ---
+
+(defn- format-mods [mods]
+  "Format modifier table as a human-readable string."
+  (def parts @[])
+  (when (mods :mod4) (array/push parts "Super"))
+  (when (mods :shift) (array/push parts "Shift"))
+  (when (mods :ctrl) (array/push parts "Ctrl"))
+  (when (mods :mod1) (array/push parts "Alt"))
+  (string/join parts "+"))
+
+(defn- format-keybind [binding]
+  "Format a binding's key combo as a string like 'Super+Shift+h'."
+  (def mods-str (format-mods (binding :mods)))
+  (def key-str (string (binding :keysym)))
+  (if (> (length mods-str) 0)
+    (string mods-str "+" key-str)
+    key-str))
+
+(defn dispatch
+  "Execute an action by name with string arguments.
+  Returns true on success, or throws on unknown action."
+  [name & args]
+  (def entry (get action/registry name))
+  (when (nil? entry) (error (string "unknown action: " name)))
+  (def seat (first (state/wm :seats)))
+  (when (nil? seat) (error "no seat available"))
+  (def action-obj
+    (if-let [parse (entry :parse)]
+      ((entry :create) (parse args))
+      ((entry :create))))
+  (def action-fn (if (table? action-obj) (action-obj :fn) action-obj))
+  (action-fn seat nil)
+  true)
+
+(defn list-actions
+  "Return array of all registered actions with descriptions."
+  []
+  (sorted-by |($ "name")
+    (seq [[name entry] :pairs action/registry]
+      @{"name" name})))
+
+(defn list-bindings
+  "Return array of all keyboard bindings with action metadata and key combos."
+  []
+  (def result @[])
+  (each seat (state/wm :seats)
+    (each b (seat :xkb-bindings)
+      (def entry @{"key" (format-keybind b)})
+      (when (b :action-name)
+        (put entry "action" (b :action-name))
+        (put entry "desc" (or (b :action-desc) ""))
+        (def args (b :action-args))
+        (when (and args (> (length args) 0))
+          (put entry "args" (map string args))))
+      (array/push result entry)))
+  result)
 
 # --- Save/load wrappers ---
 
