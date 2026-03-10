@@ -156,11 +156,13 @@
 
 (defn auto-unwrap?
   "True if this pool should auto-unwrap when it has one child.
-  Only unwrap stack-v with default weights (the implicit wrapper from consume)."
+  Only unwrap stack-v with default weights (the implicit wrapper from consume).
+  Never unwrap direct children of scroll pools (rows must stay as pools)."
   [pool]
   (and (= (pool :mode) :stack-v)
        (or (nil? (pool :weights)) (empty? (pool :weights)))
-       (nil? (pool :ratio))))
+       (nil? (pool :ratio))
+       (not (and (pool :parent) (= ((pool :parent) :mode) :scroll)))))
 
 (defn maybe-unwrap
   "If pool has one child and passes auto-unwrap?, replace it with the child in the parent."

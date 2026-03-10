@@ -239,6 +239,14 @@
   (eprintf "tidepool: debug %s" (if new-val "enabled" "disabled"))
   new-val)
 
+(defn set-trace
+  "Toggle or set trace mode. Logs per-phase timing and actions. Returns current state."
+  [&opt val]
+  (def new-val (if (nil? val) (not (state/config :trace)) val))
+  (put state/config :trace new-val)
+  (eprintf "tidepool: trace %s" (if new-val "enabled" "disabled"))
+  new-val)
+
 # --- Save/load wrappers ---
 
 (defn serialize-state

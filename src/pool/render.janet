@@ -127,6 +127,11 @@
       (hide-all (get children i) placements true)))
 
   (def row (get children active-row))
+  # Guard: row must be a pool. If it's a bare window (tree corruption),
+  # render it as a single-column leaf rather than crashing.
+  (unless (pool/pool? row)
+    (render-leaf row rect placements true)
+    (break {:placements placements :animating false}))
   (def cols (row :children))
   (def num-cols (length cols))
   (when (= num-cols 0)

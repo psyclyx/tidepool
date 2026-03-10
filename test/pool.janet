@@ -216,6 +216,12 @@
   (assert= (length (outer :children)) 1 "still one child")
   (assert= (get (outer :children) 0) inner "inner preserved"))
 
+(test "auto-unwrap: scroll row does not unwrap"
+  (def a (w))
+  (def row (pool/make-pool :stack-v @[a]))
+  (def scroll (pool/make-pool :scroll @[row] @{:active-row 0}))
+  (assert (not (pool/auto-unwrap? row)) "scroll row must not unwrap"))
+
 (test "maybe-prune: removes empty pool"
   (def inner (pool/make-pool :stack-v @[]))
   (def outer (pool/make-pool :stack-h @[inner]))

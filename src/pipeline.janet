@@ -14,6 +14,21 @@
 (var profile-render-total 0)
 (var profile-cycle-total 0)
 
+# --- Trace helpers ---
+
+(defn- trace? [] (state/config :trace))
+
+(var trace-phase-start 0)
+(defn- trace-begin [phase]
+  (when (trace?)
+    (set trace-phase-start (os/clock))))
+
+(defn- trace-end [phase]
+  (when (trace?)
+    (def dt (* (- (os/clock) trace-phase-start) 1000))
+    (when (> dt 0.1)
+      (eprintf "TRACE %s: %.2fms" phase dt))))
+
 # --- Lifecycle helpers ---
 
 (defn- prune-closed []
@@ -306,12 +321,26 @@
   (def seats (state/wm :seats))
   (def render-order (state/wm :render-order))
 
+  # --- Trace: log action ---
+  (when (trace?)
+    (when-let [s (first seats)
+               pa (s :pending-action)]
+      (let [[b a] pa]
+        (eprintf "TRACE action: %s%s"
+          (if (table? a) (a :name) "anon")
+          (if (and (table? a) (a :args) (> (length (a :args)) 0))
+            (string " " (string/join (map string (a :args)) " "))
+            "")))))
+
   # --- Lifecycle (flag and destroy dead objects) ---
+  (trace-begin "lifecycle")
   (prune-closed)
   (lifecycle-start now config)
   (apply-destroys)
+  (trace-end "lifecycle")
 
   # --- Pure data computation ---
+  (trace-begin "compute")
   (def prev-positions (save-positions config))
   (sort-outputs)
   (each o outputs (output/manage o outputs))
@@ -326,26 +355,35 @@
         (insert-window-into-pool o w (first seats)))))
 
   (each s seats (seat/manage s outputs windows render-order config))
+  (trace-end "compute")
 
   # Sync pool tree state → output :tags and window :tag
+  (trace-begin "sync-tags")
   (each o outputs (output/sync-output-tags o))
   (each o outputs (pool/sync-tags (o :pool)))
+  (trace-end "sync-tags")
 
+  (trace-begin "layout")
   (clear-layout-state)
   (each o outputs (apply-pool-layout o seats config now))
   (compute-borders seats config)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)
+  (trace-end "layout")
 
   # --- Effect application ---
+  (trace-begin "effects")
   (apply-lifecycle-effects windows)
   (apply-focus-effects seats)
   (apply-borders-effects windows)
   (apply-fullscreen-effects windows outputs)
   (apply-visibility windows)
   (each o outputs (output/bg/manage (o :bg) o config state/registry))
+  (trace-end "effects")
 
+  (trace-begin "ipc")
   (ipc/emit-events outputs windows seats)
+  (trace-end "ipc")
 
   (lifecycle-finish)
   (:manage-finish (state/registry "river_window_manager_v1"))
@@ -392,14 +430,17 @@
   (def config state/config)
 
   # --- Pure data computation ---
+  (trace-begin "render-compute")
   (each w windows (window/render w outputs))
   (each w windows
     (when (animation/tick w now)
       (put state/wm :anim-active true)))
   (each w windows (window/clip-to-output w outputs config))
   (each s (state/wm :seats) (seat/render s))
+  (trace-end "render-compute")
 
   # --- Effect application ---
+  (trace-begin "render-effects")
   (each w windows
     (when (and (w :x) (w :y))
       (:set-position (w :node) (w :x) (w :y))))
@@ -416,6 +457,7 @@
         (:set-clip-box (w :obj) 0 0 0 0)
         (let [[cx cy cw ch] (w :clip-rect)]
           (:set-clip-box (w :obj) cx cy cw ch)))))
+  (trace-end "render-effects")
 
   (:render-finish (state/registry "river_window_manager_v1"))
   (when t0 (+= profile-render-total (- (os/clock) t0)))
