@@ -128,7 +128,7 @@ Applied via `zwlr_output_manager_v1` on startup.
 
 ## Actions
 
-All actions return closures for use in keybindings.
+All actions return tagged tables (`@{:fn <closure> :name :desc :args}`) for use in keybindings and IPC introspection. Actions can be fired via IPC: `tidepoolmsg action focus left`. Use `tidepoolmsg bindings` to list all keybindings with action metadata as JSON.
 
 **Window**: `spawn`, `close`, `zoom`, `float`, `fullscreen`
 
