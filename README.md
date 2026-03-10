@@ -136,15 +136,15 @@ All actions return closures for use in keybindings.
 
 **Tags**: `focus-tag`, `set-tag`, `toggle-tag`, `focus-all-tags`, `toggle-scratchpad`, `send-to-scratchpad`
 
-**Layout**: `cycle-layout`, `set-layout`, `adjust-ratio`
+**Layout**: `cycle-layout`, `set-layout`, `cycle-mode`, `set-mode`
 
-**Pool manipulation**: `consume-column`, `expel-column`, `equalize-column`, `preset-column-width`, `resize-column`, `resize-window`, `toggle-column-mode`, `set-column-sublayout`, `move-to-strip`, `resize-strip`
+**Pool manipulation**: `consume`, `expel`, `resize`, `equalize`, `cycle-width`
 
 **Input**: `pointer-move`, `pointer-resize`, `passthrough`
 
 **Session**: `restart`, `exit`
 
-All pool manipulation actions delegate to the pool tree. `consume-column` absorbs a neighbor into a group, `expel-column` moves a window out of its group, `resize-*` adjusts pool ratios/weights/widths.
+`consume` absorbs a neighbor into a group, `expel` moves a window out. `cycle-mode`/`set-mode` change the focused group's mode (stack-v, stack-h, tabbed, scroll). `resize` is context-sensitive (ratio, weight, or scroll column width). Swapping past the edge of a scroll row auto-creates/prunes rows.
 
 ## State persistence
 

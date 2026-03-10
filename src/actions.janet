@@ -236,32 +236,15 @@
 
 # --- Resize ---
 
-(defn adjust-ratio
-  "Action: adjust the split ratio by delta.
-  Works on the focused window's parent pool."
+(defn resize
+  "Action: context-sensitive resize (ratio, weight, or scroll column width)."
   [delta]
   (fn [seat binding]
     (when-let [focused (seat :focused)
                o (seat :focused-output)]
       (pool-actions/resize (o :pool) focused delta))))
 
-(defn resize-column
-  "Action: resize the focused scroll column by delta."
-  [delta]
-  (fn [seat binding]
-    (when-let [focused (seat :focused)
-               o (seat :focused-output)]
-      (pool-actions/resize (o :pool) focused delta))))
-
-(defn resize-window
-  "Action: resize the focused window's weight by delta."
-  [delta]
-  (fn [seat binding]
-    (when-let [focused (seat :focused)
-               o (seat :focused-output)]
-      (pool-actions/resize (o :pool) focused delta))))
-
-(defn preset-column-width
+(defn cycle-width
   "Action: cycle the focused column through width presets."
   []
   (fn [seat binding]
@@ -269,7 +252,7 @@
                o (seat :focused-output)]
       (pool-actions/resize (o :pool) focused :cycle))))
 
-(defn equalize-column
+(defn equalize
   "Action: reset all weights in the focused pool."
   []
   (fn [seat binding]
@@ -279,7 +262,7 @@
 
 # --- Consume/Expel ---
 
-(defn consume-column
+(defn consume
   "Action: pull adjacent sibling into focused window's group."
   [dir]
   (fn [seat binding]
@@ -287,7 +270,7 @@
                o (seat :focused-output)]
       (pool-actions/consume (o :pool) focused dir))))
 
-(defn expel-column
+(defn expel
   "Action: move focused window out of its current pool."
   []
   (fn [seat binding]
@@ -295,22 +278,9 @@
                o (seat :focused-output)]
       (pool-actions/expel (o :pool) focused))))
 
-# --- Backward compat no-ops ---
+# --- Group mode ---
 
-(defn adjust-main-count
-  "Action: no-op (main-count not applicable in pool system)."
-  [delta]
-  (fn [seat binding] nil))
-
-(defn adjust-column-width
-  "Action: adjust the default column width by delta."
-  [delta]
-  (fn [seat binding]
-    (when-let [focused (seat :focused)
-               o (seat :focused-output)]
-      (pool-actions/resize (o :pool) focused delta))))
-
-(defn toggle-column-mode
+(defn cycle-mode
   "Action: cycle the focused window's parent pool mode."
   []
   (fn [seat binding]
@@ -318,29 +288,13 @@
                o (seat :focused-output)]
       (pool-actions/set-mode (o :pool) focused :next :parent))))
 
-(defn set-column-sublayout
+(defn set-mode
   "Action: set the mode on the focused window's parent pool."
   [mode]
   (fn [seat binding]
     (when-let [focused (seat :focused)
                o (seat :focused-output)]
-      (pool-actions/set-mode (o :pool) focused (or mode :stack-v) :parent))))
-
-(defn move-to-strip
-  "Action: swap focused window across scroll rows."
-  [dir]
-  (fn [seat binding]
-    (when-let [focused (seat :focused)
-               o (seat :focused-output)]
-      (pool-actions/swap (o :pool) focused dir))))
-
-(defn resize-strip
-  "Action: resize the focused strip (pool weight)."
-  [delta]
-  (fn [seat binding]
-    (when-let [focused (seat :focused)
-               o (seat :focused-output)]
-      (pool-actions/resize (o :pool) focused delta))))
+      (pool-actions/set-mode (o :pool) focused mode :parent))))
 
 # --- Input ---
 
