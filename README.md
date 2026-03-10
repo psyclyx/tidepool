@@ -14,7 +14,7 @@ zig build
 
 ### Nix
 
-```nix
+```sh
 # overlay.nix provides a package overlay
 # package.nix can be called directly with callPackage
 nix build
@@ -30,12 +30,17 @@ tidepool [init-path]
 
 A netrepl server is created at `$XDG_RUNTIME_DIR/tidepool-$WAYLAND_DISPLAY` for live interaction.
 
-`tidepoolmsg` sends commands and queries over the netrepl socket:
+### tidepoolmsg
+
+CLI client for the netrepl socket.
 
 ```sh
-tidepoolmsg save > layout.jdn    # serialize layout tree
-tidepoolmsg load < layout.jdn    # restore layout tree
-tidepoolmsg eval '(pp (state/wm :outputs))'
+tidepoolmsg repl                         # interactive REPL
+tidepoolmsg eval '<expression>'          # evaluate Janet expression
+tidepoolmsg watch tags layout title      # stream updates as JSON lines
+tidepoolmsg save > layout.jdn            # serialize state to stdout
+tidepoolmsg load < layout.jdn            # restore state from stdin
+tidepoolmsg completions bash             # output shell completions (bash/zsh/fish)
 ```
 
 ## Layout model
@@ -78,27 +83,29 @@ The init script runs in the tidepool environment with `config` and `wm` tables a
 |-----|---------|-------------|
 | `:default-layout` | `:master-stack` | Initial layout for new outputs |
 | `:layouts` | all six | Layout cycle order |
-| `:border-width` | `4` | Border thickness in pixels |
-| `:outer-padding` | `4` | Gap between windows and output edge |
-| `:inner-padding` | `8` | Gap between windows |
 | `:main-ratio` | `0.55` | Master area ratio (master-stack, centered-master) |
 | `:main-count` | `1` | Number of master windows |
 | `:dwindle-ratio` | `0.5` | Split ratio for dwindle |
 | `:column-width` | `0.5` | Default scroll column width as fraction |
 | `:column-presets` | `[0.333 0.5 0.667 1.0]` | Preset widths for scroll columns |
 | `:column-row-height` | `0` | Scroll row height ratio (0 = fill) |
-| `:animate` | `true` | Enable animations |
-| `:animation-duration` | `0.2` | Animation duration in seconds |
-| `:background` | `0x000000` | Background color (RGB hex) |
-| `:wallpaper` | `nil` | File path for image, `true` for transparent (external daemon), `nil` for solid color |
+| `:border-width` | `4` | Border thickness in pixels |
+| `:outer-padding` | `4` | Gap between windows and output edge |
+| `:inner-padding` | `8` | Gap between windows |
 | `:border-focused` | `0xffffff` | Focused border color |
 | `:border-normal` | `0x646464` | Unfocused border color |
 | `:border-urgent` | `0xff0000` | Urgent border color |
 | `:border-tabbed` | `0x88aaff` | Tabbed group border color |
-| `:debug` | `false` | Frame profiling and verbose logging to stderr |
+| `:background` | `0x000000` | Background color (RGB hex) |
+| `:wallpaper` | `nil` | File path for image, `true` for transparent (external daemon), `nil` for solid color |
+| `:animate` | `true` | Enable animations |
+| `:animation-duration` | `0.2` | Animation duration in seconds |
 | `:warp-pointer` | `false` | Warp pointer to focused window |
 | `:xcursor-theme` | `"Adwaita"` | Cursor theme name |
 | `:xcursor-size` | `24` | Cursor size |
+| `:indicator-file` | `true` | Write tag/layout status to `$XDG_RUNTIME_DIR/tidepool-*` files |
+| `:indicator-notify` | `true` | Send layout change notifications via `notify-send` |
+| `:debug` | `false` | Frame profiling and verbose logging to stderr |
 | `:rules` | `@[]` | Window match rules |
 | `:outputs` | -- | Output configuration map |
 
@@ -141,13 +148,13 @@ All actions return closures for use in keybindings.
 
 **Window**: `spawn`, `close`, `zoom`, `float`, `fullscreen`
 
-**Focus/navigation**: `focus`, `swap`, `focus-output`, `focus-last`, `send-to-output`
+**Focus/navigation**: `focus`, `swap`, `focus-output`, `send-to-output`, `focus-last`
 
 **Tags**: `focus-tag`, `set-tag`, `toggle-tag`, `focus-all-tags`, `toggle-scratchpad`, `send-to-scratchpad`
 
 **Layout**: `cycle-layout`, `set-layout`, `adjust-ratio`, `adjust-main-count`
 
-**Scroll**: `adjust-column-width`, `resize-column`, `resize-window`, `preset-column-width`, `equalize-column`, `consume-column`, `expel-column`
+**Scroll**: `adjust-column-width`, `resize-column`, `resize-window`, `preset-column-width`, `equalize-column`, `consume-column`, `expel-column`, `toggle-column-mode`, `set-column-sublayout`, `move-to-strip`, `resize-strip`
 
 **Input**: `pointer-move`, `pointer-resize`, `passthrough`
 
@@ -161,15 +168,16 @@ The pool system consolidates the above into 13 actions that work uniformly acros
 
 ## State persistence
 
-Layout state is saved to `$XDG_RUNTIME_DIR/tidepool-$WAYLAND_DISPLAY-state.jdn` on every manage cycle. On restart, windows are matched by `(app-id, title)` and restored to their previous positions.
+State is serialized and restored on demand via `tidepoolmsg save`/`load`. Windows are matched by `(app-id, title)` and placed back into their previous positions. The pool system serializes the full tree as pretty-printed JDN.
 
-The pool system serializes the full tree as pretty-printed JDN via `tidepoolmsg save`/`load`.
+Tag/layout indicator status is written to `$XDG_RUNTIME_DIR/tidepool-tags` and `$XDG_RUNTIME_DIR/tidepool-layout` each manage cycle when `:indicator-file` is enabled.
 
 ## Project structure
 
 ```
 src/
   tidepool.janet          entry point: protocol setup, config, event dispatch
+  tidepoolmsg.janet       CLI client for netrepl socket
   state.janet             shared mutable state tables
   pipeline.janet          per-frame manage/render lifecycle
   output.janet            output lifecycle, backgrounds, wallpaper
@@ -178,11 +186,10 @@ src/
   seat.janet              seat, focus, pointer, XKB bindings
   actions.janet           keybinding action functions
   animation.janet         animation system (ease-out-cubic)
-  indicator.janet         waybar indicator file writing
-  ipc.janet               netrepl IPC and state serialization
+  ipc.janet               netrepl IPC, JSON event streaming
+  persist.janet           state serialization for save/load
+  indicator.janet         waybar status file writing
   image.janet             image decoding into wl_shm buffers
-  persist.janet           state persistence across restarts
-  tidepoolmsg.janet       CLI client for netrepl socket
   pool.janet              pool tree primitives (make, insert, remove, walk, find)
   pool/
     render.janet            recursive pool rendering
