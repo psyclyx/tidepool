@@ -3,11 +3,7 @@
 
 (import ../src/pool)
 
-# Stub persistence module — replace with real import when implemented:
-# (import ../src/pool/persist)
-(defn serialize [outputs] (error "pool/persist/serialize not yet implemented"))
-(defn restore [data windows] (error "pool/persist/restore not yet implemented"))
-(defn pp-jdn [val &opt indent] (error "pool/persist/pp-jdn not yet implemented"))
+(import ../src/pool/persist)
 
 (var test-count 0)
 (var fail-count 0)
@@ -47,7 +43,7 @@
   (def tag (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
   (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
   (def output @{:connector "DP-1" :pool root})
-  (def result (serialize @[output]))
+  (def result (persist/serialize @[output]))
   # Result should be a string (JDN)
   (assert (string? result) "result is a string")
   # Parse it back
@@ -74,7 +70,7 @@
   (def row (pool/make-pool :stack-v @[group]))
   (def tag (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
   (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (def result (serialize @[@{:connector "DP-1" :pool root}]))
+  (def result (persist/serialize @[@{:connector "DP-1" :pool root}]))
   (def parsed (parse result))
   (def out-p (get (get (parsed :outputs) 0) :pool))
   (def tag-p (get (out-p :children) 0))
@@ -91,7 +87,7 @@
   (def tag (pool/make-pool :scroll @[(pool/make-pool :stack-v @[a])]
             @{:id :main :active-row 0 :scroll-offset-x @{0 150}}))
   (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (def result (serialize @[@{:connector "DP-1" :pool root}]))
+  (def result (persist/serialize @[@{:connector "DP-1" :pool root}]))
   (def parsed (parse result))
   (def out-p2 (get (get (parsed :outputs) 0) :pool))
   (def tag-p (get (out-p2 :children) 0))
@@ -106,7 +102,7 @@
   (def tag (pool/make-pool :scroll @[row]
             @{:id :main :active-row 0 :scroll-offset-x @{0 500}}))
   (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (def result (serialize @[@{:connector "DP-1" :pool root}]))
+  (def result (persist/serialize @[@{:connector "DP-1" :pool root}]))
   (def parsed (parse result))
   (def out-p3 (get (get (parsed :outputs) 0) :pool))
   (def tag-p (get (out-p3 :children) 0))
@@ -121,7 +117,7 @@
   (def foot (w "foot" "~"))
   (def firefox (w "firefox" "GitHub"))
   (def windows @[foot firefox])
-  (def result (restore (parse saved) windows))
+  (def result (persist/restore (parse saved) windows))
   # Result should be a table of outputs with restored pool trees
   (def out (get (result :outputs) 0))
   (assert= (out :connector) "DP-1")
@@ -138,7 +134,7 @@
   (def saved `@{:outputs @[@{:connector "DP-1" :pool @{:mode :tabbed :active 0 :children @[@{:mode :scroll :id :main :active-row 0 :children @[@{:mode :stack-v :children @[@{:app-id "foot" :title "~"} @{:app-id "emacs" :title "scratch"}]}]}]}}]}`)
   # Only foot is available, emacs is not
   (def foot (w "foot" "~"))
-  (def result (restore (parse saved) @[foot]))
+  (def result (persist/restore (parse saved) @[foot]))
   (def leaves (pool/collect-windows (get (get (result :outputs) 0) :pool)))
   # Only foot should be in the tree, emacs leaf pruned
   (assert= (length leaves) 1)
@@ -148,7 +144,7 @@
   (def saved `@{:outputs @[@{:connector "DP-1" :pool @{:mode :tabbed :active 0 :children @[@{:mode :scroll :id :main :active-row 0 :children @[@{:mode :stack-v :children @[@{:app-id "foot" :title "~"}]}]}]}}]}`)
   (def foot (w "foot" "~"))
   (def extra (w "alacritty" "bash"))
-  (def result (restore (parse saved) @[foot extra]))
+  (def result (persist/restore (parse saved) @[foot extra]))
   (def leaves (pool/collect-windows (get (get (result :outputs) 0) :pool)))
   # Both should be in the tree — extra appended
   (assert= (length leaves) 2 "unmatched window appended"))
@@ -158,7 +154,7 @@
   (def t1 (w "foot" "~"))
   (def t2 (w "foot" "~"))
   (def t3 (w "foot" "~"))
-  (def result (restore (parse saved) @[t1 t2 t3]))
+  (def result (persist/restore (parse saved) @[t1 t2 t3]))
   (def leaves (pool/collect-windows (get (get (result :outputs) 0) :pool)))
   (assert= (length leaves) 3 "all 3 terminals matched")
   # Order should be preserved (first match wins)
@@ -170,7 +166,7 @@
   (def saved `@{:outputs @[@{:connector "DP-1" :pool @{:mode :tabbed :active 0 :children @[@{:mode :stack-v :id :main :children @[@{:app-id "foot" :title "~"} @{:app-id "firefox" :title "Docs"}]}]}}]}`)
   (def foot (w "foot" "~"))
   (def firefox (w "firefox" "Docs"))
-  (def result (restore (parse saved) @[foot firefox]))
+  (def result (persist/restore (parse saved) @[foot firefox]))
   (def p (get (get (result :outputs) 0) :pool))
   # Every child should have :parent set
   (assert (foot :parent) "foot has parent")
@@ -181,7 +177,7 @@
 (test "restore: empty pool after pruning is removed"
   (def saved `@{:outputs @[@{:connector "DP-1" :pool @{:mode :tabbed :active 0 :children @[@{:mode :scroll :id :main :active-row 0 :children @[@{:mode :stack-v :children @[@{:mode :stack-v :children @[@{:app-id "gone" :title "x"}]}]}]}]}}]}`)
   # No windows available — entire inner pool should be pruned
-  (def result (restore (parse saved) @[]))
+  (def result (persist/restore (parse saved) @[]))
   (def tag (get (get (result :outputs) 0) :pool))
   # Tag should still exist (tags never pruned) but be empty or have empty row
   (assert= (tag :mode) :tabbed "root persists"))
@@ -190,14 +186,14 @@
 
 (test "pp-jdn: produces valid parseable JDN"
   (def data @{:mode :tabbed :active 0 :children @[@{:app-id "foot" :title "~"}]})
-  (def result (pp-jdn data))
+  (def result (persist/pp-jdn data))
   (assert (string? result) "result is string")
   (def parsed (parse result))
   (assert= (parsed :mode) :tabbed "round-trips"))
 
 (test "pp-jdn: nested structure is indented"
   (def data @{:mode :tabbed :children @[@{:mode :stack-v :children @[@{:app-id "a" :title "b"}]}]})
-  (def result (pp-jdn data))
+  (def result (persist/pp-jdn data))
   # Should contain newlines (pretty-printed)
   (assert (string/find "\n" result) "contains newlines")
   # Should contain indentation
@@ -205,7 +201,7 @@
 
 (test "pp-jdn: empty children"
   (def data @{:mode :tabbed :children @[]})
-  (def result (pp-jdn data))
+  (def result (persist/pp-jdn data))
   (def parsed (parse result))
   (assert-deep= (parsed :children) @[] "empty children round-trip"))
 
@@ -219,12 +215,12 @@
   (def row (pool/make-pool :stack-v @[a group]))
   (def tag (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
   (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (def serialized (serialize @[@{:connector "DP-1" :pool root}]))
+  (def serialized (persist/serialize @[@{:connector "DP-1" :pool root}]))
   # Create fresh windows
   (def a2 (w "foot" "term1"))
   (def b2 (w "firefox" "GitHub"))
   (def c2 (w "foot" "term2"))
-  (def result (restore (parse serialized) @[a2 b2 c2]))
+  (def result (persist/restore (parse serialized) @[a2 b2 c2]))
   (def restored-pool (get (get (result :outputs) 0) :pool))
   # Structure check: tabbed > scroll > stack-v > [window, tabbed > [window, window]]
   (assert= (restored-pool :mode) :tabbed)
@@ -245,11 +241,11 @@
   (def root1 (pool/make-pool :tabbed @[tag1] @{:active 0}))
   (def tag2 (pool/make-pool :stack-v @[b] @{:id :main}))
   (def root2 (pool/make-pool :tabbed @[tag2] @{:active 0}))
-  (def serialized (serialize @[@{:connector "DP-1" :pool root1}
+  (def serialized (persist/serialize @[@{:connector "DP-1" :pool root1}
                                 @{:connector "HDMI-1" :pool root2}]))
   (def a2 (w "foot" "~"))
   (def b2 (w "foot" "~"))
-  (def result (restore (parse serialized) @[a2 b2]))
+  (def result (persist/restore (parse serialized) @[a2 b2]))
   (assert= (length (result :outputs)) 2 "both outputs restored")
   (assert= (get (get (result :outputs) 0) :connector) "DP-1")
   (assert= (get (get (result :outputs) 1) :connector) "HDMI-1"))
