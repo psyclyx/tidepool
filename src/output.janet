@@ -134,11 +134,15 @@
     (filter |(and (tags ($ :tag)) (not ($ :closing))) windows)))
 
 (defn usable-area
-  "Get the output area excluding layer shell exclusive zones."
-  [output]
-  (if-let [[x y w h] (output :non-exclusive-area)]
-    {:x x :y y :w w :h h}
-    {:x (output :x) :y (output :y) :w (output :w) :h (output :h)}))
+  "Get the output area excluding layer shell exclusive zones, inset by outer padding."
+  [output &opt config]
+  (def pad (if config (or (config :outer-padding) 0) 0))
+  (def [x y w h]
+    (if-let [[ex ey ew eh] (output :non-exclusive-area)]
+      [ex ey ew eh]
+      [(output :x) (output :y) (output :w) (output :h)]))
+  {:x (+ x pad) :y (+ y pad)
+   :w (- w (* 2 pad)) :h (- h (* 2 pad))})
 
 (defn manage-start
   "Cache state and flag removed outputs for destruction."

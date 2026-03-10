@@ -114,14 +114,33 @@
           (def grandparent (parent :parent))
           (when grandparent
             (when (= (grandparent :mode) :scroll)
-              # Cross scroll rows
+              # Cross scroll rows — create new row if at edge
               (def active-row (or (grandparent :active-row) 0))
               (def next-row (+ active-row (dir-delta dir)))
-              (when (and (>= next-row 0) (< next-row (length (grandparent :children))))
-                (pool/remove-child parent idx)
-                (def target-row (get (grandparent :children) next-row))
-                (pool/append-child target-row focused)
-                (put grandparent :active-row next-row)))))))
+              (def num-rows (length (grandparent :children)))
+              (if (and (>= next-row 0) (< next-row num-rows))
+                (do
+                  (pool/remove-child parent idx)
+                  (def target-row (get (grandparent :children) next-row))
+                  (pool/append-child target-row focused)
+                  # Prune empty source row and adjust active-row
+                  (if (= (length (parent :children)) 0)
+                    (do
+                      (pool/maybe-prune parent)
+                      # After pruning, target-row may have shifted
+                      (def new-idx (pool/child-index grandparent target-row))
+                      (put grandparent :active-row (or new-idx 0)))
+                    (put grandparent :active-row next-row)))
+                # At edge of scroll — create a new row
+                (do
+                  (pool/remove-child parent idx)
+                  (def new-row (pool/make-pool :stack-v @[focused]))
+                  (def insert-idx (if (> (dir-delta dir) 0) num-rows active-row))
+                  (pool/insert-child grandparent new-row insert-idx)
+                  (put grandparent :active-row insert-idx)
+                  # Prune old row if it's now empty
+                  (when (= (length (parent :children)) 0)
+                    (pool/maybe-prune parent)))))))))
     # Direction doesn't match mode — no-op at this level
     nil))
 

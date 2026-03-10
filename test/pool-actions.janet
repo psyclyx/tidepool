@@ -188,6 +188,40 @@
   (actions/swap p a :down)
   (assert= (p :active) 1 ":active follows the window"))
 
+(test "swap: auto-create new row when moving down past last scroll row"
+  (def a (w "a"))
+  (def b (w "b"))
+  (def row0 (pool/make-pool :stack-v @[b a]))
+  (def p (pool/make-pool :scroll @[row0] @{:active-row 0}))
+  # a is at bottom of only row, swap :down should create a new row below
+  (actions/swap p a :down)
+  (assert= (length (p :children)) 2 "new row created")
+  (assert= (a :parent) (get (p :children) 1) "a is in new row")
+  (assert= (p :active-row) 1 "active row follows")
+  (assert= (length (row0 :children)) 1 "old row has b left"))
+
+(test "swap: auto-create new row when moving up past first scroll row"
+  (def a (w "a"))
+  (def b (w "b"))
+  (def row0 (pool/make-pool :stack-v @[a b]))
+  (def p (pool/make-pool :scroll @[row0] @{:active-row 0}))
+  # a is at top of only row, swap :up should create a new row above
+  (actions/swap p a :up)
+  (assert= (length (p :children)) 2 "new row created")
+  (assert= (a :parent) (get (p :children) 0) "a is in new row at top")
+  (assert= (p :active-row) 0 "active row is 0"))
+
+(test "swap: auto-prune empty row after moving last window out"
+  (def a (w "a"))
+  (def b (w "b"))
+  (def row0 (pool/make-pool :stack-v @[a]))
+  (def row1 (pool/make-pool :stack-v @[b]))
+  (def p (pool/make-pool :scroll @[row0 row1] @{:active-row 0}))
+  # a is alone in row0, swap :down moves to row1 — row0 becomes empty and should be pruned
+  (actions/swap p a :down)
+  (assert= (length (p :children)) 1 "empty row pruned")
+  (assert= (a :parent) (get (p :children) 0) "a joined row with b"))
+
 # ===== zoom =====
 
 (test "zoom: move to first position in parent"

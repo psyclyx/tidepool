@@ -138,7 +138,7 @@
     (eachp [idx vis] ma
       (when (and vis (not= idx active) (< idx (length (root :children))))
         (array/push tags-to-render idx))))
-  (def usable (output/usable-area o))
+  (def usable (output/usable-area o config))
   (def focused (when-let [seat (first seats)] (seat :focused)))
   (each tag-idx tags-to-render
     (def tag-pool (get (root :children) tag-idx))
@@ -148,7 +148,7 @@
       (when (result :animating)
         (put state/wm :anim-active true)))))
 
-(defn- is-in-tabbed-pool?
+(defn- in-tabbed-pool?
   "True if window is the active child of a tabbed pool."
   [window]
   (when-let [parent (window :parent)]
@@ -156,14 +156,26 @@
       (def active (or (parent :active) 0))
       (= (get (parent :children) active) window))))
 
+(defn- sibling-of-focused?
+  "True if window shares a non-tag parent pool with the focused window."
+  [window focused]
+  (when (and focused (not= window focused))
+    (when-let [fp (focused :parent)
+               wp (window :parent)]
+      # Same parent, and that parent isn't a tag pool (has a grandparent)
+      (and (= fp wp) (fp :parent) ((fp :parent) :parent)))))
+
 (defn- compute-borders [seats config]
+  (def focused (when-let [s (first seats)] (s :focused)))
   (each w (state/wm :windows)
     (when (not (w :closing))
       (if (find |(= ($ :focused) w) seats)
-        (if (is-in-tabbed-pool? w)
+        (if (in-tabbed-pool? w)
           (window/set-borders w :tabbed config)
           (window/set-borders w :focused config))
-        (window/set-borders w :normal config)))))
+        (if (sibling-of-focused? w focused)
+          (window/set-borders w :sibling config)
+          (window/set-borders w :normal config))))))
 
 (defn- start-animations [prev-positions now config]
   (when (config :animate)
