@@ -23,13 +23,10 @@
          (= min-w max-w) (= min-h max-h))))
 
 (defn set-float
-  "Set floating state and clear column layout attributes."
+  "Set floating state."
   [window float]
   (put window :float float)
-  (put window :float-changed true)
-  (put window :column nil)
-  (put window :col-width nil)
-  (put window :col-weight nil))
+  (put window :float-changed true))
 
 (defn set-fullscreen
   "Enter or exit fullscreen (pure data mutation)."
@@ -65,13 +62,6 @@
           (set max-overlap overlap)
           (set max-output o))))
     max-output))
-
-(defn update-tag
-  "Reassign the window's tag to match its most-overlapping output."
-  [window outputs]
-  (when-let [o (max-overlap-output window outputs)]
-    (unless (= o (tag-output window outputs))
-      (put window :tag (or (min-of (keys (o :tags))) 1)))))
 
 (defn match-rule
   "Apply config rules matching the window's app-id/title."
@@ -118,7 +108,7 @@
   [window config seats]
   (when (window :new)
     (put window :needs-ssd true)
-    (if-let [parent (window :parent)]
+    (if-let [parent (window :wl-parent)]
       (do
         (set-float window true)
         (put window :tag (parent :tag))
@@ -128,9 +118,13 @@
         (set-float window false)
         (when (fixed-size? window)
           (set-float window true))
+        # Set preliminary tag from focused output's active pool tag
         (when-let [seat (first seats)
                    o (seat :focused-output)]
-          (put window :tag (or (min-of (keys (o :tags))) 1)))
+          (when-let [root (o :pool)]
+            (def active (or (root :active) 0))
+            (when-let [tag (get (root :children) active)]
+              (put window :tag (tag :id)))))
         (match-rule window (config :rules)))))
 
   (match (window :fullscreen-requested)
@@ -171,7 +165,7 @@
       [:dimensions w h] (do (put window :w w) (put window :h h))
       [:app-id app-id] (put window :app-id app-id)
       [:title title] (put window :title title)
-      [:parent parent] (put window :parent (if parent (:get-user-data parent)))
+      [:parent parent] (put window :wl-parent (if parent (:get-user-data parent)))
       [:decoration-hint hint] (put window :decoration-hint hint)
       [:pointer-move-requested seat]
         (put window :pointer-move-requested {:seat (:get-user-data seat)})
@@ -191,6 +185,7 @@
   (def rgb (case status
              :normal (config :border-normal)
              :focused (config :border-focused)
+             :tabbed (config :border-tabbed)
              :urgent (config :border-urgent)))
   (put window :border-status status)
   (put window :border-rgb rgb)
@@ -200,7 +195,7 @@
   "Center unplaced windows (e.g. dialogs) on their parent output."
   [window outputs]
   (when (and (not (window :x)) (window :w))
-    (if-let [o (max-overlap-output (window :parent) outputs)]
+    (if-let [o (max-overlap-output (window :wl-parent) outputs)]
       (set-position window
                     (+ (o :x) (div (- (o :w) (window :w)) 2))
                     (+ (o :y) (div (- (o :h) (window :h)) 2)))

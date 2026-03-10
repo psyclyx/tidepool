@@ -16,20 +16,30 @@
   (def focused-str (string/join (map string focused-tags) ","))
 
   (def global-tags (string "focused:" focused-str " occupied:" occupied-str))
+
   (def global-layout
-    (when focused-output (string (focused-output :layout) "\n")))
+    (when focused-output
+      (when-let [root (focused-output :pool)]
+        (def active (or (root :active) 0))
+        (when-let [tag (get (root :children) active)]
+          (string (tag :mode) "\n")))))
 
   (def per-output @[])
   (each o outputs
     (def output-tags (sorted (keys (o :tags))))
     (def output-str (string/join (map string output-tags) ","))
     (def active (= o focused-output))
+    (def layout-name
+      (when-let [root (o :pool)]
+        (def a (or (root :active) 0))
+        (when-let [tag (get (root :children) a)]
+          (string (tag :mode)))))
     (array/push per-output
       @{:x (o :x) :y (o :y)
         :tags-str (string "focused:" output-str
                           " occupied:" occupied-str
                           " active:" (if active "true" "false"))
-        :layout-str (string (o :layout) "\n")}))
+        :layout-str (string (or layout-name "unknown") "\n")}))
 
   @{:global-tags global-tags
     :global-layout global-layout
@@ -52,13 +62,18 @@
 (defn layout-changed
   "Notify layout change via files and optionally notify-send."
   [o config]
+  (def layout-name
+    (when-let [root (o :pool)]
+      (def active (or (root :active) 0))
+      (when-let [tag (get (root :children) active)]
+        (string (tag :mode)))))
   (when (config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
-      (def name (string (o :layout)))
-      (spit (string rd "/tidepool-layout") (string name "\n"))
-      (spit (string rd "/tidepool-layout-" (o :x) "," (o :y)) (string name "\n"))))
+      (spit (string rd "/tidepool-layout") (string (or layout-name "") "\n"))
+      (spit (string rd "/tidepool-layout-" (o :x) "," (o :y))
+            (string (or layout-name "") "\n"))))
   (when (config :indicator-notify)
     (ev/spawn (os/proc-wait
       (os/spawn ["notify-send" "-t" "1000"
                  "-h" "string:x-canonical-private-synchronous:tidepool-layout"
-                 "Layout" (string (o :layout))] :p)))))
+                 "Layout" (or layout-name "unknown")] :p)))))

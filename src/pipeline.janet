@@ -4,7 +4,9 @@
 (import ./seat)
 (import ./animation)
 (import ./ipc)
-(import ./layout)
+(import ./pool)
+(import ./pool/render :as pool-render)
+(import ./pool/actions :as pool-actions)
 
 (var profile-last-manage 0)
 (var profile-count 0)
@@ -19,6 +21,12 @@
 
 (defn- lifecycle-start [now config]
   (each o (state/wm :outputs) (output/manage-start o))
+  # Remove closed windows from pool tree before manage-start
+  (each w (state/wm :windows)
+    (when (and (w :closed) (not (w :closing)))
+      (when-let [parent (w :parent)]
+        (when (parent :children)
+          (pool-actions/remove-window nil w)))))
   (each w (state/wm :windows) (window/manage-start w now config))
   (each s (state/wm :seats) (seat/manage-start s)))
 
@@ -75,17 +83,6 @@
     (put w :scroll-placed nil))
   (put state/wm :anim-active false))
 
-
-(defn- sanitize []
-  (each w (state/wm :windows)
-    (when (and (not (w :closing)) (not (w :closed)))
-      (when-let [cw (w :col-width)]
-        (when (or (< cw 0.1) (> cw 1.0))
-          (put w :col-width nil)))
-      (when-let [cw (w :col-weight)]
-        (when (<= cw 0)
-          (put w :col-weight nil))))))
-
 (defn- dispatch-pointer-ops [render-order config]
   (each w (state/wm :windows)
     (when-let [move (w :pointer-move-requested)]
@@ -93,11 +90,79 @@
     (when-let [resize (w :pointer-resize-requested)]
       (seat/pointer-resize (resize :seat) w (resize :edges) render-order config))))
 
+# --- Pool tree integration ---
+
+(defn- insert-window-into-pool
+  "Insert a new tiled window into the focused output's active tag pool."
+  [output window seat]
+  (def root (output :pool))
+  (def active (or (root :active) 0))
+  (def tag-pool (get (root :children) active))
+  (when (nil? tag-pool) (break))
+  # Try to insert after the focused window if it's in this tag pool
+  (if-let [focused (and seat (seat :focused))
+           _ (pool/find-window tag-pool focused)]
+    (pool-actions/insert-window root focused window)
+    # Otherwise append to the tag pool
+    (if (= (tag-pool :mode) :scroll)
+      (do
+        (if (> (length (tag-pool :children)) 0)
+          (let [row (get (tag-pool :children)
+                         (or (tag-pool :active-row) 0))]
+            (pool/append-child row window))
+          (let [row (pool/make-pool :stack-v @[window])]
+            (pool/append-child tag-pool row)
+            (put tag-pool :active-row 0))))
+      (pool/append-child tag-pool window))))
+
+(defn- apply-geometry
+  "Store computed geometry on window tables."
+  [results config]
+  (each r results
+    (when (r :scroll-placed) (put (r :window) :scroll-placed true))
+    (if (r :hidden)
+      (put (r :window) :layout-hidden true)
+      (do
+        (window/set-position (r :window) (r :x) (r :y))
+        (window/propose-dimensions (r :window) (r :w) (r :h) config)))))
+
+(defn- apply-pool-layout
+  "Render the active tag pools for an output."
+  [o seats config now]
+  (def root (o :pool))
+  (when (nil? root) (break))
+  (def active (or (root :active) 0))
+  # Collect active tag indices to render
+  (def tags-to-render @[active])
+  (when-let [ma (root :multi-active)]
+    (eachp [idx vis] ma
+      (when (and vis (not= idx active) (< idx (length (root :children))))
+        (array/push tags-to-render idx))))
+  (def usable (output/usable-area o))
+  (def focused (when-let [seat (first seats)] (seat :focused)))
+  (each tag-idx tags-to-render
+    (def tag-pool (get (root :children) tag-idx))
+    (when tag-pool
+      (def result (pool-render/render-pool tag-pool usable config focused now))
+      (apply-geometry (result :placements) config)
+      (when (result :animating)
+        (put state/wm :anim-active true)))))
+
+(defn- is-in-tabbed-pool?
+  "True if window is the active child of a tabbed pool."
+  [window]
+  (when-let [parent (window :parent)]
+    (when (and (parent :children) (= (parent :mode) :tabbed))
+      (def active (or (parent :active) 0))
+      (= (get (parent :children) active) window))))
+
 (defn- compute-borders [seats config]
   (each w (state/wm :windows)
     (when (not (w :closing))
       (if (find |(= ($ :focused) w) seats)
-        (window/set-borders w :focused config)
+        (if (is-in-tabbed-pool? w)
+          (window/set-borders w :tabbed config)
+          (window/set-borders w :focused config))
         (window/set-borders w :normal config)))))
 
 (defn- start-animations [prev-positions now config]
@@ -125,49 +190,30 @@
               now config)))))))
 
 (defn- compute-visibility [outputs windows]
-  (def all-tags @{})
+  # Collect all windows that are in active tag pools
+  (def active-set @{})
   (each o outputs
-    (merge-into all-tags (o :tags)))
+    (when-let [root (o :pool)]
+      (def active (or (root :active) 0))
+      (when (< active (length (root :children)))
+        (each w (pool/collect-windows (get (root :children) active))
+          (put active-set w true)))
+      (when-let [ma (root :multi-active)]
+        (eachp [idx vis] ma
+          (when (and vis (not= idx active) (< idx (length (root :children))))
+            (each w (pool/collect-windows (get (root :children) idx))
+              (put active-set w true)))))))
   (each w windows
     (put w :visible
       (if (or (w :closing)
-              (and (all-tags (w :tag))
-                   (or (not (w :layout-hidden)) (w :anim))))
+              (and (active-set w)
+                   (or (not (w :layout-hidden)) (w :anim)))
+              (and (w :float) (not (w :closing))
+                   (let [tags @{}]
+                     (each o outputs
+                       (merge-into tags (o :tags)))
+                     (tags (w :tag)))))
         true false))))
-
-(defn reconcile-tags
-  ``Enforce tag invariants: each tag 1-9 on at most one output (focused wins),
-  tag 0 (scratchpad) exempt, every output has at least one tag,
-  and primary-tag changes trigger layout save/restore.``
-  [outputs focused tag-layouts]
-
-  # Tags 1-9: focused output wins conflicts
-  (when focused
-    (for tag 1 10
-      (when ((focused :tags) tag)
-        (each o outputs
-          (when (not= o focused)
-            (put (o :tags) tag nil))))))
-
-  # Assign orphaned tags to empty outputs
-  (for tag 1 10
-    (unless (find |(($ :tags) tag) outputs)
-      (when-let [o (find |(empty? ($ :tags)) outputs)]
-        (put (o :tags) tag true))))
-
-  # Save/restore per-tag layouts on primary-tag change
-  (each o outputs
-    (def prev (o :primary-tag))
-    (def curr (min-of (keys (o :tags))))
-    (when (not= prev curr)
-      (when prev
-        (put tag-layouts prev
-             @{:layout (o :layout)
-               :params (table/clone (o :layout-params))}))
-      (when-let [saved (get tag-layouts curr)]
-        (put o :layout (saved :layout))
-        (merge-into (o :layout-params) (saved :params)))
-      (put o :primary-tag curr))))
 
 # --- Effect application passes ---
 
@@ -259,16 +305,22 @@
   (each o outputs (output/manage o outputs))
   (each w windows (window/manage w config seats))
   (dispatch-pointer-ops render-order config)
+
+  # Insert new tiled windows into pool trees
+  (each w windows
+    (when (and (w :new) (not (w :float)) (not (w :closing)) (not (w :wl-parent)))
+      (when-let [o (or (and (first seats) ((first seats) :focused-output))
+                       (first outputs))]
+        (insert-window-into-pool o w (first seats)))))
+
   (each s seats (seat/manage s outputs windows render-order config))
-  (reconcile-tags outputs
-                  (when-let [s (first seats)] (s :focused-output))
-                  state/tag-layouts)
-  (sanitize)
+
+  # Sync pool tree state → output :tags and window :tag
+  (each o outputs (output/sync-output-tags o))
+  (each o outputs (pool/sync-tags (o :pool)))
+
   (clear-layout-state)
-  (each o outputs (layout/apply o windows seats config now))
-  (each o outputs
-    (when (get-in o [:layout-params :scroll-animating])
-      (put state/wm :anim-active true)))
+  (each o outputs (apply-pool-layout o seats config now))
   (compute-borders seats config)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)

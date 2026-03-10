@@ -103,7 +103,7 @@
   (var result nil)
   (while true
     (def parent (current :parent))
-    (when (nil? parent) (break))
+    (when (or (nil? parent) (= current root)) (break))
     (def nav-result (navigate-within parent focused dir))
     (cond
       (= nav-result :bubble)

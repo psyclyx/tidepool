@@ -10,8 +10,7 @@
 (import ./seat)
 (import ./actions :as action)
 (import ./pipeline)
-(import ./layout)
-(import ./layout/scroll)
+(import ./pool)
 (import ./persist)
 (import ./ipc)
 
@@ -88,7 +87,9 @@
                            (assert (os/getenv "XDG_RUNTIME_DIR"))
                            (assert (os/getenv "WAYLAND_DISPLAY"))))
   (protect (os/rm path))
-  (netrepl/server :unix path repl-env))
+  (netrepl/server :unix path
+                  (fn [name stream]
+                    (table/setproto @{:netrepl-stream stream} repl-env))))
 
 (defn main "Connect to Wayland, load config, and run the event loop." [& args]
   (def display (wayland/connect interfaces))

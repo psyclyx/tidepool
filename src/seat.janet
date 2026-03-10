@@ -152,7 +152,6 @@
                                  config)))
   (when (and (seat :op-release) (seat :op))
     (put seat :op-ended true)
-    (window/update-tag ((seat :op) :window) outputs)
     (focus-output seat (window/tag-output ((seat :op) :window) outputs))
     (put seat :op nil)))
 

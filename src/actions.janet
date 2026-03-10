@@ -2,22 +2,11 @@
 (import ./window)
 (import ./output)
 (import ./seat)
-(import ./layout)
-(import ./layout/scroll :as scroll)
+(import ./pool)
+(import ./pool/navigate :as pool-navigate)
+(import ./pool/actions :as pool-actions)
 
-(defn- clamp [x lo hi] (min hi (max lo x)))
-(defn- wrap [x n] (% (+ (% x n) n) n))
-
-(defn- output/primary-tag [o]
-  (min-of (keys (o :tags))))
-
-(defn tag-layout/save
-  "Persist the current layout for the output's primary tag."
-  [o tag-layouts]
-  (when-let [tag (output/primary-tag o)]
-    (put tag-layouts tag
-         @{:layout (o :layout)
-           :params (table/clone (o :layout-params))})))
+# --- Helpers ---
 
 (defn- find-adjacent-output [current outputs dir]
   (var best nil)
@@ -39,39 +28,13 @@
         (set best-dist dist))))
   best)
 
-(defn target
-  "Find the navigation target window for a seat in the given direction."
-  [seat dir]
-  (def outputs (state/wm :outputs))
-  (def windows (state/wm :windows))
-  (when-let [w (seat :focused)
-             o (window/tag-output w outputs)
-             visible (output/visible o windows)
-             i (assert (index-of w visible))]
-    (case dir
-      :next (get visible (+ i 1) (first visible))
-      :prev (get visible (- i 1) (last visible))
-      (let [tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
-            ti (index-of w tiled)]
-        (when ti
-          (def lo (o :layout))
-          (def target-i
-            (if-let [nav-fn (get layout/navigate-fns lo)]
-              (let [nav-ctx (when (= lo :scroll)
-                              (scroll/context o windows w (seat :focus-prev)))]
-                (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
-                  (or nav-ctx {:output o :windows tiled :focused w})))
-              (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
-                    results (layout-fn (output/usable-area o) tiled
-                              (o :layout-params) state/config w)]
-                (layout/navigate-by-geometry results ti dir))))
-          (when target-i (get tiled target-i)))))))
-
-(defn- scroll/focused-column [seat]
+(defn- get-tag-pool
+  "Get the active tag pool for the focused output."
+  [seat]
   (when-let [o (seat :focused-output)]
-    (when (= (o :layout) :scroll)
-      (when-let [ctx (scroll/context o (state/wm :windows) (seat :focused) (seat :focus-prev))]
-        (get (ctx :cols) (ctx :focused-col))))))
+    (output/active-tag-pool o)))
+
+# --- Window management ---
 
 (defn spawn
   "Action: spawn a command."
@@ -87,65 +50,71 @@
       (:close (w :obj)))))
 
 (defn zoom
-  "Action: swap the focused window to master position."
+  "Action: move focused window to first position in its parent."
   []
   (fn [seat binding]
-    (def outputs (state/wm :outputs))
-    (def windows (state/wm :windows))
     (when-let [focused (seat :focused)
-               o (window/tag-output focused outputs)
-               visible (output/visible o windows)
-               t (if (= focused (first visible)) (get visible 1) focused)
-               i (assert (index-of t windows))]
-      (array/remove windows i)
-      (array/insert windows 0 t)
-      (seat/focus seat (first windows) (state/wm :render-order) state/config))))
+               o (seat :focused-output)]
+      (pool-actions/zoom (o :pool) focused))))
+
+(defn float
+  "Action: toggle floating on the focused window."
+  []
+  (fn [seat binding]
+    (when-let [w (seat :focused)
+               o (seat :focused-output)]
+      (if (w :float)
+        (do
+          # Unfloat: insert back into pool tree
+          (window/set-float w false)
+          (when-let [tag-pool (output/active-tag-pool o)]
+            (if (= (tag-pool :mode) :scroll)
+              (let [row (get (tag-pool :children) (or (tag-pool :active-row) 0))]
+                (when row (pool/append-child row w)))
+              (pool/append-child tag-pool w))))
+        (do
+          # Float: remove from pool tree
+          (when-let [parent (w :parent)]
+            (when (parent :children)
+              (pool-actions/remove-window (o :pool) w)))
+          (window/set-float w true))))))
+
+(defn fullscreen
+  "Action: toggle fullscreen on the focused window."
+  []
+  (fn [seat binding]
+    (when-let [w (seat :focused)]
+      (if (w :fullscreen)
+        (window/set-fullscreen w nil)
+        (window/set-fullscreen w (window/tag-output w (state/wm :outputs)))))))
+
+# --- Navigation ---
 
 (defn focus
   "Action: focus in a direction, crossing outputs if needed."
   [dir]
   (fn [seat binding]
     (def outputs (state/wm :outputs))
-    (if-let [t (target seat dir)]
-      (seat/focus seat t (state/wm :render-order) state/config)
-      (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
-                             (seat :focused-output))
-                 adjacent (find-adjacent-output current outputs dir)]
-        (seat/focus-output seat adjacent)
-        (seat/focus seat nil (state/wm :render-order) state/config)))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (def tag-pool (output/active-tag-pool o))
+      (def target (when tag-pool
+                    (pool-navigate/navigate tag-pool focused dir)))
+      (if target
+        (seat/focus seat target (state/wm :render-order) state/config)
+        (when-let [adjacent (find-adjacent-output o outputs dir)]
+          (seat/focus-output seat adjacent)
+          (seat/focus seat nil (state/wm :render-order) state/config))))))
 
 (defn swap
   "Action: swap the focused window in a direction."
   [dir]
   (fn [seat binding]
-    (def outputs (state/wm :outputs))
-    (def windows (state/wm :windows))
-    (when-let [w (seat :focused)]
-      (if-let [t (target seat dir)
-               wi (index-of w windows)
-               ti (index-of t windows)]
-        (do
-          (def wc (w :column))
-          (def tc (t :column))
-          (put w :column tc)
-          (put t :column wc)
-          (def wcw (w :col-width))
-          (def tcw (t :col-width))
-          (put w :col-width tcw)
-          (put t :col-width wcw)
-          (def wcwt (w :col-weight))
-          (def tcwt (t :col-weight))
-          (put w :col-weight tcwt)
-          (put t :col-weight wcwt)
-          (put windows wi t)
-          (put windows ti w))
-        (when-let [current (window/tag-output w outputs)
-                   adjacent (find-adjacent-output current outputs dir)]
-          (put w :tag (or (min-of (keys (adjacent :tags))) 1))
-          (put w :column nil)
-          (put w :col-width nil)
-          (put w :col-weight nil)
-          (seat/focus-output seat adjacent))))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (def tag-pool (output/active-tag-pool o))
+      (when tag-pool
+        (pool-actions/swap tag-pool focused dir)))))
 
 (defn focus-output
   "Action: focus the next or adjacent output."
@@ -180,188 +149,211 @@
     (when-let [w (seat :focused)
                current (seat :focused-output)
                i (assert (index-of current outputs))
-               t (or (get outputs (+ i 1)) (first outputs))]
-      (put w :tag (or (min-of (keys (t :tags))) 1)))))
+               target-output (or (get outputs (+ i 1)) (first outputs))]
+      # Remove from current pool tree
+      (when-let [parent (w :parent)]
+        (when (parent :children)
+          (pool-actions/remove-window (current :pool) w)))
+      # Insert into target output's active tag pool
+      (when-let [tag-pool (output/active-tag-pool target-output)]
+        (if (= (tag-pool :mode) :scroll)
+          (let [row (get (tag-pool :children) (or (tag-pool :active-row) 0))]
+            (when row (pool/append-child row w)))
+          (pool/append-child tag-pool w))))))
 
-(defn float
-  "Action: toggle floating on the focused window."
-  []
-  (fn [seat binding]
-    (when-let [w (seat :focused)]
-      (window/set-float w (not (w :float))))))
-
-(defn fullscreen
-  "Action: toggle fullscreen on the focused window."
-  []
-  (fn [seat binding]
-    (when-let [w (seat :focused)]
-      (if (w :fullscreen)
-        (window/set-fullscreen w nil)
-        (window/set-fullscreen w (window/tag-output w (state/wm :outputs)))))))
-
-(defn set-tag
-  "Action: move the focused window to a tag."
-  [tag]
-  (fn [seat binding]
-    (when-let [w (seat :focused)]
-      (put w :tag tag))))
+# --- Tag (pool) management ---
 
 (defn focus-tag
   "Action: show only the given tag on the focused output."
   [tag]
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (put o :tags @{tag true}))))
+      (def root (o :pool))
+      (pool-actions/focus-pool root tag)
+      (put root :multi-active nil))))
+
+(defn set-tag
+  "Action: move the focused window to a tag."
+  [tag]
+  (fn [seat binding]
+    (when-let [w (seat :focused)
+               o (seat :focused-output)]
+      (def root (o :pool))
+      (pool-actions/send-to-pool root w tag))))
 
 (defn toggle-tag
   "Action: toggle a tag's visibility on the focused output."
   [tag]
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (if ((o :tags) tag)
-        (put (o :tags) tag nil)
-        (put (o :tags) tag true)))))
+      (pool-actions/toggle-pool (o :pool) tag))))
 
 (defn focus-all-tags
   "Action: show all tags on the focused output."
   []
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (put o :tags (table ;(mapcat |[$ true] (range 1 10)))))))
+      (def root (o :pool))
+      (def ma @{})
+      (for i 0 (length (root :children))
+        (put ma i true))
+      (put root :multi-active ma))))
 
-(defn adjust-ratio
-  "Action: adjust the layout split ratio by delta."
-  [delta]
+(defn toggle-scratchpad
+  "Action: toggle scratchpad (tag 0) visibility."
+  []
   (fn [seat binding]
     (when-let [o (seat :focused-output)]
-      (def params (o :layout-params))
-      (case (o :layout)
-        :scroll (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
-        :dwindle (when-let [w (seat :focused)
-                           visible (output/visible o (state/wm :windows))
-                           tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
-                           ti (index-of w tiled)]
-                   (when (< ti (- (length tiled) 1))
-                     (def ratios (or (params :dwindle-ratios) @{}))
-                     (def current (or (get ratios ti) (params :dwindle-ratio)))
-                     (put ratios ti (max 0.1 (min 0.9 (+ current delta))))
-                     (put params :dwindle-ratios ratios)))
-        (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta)))))
-      (tag-layout/save o state/tag-layouts))))
+      (pool-actions/toggle-pool (o :pool) 0))))
 
-(defn adjust-main-count
-  "Action: adjust the main window count by delta."
-  [delta]
+(defn send-to-scratchpad
+  "Action: send the focused window to the scratchpad."
+  []
   (fn [seat binding]
-    (when-let [o (seat :focused-output)]
-      (def params (o :layout-params))
-      (put params :main-count (max 1 (+ (params :main-count) delta)))
-      (tag-layout/save o state/tag-layouts))))
+    (when-let [w (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/send-to-pool (o :pool) w 0))))
+
+# --- Layout mode ---
 
 (defn cycle-layout
-  "Action: cycle to the next/prev layout."
+  "Action: cycle the active tag pool's mode."
   [dir]
   (fn [seat binding]
-    (when-let [o (seat :focused-output)]
-      (def layouts (state/config :layouts))
-      (def current (o :layout))
-      (def i (or (index-of current layouts) 0))
-      (def next-i (case dir
-                    :next (% (+ i 1) (length layouts))
-                    :prev (% (+ (- i 1) (length layouts)) (length layouts))))
-      (put o :layout (get layouts next-i))
-      (tag-layout/save o state/tag-layouts))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (def root (o :pool))
+      (def mode-kw (if (= dir :prev) :prev :next))
+      (pool-actions/set-mode root (or focused @{:parent nil}) mode-kw :tag))))
 
 (defn set-layout
-  "Action: set the layout on the focused output."
-  [lo]
+  "Action: set the layout mode on the focused tag pool."
+  [mode]
   (fn [seat binding]
-    (when-let [o (seat :focused-output)]
-      (put o :layout lo)
-      (tag-layout/save o state/tag-layouts))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/set-mode (o :pool) (or focused @{:parent nil}) mode :tag))))
 
-(defn adjust-column-width
-  "Action: adjust the default column width by delta."
+# --- Resize ---
+
+(defn adjust-ratio
+  "Action: adjust the split ratio by delta.
+  Works on the focused window's parent pool."
   [delta]
   (fn [seat binding]
-    (when-let [o (seat :focused-output)]
-      (def params (o :layout-params))
-      (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
-      (tag-layout/save o state/tag-layouts))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused delta))))
 
 (defn resize-column
   "Action: resize the focused scroll column by delta."
   [delta]
   (fn [seat binding]
-    (when-let [col (scroll/focused-column seat)]
-      (def current (or ((first col) :col-width)
-                       (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
-      (def new-width (max 0.1 (min 1.0 (+ current delta))))
-      (each win col (put win :col-width new-width)))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused delta))))
 
 (defn resize-window
   "Action: resize the focused window's weight by delta."
   [delta]
   (fn [seat binding]
-    (when-let [w (seat :focused)
-               col (scroll/focused-column seat)]
-      (when (> (length col) 1)
-        (def current (or (w :col-weight) 1.0))
-        (put w :col-weight (max 0.1 (+ current delta)))))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused delta))))
 
 (defn preset-column-width
   "Action: cycle the focused column through width presets."
   []
   (fn [seat binding]
-    (when-let [col (scroll/focused-column seat)]
-      (def presets (state/config :column-presets))
-      (when (and presets (> (length presets) 0))
-        (def current (or ((first col) :col-width)
-                         (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
-        (def next-width
-          (or (find |(> $ (+ current 0.01)) (sorted presets))
-              (first (sorted presets))))
-        (each win col (put win :col-width next-width))))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused :cycle))))
 
 (defn equalize-column
-  "Action: reset all row weights in the focused column."
+  "Action: reset all weights in the focused pool."
   []
   (fn [seat binding]
-    (when-let [col (scroll/focused-column seat)]
-      (each win col (put win :col-weight nil)))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused :reset))))
+
+# --- Consume/Expel ---
 
 (defn consume-column
-  "Action: merge the focused window into an adjacent column."
+  "Action: pull adjacent sibling into focused window's group."
   [dir]
   (fn [seat binding]
-    (when-let [o (seat :focused-output)
-               w (seat :focused)]
-      (when (= (o :layout) :scroll)
-        (when-let [ctx (scroll/context o (state/wm :windows) w (seat :focus-prev))]
-          (def {:cols cols :num-cols num-cols :focused-col my-col} ctx)
-          (def target-ci (case dir :left (- my-col 1) :right (+ my-col 1)))
-          (when (and (>= target-ci 0) (< target-ci num-cols) (not= target-ci my-col))
-            (put w :column ((first (get cols target-ci)) :column))))))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/consume (o :pool) focused dir))))
 
 (defn expel-column
-  "Action: expel the focused window into a new column."
+  "Action: move focused window out of its current pool."
   []
   (fn [seat binding]
-    (when-let [o (seat :focused-output)
-               w (seat :focused)]
-      (when (= (o :layout) :scroll)
-        (when-let [ctx (scroll/context o (state/wm :windows) w (seat :focus-prev))]
-          (def {:cols cols :focused-col my-col :windows tiled} ctx)
-          (when (> (length (get cols my-col)) 1)
-            (var max-col -1)
-            (each win tiled (set max-col (max max-col (or (win :column) 0))))
-            (put w :column (+ max-col 1))))))))
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/expel (o :pool) focused))))
+
+# --- Backward compat no-ops ---
+
+(defn adjust-main-count
+  "Action: no-op (main-count not applicable in pool system)."
+  [delta]
+  (fn [seat binding] nil))
+
+(defn adjust-column-width
+  "Action: adjust the default column width by delta."
+  [delta]
+  (fn [seat binding]
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused delta))))
+
+(defn toggle-column-mode
+  "Action: cycle the focused window's parent pool mode."
+  []
+  (fn [seat binding]
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/set-mode (o :pool) focused :next :parent))))
+
+(defn set-column-sublayout
+  "Action: set the mode on the focused window's parent pool."
+  [mode]
+  (fn [seat binding]
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/set-mode (o :pool) focused (or mode :stack-v) :parent))))
+
+(defn move-to-strip
+  "Action: swap focused window across scroll rows."
+  [dir]
+  (fn [seat binding]
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/swap (o :pool) focused dir))))
+
+(defn resize-strip
+  "Action: resize the focused strip (pool weight)."
+  [delta]
+  (fn [seat binding]
+    (when-let [focused (seat :focused)
+               o (seat :focused-output)]
+      (pool-actions/resize (o :pool) focused delta))))
+
+# --- Input ---
 
 (defn pointer-move
   "Action: start a pointer move operation."
   []
   (fn [seat binding]
     (when-let [w (seat :pointer-target)]
+      # Remove from pool tree before floating
+      (when-let [parent (w :parent)]
+        (when (parent :children)
+          (when-let [o (seat :focused-output)]
+            (pool-actions/remove-window (o :pool) w))))
       (seat/pointer-move seat w (state/wm :render-order) state/config))))
 
 (defn pointer-resize
@@ -382,22 +374,7 @@
     (each other (seat :pointer-bindings)
       (unless (= other binding) (request (other :obj))))))
 
-(defn toggle-scratchpad
-  "Action: toggle scratchpad (tag 0) visibility."
-  []
-  (fn [seat binding]
-    (when-let [o (seat :focused-output)]
-      (if ((o :tags) 0)
-        (put (o :tags) 0 nil)
-        (put (o :tags) 0 true)))))
-
-(defn send-to-scratchpad
-  "Action: send the focused window to the scratchpad."
-  []
-  (fn [seat binding]
-    (when-let [w (seat :focused)]
-      (put w :tag 0)
-      (window/set-float w true))))
+# --- Session ---
 
 (defn restart
   "Action: restart tidepool (exit code 42)."
