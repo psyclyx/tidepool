@@ -112,7 +112,7 @@
                  i (assert (index-of t windows))]
         (array/remove windows i)
         (array/insert windows 0 t)
-        (seat/focus seat (first windows) render-order config))))))
+        (seat/focus seat (first windows) outputs render-order config))))))
 
 (defn focus
   "Action: focus in a direction, crossing outputs if needed."
@@ -122,17 +122,17 @@
       (def {:seat seat :outputs outputs :windows windows
             :render-order render-order :config config} ctx)
       (if-let [t (target ctx dir)]
-        (seat/focus seat t render-order config)
+        (seat/focus seat t outputs render-order config)
         (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
                                (seat :focused-output))]
           (if-let [adjacent (find-adjacent-output current outputs dir)]
             (do (seat/focus-output seat adjacent)
-                (seat/focus seat nil render-order config))
+                (seat/focus seat nil outputs render-order config))
             # Nothing focused and no adjacent output — pick top visible window
             (unless (seat :focused)
               (when-let [visible (output/visible current windows)
                          top (last visible)]
-                (seat/focus seat top render-order config))))))))))
+                (seat/focus seat top outputs render-order config))))))))))
 
 (defn swap
   "Action: swap the focused window in a direction."
@@ -177,12 +177,12 @@
         (when-let [current (or (seat :focused-output) (first outputs))
                    adjacent (find-adjacent-output current outputs dir)]
           (seat/focus-output seat adjacent)
-          (seat/focus seat nil render-order config))
+          (seat/focus seat nil outputs render-order config))
         (when-let [focused (seat :focused-output)
                    i (assert (index-of focused outputs))
                    t (or (get outputs (+ i 1)) (first outputs))]
           (seat/focus-output seat t)
-          (seat/focus seat nil render-order config)))))))
+          (seat/focus seat nil outputs render-order config)))))))
 
 (defn focus-last
   "Action: focus the previously focused window."
@@ -193,7 +193,7 @@
       (when-let [prev (seat :focus-prev)]
         (when (and (not (prev :closed))
                    (window/tag-output prev outputs))
-          (seat/focus seat prev render-order config)))))))
+          (seat/focus seat prev outputs render-order config)))))))
 
 (defn send-to-output
   "Action: send the focused window to the next output."
@@ -438,7 +438,7 @@
     (fn [] (fn [ctx]
       (def {:seat seat :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
-        (seat/pointer-move seat w render-order config))))))
+        (seat/pointer-move seat w outputs render-order config))))))
 
 (defn pointer-resize
   "Action: start a pointer resize operation."
@@ -447,7 +447,7 @@
     (fn [] (fn [ctx]
       (def {:seat seat :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
-        (seat/pointer-resize seat w {:bottom true :right true} render-order config))))))
+        (seat/pointer-resize seat w {:bottom true :right true} outputs render-order config))))))
 
 (defn passthrough
   "Action: toggle keybinding passthrough."

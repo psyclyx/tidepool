@@ -91,12 +91,12 @@
         (when (<= cw 0)
           (put w :col-weight nil))))))
 
-(defn- dispatch-pointer-ops [render-order config]
+(defn- dispatch-pointer-ops [outputs render-order config]
   (each w (state/wm :windows)
     (when-let [move (w :pointer-move-requested)]
-      (seat/pointer-move (move :seat) w render-order config))
+      (seat/pointer-move (move :seat) w outputs render-order config))
     (when-let [resize (w :pointer-resize-requested)]
-      (seat/pointer-resize (resize :seat) w (resize :edges) render-order config))))
+      (seat/pointer-resize (resize :seat) w (resize :edges) outputs render-order config))))
 
 (defn- build-tag-map
   "Build tag→output lookup table."
@@ -284,7 +284,7 @@
   (sort-outputs)
   (each o outputs (output/manage o outputs))
   (each w windows (window/manage w config seats))
-  (dispatch-pointer-ops render-order config)
+  (dispatch-pointer-ops outputs render-order config)
   (each s seats (seat/manage s outputs windows render-order config))
   (reconcile-tags outputs
                   (when-let [s (first seats)] (s :focused-output))
@@ -305,7 +305,7 @@
     (when-let [w (s :focused)]
       (when (and (not (w :visible)) (not (w :closing)))
         (def best (last (filter |(and ($ :visible) (not ($ :closing))) render-order)))
-        (seat/focus s best render-order config))))
+        (seat/focus s best outputs render-order config))))
 
   # --- Effect application ---
   (apply-lifecycle-effects windows)

@@ -24,7 +24,7 @@
 
 (defn focus
   "Focus a window, respecting layer shell focus state (pure data mutation)."
-  [seat win render-order config]
+  [seat win outputs render-order config]
   (defn focus-window [w]
     (unless (= (seat :focused) w)
       (when (seat :focused)
@@ -46,7 +46,7 @@
 
   (defn focus-non-layer []
     (when win
-      (when-let [o (window/tag-output win (state/wm :outputs))]
+      (when-let [o (window/tag-output win outputs)]
         (focus-output seat o)))
     (when-let [o (seat :focused-output)]
       (defn visible? [w] (and w ((o :tags) (w :tag))))
@@ -69,9 +69,9 @@
 
 (defn pointer-move
   "Start a pointer-driven move operation on a window (pure data setup)."
-  [seat win render-order config]
+  [seat win outputs render-order config]
   (unless (seat :op)
-    (focus seat win render-order config)
+    (focus seat win outputs render-order config)
     (window/set-float win true)
     (put seat :op @{:type :move :window win
                     :start-x (win :x) :start-y (win :y)
@@ -80,9 +80,9 @@
 
 (defn pointer-resize
   "Start a pointer-driven resize operation on a window (pure data setup)."
-  [seat win edges render-order config]
+  [seat win edges outputs render-order config]
   (unless (seat :op)
-    (focus seat win render-order config)
+    (focus seat win outputs render-order config)
     (window/set-float win true)
     (put seat :op @{:type :resize :window win :edges edges
                     :start-x (win :x) :start-y (win :y)
@@ -156,11 +156,11 @@
     (focus-output seat o))
 
   (put seat :focus-source :pointer)
-  (focus seat nil render-order config)
+  (focus seat nil outputs render-order config)
   (each w windows
-    (when (w :new) (focus seat w render-order config)))
+    (when (w :new) (focus seat w outputs render-order config)))
   (if-let [w (seat :window-interaction)]
-    (focus seat w render-order config))
+    (focus seat w outputs render-order config))
 
   (put seat :focus-source :keyboard)
   (when-let [[binding action-fn action-name] (seat :pending-action)]
@@ -176,7 +176,7 @@
         (debug/stacktrace fib err ""))))
 
   (put seat :focus-source :pointer)
-  (focus seat nil render-order config)
+  (focus seat nil outputs render-order config)
 
   (when-let [op (seat :op)]
     (when (= :resize (op :type))
