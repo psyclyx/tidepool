@@ -20,6 +20,7 @@
     :pointer-bindings @[]
     :rules @[]
     :debug false
+    :trace false
     :warp-pointer false
     :xcursor-theme "Adwaita"
     :xcursor-size 24})
