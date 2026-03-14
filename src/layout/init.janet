@@ -22,6 +22,11 @@
     :scroll scroll/navigate
     :tabbed tabbed/navigate})
 
+(def context-fns
+  "Layout context function dispatch table.
+  Returns layout-specific context (e.g. scroll columns) for action use."
+  @{:scroll scroll/context})
+
 (defn navigate-by-geometry
   "Navigate by finding the nearest window in the given direction.
   Direction is determined by edges, not centers: a candidate is only

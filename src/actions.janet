@@ -2,7 +2,6 @@
 (import ./output)
 (import ./seat)
 (import ./layout)
-(import ./layout/scroll :as scroll)
 
 (defn- clamp [x lo hi] (min hi (max lo x)))
 (defn- wrap [x n] (% (+ (% x n) n) n))
@@ -65,8 +64,8 @@
           (def lo (o :layout))
           (def target-i
             (if-let [nav-fn (get layout/navigate-fns lo)]
-              (let [nav-ctx (when (= lo :scroll)
-                              (scroll/context o windows w (seat :focus-prev)))]
+              (let [ctx-fn (get layout/context-fns lo)
+                    nav-ctx (when ctx-fn (ctx-fn o windows w (seat :focus-prev)))]
                 (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
                   (or nav-ctx {:output o :windows tiled :focused w})))
               (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
@@ -75,12 +74,12 @@
                 (layout/navigate-by-geometry results ti dir))))
           (when target-i (get tiled target-i)))))))
 
-(defn- scroll/focused-column [ctx]
-  (def {:seat seat :outputs outputs :windows windows} ctx)
-  (when-let [o (seat :focused-output)]
-    (when (= (o :layout) :scroll)
-      (when-let [sctx (scroll/context o windows (seat :focused) (seat :focus-prev))]
-        (get (sctx :cols) (sctx :focused-col))))))
+(defn- focused-column [ctx]
+  (def {:seat seat :windows windows} ctx)
+  (when-let [o (seat :focused-output)
+             ctx-fn (get layout/context-fns (o :layout))]
+    (when-let [sctx (ctx-fn o windows (seat :focused) (seat :focus-prev))]
+      (get (sctx :cols) (sctx :focused-col)))))
 
 # --- Window actions ---
 
@@ -359,7 +358,7 @@
   [delta]
   (act "resize-column" "Resize column" [delta]
     (fn [] (fn [ctx]
-      (when-let [col (scroll/focused-column ctx)]
+      (when-let [col (focused-column ctx)]
         (def current (or ((first col) :col-width)
                          (get-in ((ctx :seat) :focused-output) [:layout-params :column-width] 0.5)))
         (def new-width (max 0.1 (min 1.0 (+ current delta))))
@@ -371,7 +370,7 @@
   (act "resize-window" "Resize window" [delta]
     (fn [] (fn [ctx]
       (when-let [w ((ctx :seat) :focused)
-                 col (scroll/focused-column ctx)]
+                 col (focused-column ctx)]
         (when (> (length col) 1)
           (def current (or (w :col-weight) 1.0))
           (put w :col-weight (max 0.1 (+ current delta)))))))))
@@ -381,7 +380,7 @@
   []
   (act "preset-column-width" "Cycle column width" []
     (fn [] (fn [ctx]
-      (when-let [col (scroll/focused-column ctx)]
+      (when-let [col (focused-column ctx)]
         (def presets ((ctx :config) :column-presets))
         (when (and presets (> (length presets) 0))
           (def current (or ((first col) :col-width)
@@ -396,7 +395,7 @@
   []
   (act "equalize-column" "Equalize column" []
     (fn [] (fn [ctx]
-      (when-let [col (scroll/focused-column ctx)]
+      (when-let [col (focused-column ctx)]
         (each win col (put win :col-weight nil)))))))
 
 (defn consume-column
@@ -406,13 +405,13 @@
     (fn [] (fn [ctx]
       (def {:seat seat :windows windows} ctx)
       (when-let [o (seat :focused-output)
-                 w (seat :focused)]
-        (when (= (o :layout) :scroll)
-          (when-let [sctx (scroll/context o windows w (seat :focus-prev))]
-            (def {:cols cols :num-cols num-cols :focused-col my-col} sctx)
-            (def target-ci (case dir :left (- my-col 1) :right (+ my-col 1)))
-            (when (and (>= target-ci 0) (< target-ci num-cols) (not= target-ci my-col))
-              (put w :column ((first (get cols target-ci)) :column))))))))))
+                 w (seat :focused)
+                 ctx-fn (get layout/context-fns (o :layout))]
+        (when-let [sctx (ctx-fn o windows w (seat :focus-prev))]
+          (def {:cols cols :num-cols num-cols :focused-col my-col} sctx)
+          (def target-ci (case dir :left (- my-col 1) :right (+ my-col 1)))
+          (when (and (>= target-ci 0) (< target-ci num-cols) (not= target-ci my-col))
+            (put w :column ((first (get cols target-ci)) :column)))))))))
 
 (defn expel-column
   "Action: expel the focused window into a new column."
@@ -421,14 +420,14 @@
     (fn [] (fn [ctx]
       (def {:seat seat :windows windows} ctx)
       (when-let [o (seat :focused-output)
-                 w (seat :focused)]
-        (when (= (o :layout) :scroll)
-          (when-let [sctx (scroll/context o windows w (seat :focus-prev))]
-            (def {:cols cols :focused-col my-col :windows tiled} sctx)
-            (when (> (length (get cols my-col)) 1)
-              (var max-col -1)
-              (each win tiled (set max-col (max max-col (or (win :column) 0))))
-              (put w :column (+ max-col 1))))))))))
+                 w (seat :focused)
+                 ctx-fn (get layout/context-fns (o :layout))]
+        (when-let [sctx (ctx-fn o windows w (seat :focus-prev))]
+          (def {:cols cols :focused-col my-col :windows tiled} sctx)
+          (when (> (length (get cols my-col)) 1)
+            (var max-col -1)
+            (each win tiled (set max-col (max max-col (or (win :column) 0))))
+            (put w :column (+ max-col 1)))))))))
 
 # --- Input ---
 
