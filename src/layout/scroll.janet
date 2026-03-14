@@ -205,6 +205,7 @@
     (var y-acc 0)
     (for ri 0 num-rows
       (def win (get col ri))
+      (put win :layout-meta @{:column ci :column-total num-cols :row ri :row-total num-rows})
       (def h (get heights ri))
       (def y-off (if overflows (- y-acc v-scroll) y-acc))
       (def placement (place

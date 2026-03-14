@@ -93,7 +93,7 @@
 (defn- cmd-watch [stream topics]
   (when (= (length topics) 0)
     (eprint "usage: tidepoolmsg watch <topic> [topic...]")
-    (eprint "topics: tags, layout, title")
+    (eprint "topics: tags, layout, title, windows, signal")
     (os/exit 1))
   (def topic-keywords @[;(map keyword topics)])
   (def expr (string/format "(ipc/watch-json %j)" topic-keywords))
@@ -164,7 +164,7 @@ commands:
   save               serialize current state to stdout
   load               apply state from stdin
 
-watch topics: tags, layout, title
+watch topics: tags, layout, title, windows, signal
 ```)
   (os/exit 1))
 
@@ -177,8 +177,8 @@ _tidepoolmsg() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     commands="repl eval action bindings debug trace watch save load help completions"
-    topics="tags layout title"
-    actions="spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit"
+    topics="tags layout title windows signal"
+    actions="spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit signal"
 
     case "$prev" in
         tidepoolmsg)
@@ -219,8 +219,8 @@ _tidepoolmsg() {
         'help:show usage information'
         'completions:output shell completions'
     )
-    topics=(tags layout title)
-    actions=(spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit)
+    topics=(tags layout title windows signal)
+    actions=(spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit signal)
 
     if (( CURRENT == 2 )); then
         _describe 'command' commands
@@ -262,8 +262,8 @@ complete -c tidepoolmsg -n '__fish_use_subcommand' -a save -d 'serialize current
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a load -d 'apply state from stdin'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a help -d 'show usage information'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a completions -d 'output shell completions'
-complete -c tidepoolmsg -n '__fish_seen_subcommand_from action' -a 'spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit'
-complete -c tidepoolmsg -n '__fish_seen_subcommand_from watch' -a 'tags layout title'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from action' -a 'spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode passthrough restart exit signal'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from watch' -a 'tags layout title windows signal'
 complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
 ```)
     (do

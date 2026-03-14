@@ -14,23 +14,25 @@
   (var h total-h)
   (def results @[])
   (for i 0 n
+    (def win (get windows i))
+    (put win :layout-meta @{:depth i :depth-total n :split (if (= 0 (% i 2)) :horizontal :vertical)})
     (if (= i (- n 1))
       (array/push results
-        {:window (get windows i)
+        {:window win
          :x (+ x inner) :y (+ y inner)
          :w (- w (* 2 inner)) :h (- h (* 2 inner))})
       (let [ratio (or (get ratios i) default-ratio)]
         (if (= 0 (% i 2))
           (let [split-w (math/round (* w ratio))]
             (array/push results
-              {:window (get windows i)
+              {:window win
                :x (+ x inner) :y (+ y inner)
                :w (- split-w (* 2 inner)) :h (- h (* 2 inner))})
             (set x (+ x split-w))
             (set w (- w split-w)))
           (let [split-h (math/round (* h ratio))]
             (array/push results
-              {:window (get windows i)
+              {:window win
                :x (+ x inner) :y (+ y inner)
                :w (- w (* 2 inner)) :h (- split-h (* 2 inner))})
             (set y (+ y split-h))

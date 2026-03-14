@@ -5,14 +5,19 @@
   (def inner (config :inner-padding))
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
   (def total-h (max 0 (- (usable :h) (* 2 outer))))
-  (map (fn [window]
-         {:window window
-          :x (+ (usable :x) outer inner)
-          :y (+ (usable :y) outer inner)
-          :w (- total-w (* 2 inner))
-          :h (- total-h (* 2 inner))
-          :hidden (not= window focused)})
-       windows))
+  (def n (length windows))
+  (def results @[])
+  (for i 0 n
+    (def window (get windows i))
+    (put window :layout-meta @{:tab-index i :tab-total n})
+    (array/push results
+      {:window window
+       :x (+ (usable :x) outer inner)
+       :y (+ (usable :y) outer inner)
+       :w (- total-w (* 2 inner))
+       :h (- total-h (* 2 inner))
+       :hidden (not= window focused)}))
+  results)
 
 (defn navigate
   "Cycle through tabs linearly."

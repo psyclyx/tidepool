@@ -15,7 +15,12 @@
 # --- Lifecycle helpers ---
 
 (defn- prune-closed []
-  (update state/wm :render-order |(filter (fn [w] (not (and (w :closed) (not (w :closing))))) $)))
+  (def arr (state/wm :render-order))
+  (var i 0)
+  (while (< i (length arr))
+    (if (let [w (arr i)] (and (w :closed) (not (w :closing))))
+      (array/remove arr i)
+      (++ i))))
 
 (defn- lifecycle-start [now config]
   (each o (state/wm :outputs) (output/manage-start o))
@@ -72,7 +77,8 @@
 (defn- clear-layout-state []
   (each w (state/wm :windows)
     (put w :layout-hidden nil)
-    (put w :scroll-placed nil))
+    (put w :scroll-placed nil)
+    (put w :layout-meta nil))
   (put state/wm :anim-active false))
 
 (defn- sanitize []
@@ -92,7 +98,14 @@
     (when-let [resize (w :pointer-resize-requested)]
       (seat/pointer-resize (resize :seat) w (resize :edges) render-order config))))
 
-(defn- compute-borders [seats config]
+(defn- build-tag-map
+  "Build tag→output lookup table."
+  [outputs]
+  (def m @{})
+  (each o outputs (eachk tag (o :tags) (put m tag o)))
+  m)
+
+(defn- compute-borders [seats config tag-map]
   (def focused (when-let [s (first seats)] (s :focused)))
   (each w (state/wm :windows)
     (when (not (w :closing))
@@ -101,7 +114,7 @@
         (if (and focused (w :tag) (= (w :tag) (focused :tag))
                  (not (w :float)) (not (focused :float)))
           # Tabbed layout: non-focused windows in same tag are "tabbed"
-          (if-let [o (window/tag-output w (state/wm :outputs))]
+          (if-let [o (get tag-map (w :tag))]
             (if (= (o :layout) :tabbed)
               (window/set-borders w :tabbed config)
               (window/set-borders w :normal config))
@@ -111,10 +124,14 @@
 (defn- start-animations [prev-positions now config]
   (when (config :animate)
     (each w (state/wm :windows)
-      (when (and (w :new) (w :x) (w :y)
-                 (not (w :float)) (not (w :closing)))
-        (def cw (max 0 (or (w :w) 0)))
-        (def ch (max 0 (or (w :h) 0)))
+      (when (and (w :new) (not (w :float)) (not (w :closing)))
+        (put w :needs-open-anim true))
+      (when (and (w :needs-open-anim) (w :x) (w :y)
+                 (w :w) (> (w :w) 0) (w :h) (> (w :h) 0)
+                 (not (w :closing)))
+        (put w :needs-open-anim nil)
+        (def cw (w :w))
+        (def ch (w :h))
         (def cx (math/round (/ cw 2)))
         (def cy (math/round (/ ch 2)))
         (animation/start w :open
@@ -140,7 +157,8 @@
     (put w :visible
       (if (or (w :closing)
               (and (all-tags (w :tag))
-                   (or (not (w :layout-hidden)) (w :anim))))
+                   (or (not (w :layout-hidden)) (w :anim))
+                   (not (w :needs-open-anim))))
         true false))))
 
 (defn reconcile-tags
@@ -209,12 +227,16 @@
     (when (s :op-ended)
       (:op-end (s :obj)))))
 
+(def- all-edges {:left true :bottom true :top true :right true})
+
 (defn- apply-borders-effects [windows]
   (each w windows
-    (when (w :border-rgb)
-      (:set-borders (w :obj)
-                    {:left true :bottom true :top true :right true}
-                    (w :border-width)
+    (when (and (w :border-rgb)
+               (or (not= (w :border-rgb) (w :border-applied-rgb))
+                   (not= (w :border-width) (w :border-applied-width))))
+      (put w :border-applied-rgb (w :border-rgb))
+      (put w :border-applied-width (w :border-width))
+      (:set-borders (w :obj) all-edges (w :border-width)
                     ;(output/rgb-to-u32-rgba (w :border-rgb))))))
 
 (defn- apply-fullscreen-effects [windows outputs]
@@ -231,9 +253,10 @@
 
 (defn- apply-visibility [windows]
   (each w windows
-    (if (w :visible)
-      (:show (w :obj))
-      (:hide (w :obj)))))
+    (def vis (w :visible))
+    (unless (= vis (w :vis-applied))
+      (put w :vis-applied vis)
+      (if vis (:show (w :obj)) (:hide (w :obj))))))
 
 # --- Main cycles ---
 
@@ -268,11 +291,12 @@
                   state/tag-layouts)
   (sanitize)
   (clear-layout-state)
+  (def tag-map (build-tag-map outputs))
   (each o outputs (layout/apply o windows seats config now))
   (each o outputs
     (when (get-in o [:layout-params :scroll-animating])
       (put state/wm :anim-active true)))
-  (compute-borders seats config)
+  (compute-borders seats config tag-map)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)
 
@@ -329,7 +353,8 @@
   (each w windows
     (when (animation/tick w now)
       (put state/wm :anim-active true)))
-  (each w windows (window/clip-to-output w outputs config))
+  (def tag-map (build-tag-map outputs))
+  (each w windows (window/clip-to-output w tag-map config))
   (each s (state/wm :seats) (seat/render s))
 
   # --- Effect application ---

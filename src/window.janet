@@ -22,6 +22,12 @@
          min-h (> min-h 0) max-h (> max-h 0)
          (= min-w max-w) (= min-h max-h))))
 
+(defn constrained-size?
+  "True if the window has max size hints set (likely a dialog)."
+  [window]
+  (let [max-w (window :max-w) max-h (window :max-h)]
+    (and max-w (> max-w 0) max-h (> max-h 0))))
+
 (defn set-float
   "Set floating state and clear column layout attributes."
   [window float]
@@ -128,7 +134,7 @@
           (put window :proposed-h (parent :h))))
       (do
         (set-float window false)
-        (when (fixed-size? window)
+        (when (or (fixed-size? window) (constrained-size? window))
           (set-float window true))
         (when-let [seat (first seats)
                    o (seat :focused-output)]
@@ -212,8 +218,8 @@
 
 (defn clip-to-output
   "Compute clip rect and store on window table."
-  [window outputs config]
-  (when-let [o (tag-output window outputs)]
+  [window tag-map config]
+  (when-let [o (get tag-map (window :tag))]
     (when (and (window :x) (window :w)
                (or (not (window :layout-hidden)) (window :anim)))
       (def bw (config :border-width))

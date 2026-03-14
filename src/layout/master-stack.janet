@@ -14,10 +14,12 @@
     (let [cell-h (div total-h n)
           rem (% total-h n)]
       (for i 0 n
+        (def win (get windows i))
+        (put win :layout-meta @{:position :master :index i :index-total n})
         (def y-off (+ (* cell-h i) (min i rem)))
         (def h (+ cell-h (if (< i rem) 1 0)))
         (array/push results
-          {:window (get windows i)
+          {:window win
            :x (+ (usable :x) outer inner)
            :y (+ (usable :y) outer y-off inner)
            :w (- total-w (* 2 inner))
@@ -28,10 +30,12 @@
       (let [master-h (div total-h main-count)
             master-rem (% total-h main-count)]
         (for i 0 main-count
+          (def win (get windows i))
+          (put win :layout-meta @{:position :master :index i :index-total main-count})
           (def y-off (+ (* master-h i) (min i master-rem)))
           (def h (+ master-h (if (< i master-rem) 1 0)))
           (array/push results
-            {:window (get windows i)
+            {:window win
              :x (+ (usable :x) outer inner)
              :y (+ (usable :y) outer y-off inner)
              :w (- main-w (* 2 inner))
@@ -39,10 +43,12 @@
       (let [side-h (div total-h side-count)
             side-rem (% total-h side-count)]
         (for i 0 side-count
+          (def win (get windows (+ main-count i)))
+          (put win :layout-meta @{:position :stack :index i :index-total side-count})
           (def y-off (+ (* side-h i) (min i side-rem)))
           (def h (+ side-h (if (< i side-rem) 1 0)))
           (array/push results
-            {:window (get windows (+ main-count i))
+            {:window win
              :x (+ (usable :x) outer main-w inner)
              :y (+ (usable :y) outer y-off inner)
              :w (- side-w (* 2 inner))

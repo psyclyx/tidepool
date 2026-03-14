@@ -17,8 +17,10 @@
     (def row-count (if (= row (- rows 1)) (- n (* row cols)) cols))
     (def this-cell-w (if (= row (- rows 1)) (div total-w row-count) cell-w))
     (def this-col (if (= row (- rows 1)) (- i (* row cols)) col))
+    (def win (get windows i))
+    (put win :layout-meta @{:row row :row-total rows :column col :column-total cols})
     (array/push results
-      {:window (get windows i)
+      {:window win
        :x (+ (usable :x) outer (* this-col this-cell-w) inner)
        :y (+ (usable :y) outer (* row cell-h) inner)
        :w (- this-cell-w (* 2 inner))
