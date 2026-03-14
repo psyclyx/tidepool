@@ -43,14 +43,32 @@
       :app-id (or (w :app-id) "")}
     @{:title "" :app-id ""}))
 
+(defn- compute-windows
+  "Compute full window state for IPC."
+  [windows seats outputs]
+  (def focused (when-let [s (first seats)] (s :focused)))
+  (def tag-map @{})
+  (each o outputs (eachk tag (o :tags) (put tag-map tag o)))
+  (seq [w :in windows :when (not (or (w :closed) (w :closing)))]
+    (def o (get tag-map (w :tag)))
+    @{:app-id (or (w :app-id) "")
+      :title (or (w :title) "")
+      :tag (w :tag)
+      :x (or (w :x) 0) :y (or (w :y) 0)
+      :w (or (w :w) 0) :h (or (w :h) 0)
+      :focused (= w focused)
+      :float (if (w :float) true false)
+      :fullscreen (if (w :fullscreen) true false)
+      :visible (if (w :visible) true false)
+      :layout (when o (string (o :layout)))
+      :meta (w :layout-meta)}))
+
 # --- Change tracking ---
 
-(var last-tags-jdn nil)
-(var last-layout-jdn nil)
-(var last-title-jdn nil)
 (var last-tags nil)
 (var last-layout nil)
 (var last-title nil)
+(var last-windows nil)
 
 # --- Watchers ---
 
@@ -76,34 +94,49 @@
   (def focused-output (when-let [s (first seats)] (s :focused-output)))
 
   (def tags (compute-tags outputs windows focused-output))
-  (def tags-jdn (string/format "%j" (freeze tags)))
-  (unless (= tags-jdn last-tags-jdn)
-    (set last-tags-jdn tags-jdn)
-    (set last-tags tags)
+  (unless (deep= tags last-tags)
+    (set last-tags (freeze tags))
     (each w watchers
       (when ((w :topics) :tags)
-        (write-json (w :buf) :tags tags)
+        (write-json (w :buf) :tags last-tags)
         (notify-watcher w))))
 
   (def layout (compute-layout outputs focused-output))
-  (def layout-jdn (string/format "%j" (freeze layout)))
-  (unless (= layout-jdn last-layout-jdn)
-    (set last-layout-jdn layout-jdn)
-    (set last-layout layout)
+  (unless (deep= layout last-layout)
+    (set last-layout (freeze layout))
     (each w watchers
       (when ((w :topics) :layout)
-        (write-json (w :buf) :layout layout)
+        (write-json (w :buf) :layout last-layout)
         (notify-watcher w))))
 
   (def title (compute-title seats))
-  (def title-jdn (string/format "%j" (freeze title)))
-  (unless (= title-jdn last-title-jdn)
-    (set last-title-jdn title-jdn)
-    (set last-title title)
+  (unless (deep= title last-title)
+    (set last-title (freeze title))
     (each w watchers
       (when ((w :topics) :title)
-        (write-json (w :buf) :title title)
+        (write-json (w :buf) :title last-title)
+        (notify-watcher w))))
+
+  (def win-state (compute-windows windows seats outputs))
+  (unless (deep= win-state last-windows)
+    (set last-windows (freeze win-state))
+    (each w watchers
+      (when ((w :topics) :windows)
+        (write-json (w :buf) :windows @{:windows last-windows})
         (notify-watcher w)))))
+
+(defn emit-signal
+  "Emit a named signal to watchers on the :signal topic."
+  [name &opt args]
+  (def data @{"name" name})
+  (when args (put data "args" args))
+  (each w watchers
+    (when ((w :topics) :signal)
+      (write-json (w :buf) :signal data)
+      (notify-watcher w))))
+
+# Wire emit-signal into actions to avoid circular import.
+(set action/emit-signal-fn emit-signal)
 
 # --- JSON watch (for tidepoolmsg watch) ---
 
@@ -134,7 +167,8 @@
     (def current (case topic
                    :tags last-tags
                    :layout last-layout
-                   :title last-title))
+                   :title last-title
+                   :windows (when last-windows @{:windows last-windows})))
     (when current
       (write-json buf topic current)))
   (when (> (length buf) 0)
@@ -164,7 +198,8 @@
                  :buf-len (length (w :buf))})
     :last-tags (if last-tags :cached :nil)
     :last-layout (if last-layout :cached :nil)
-    :last-title (if last-title :cached :nil)})
+    :last-title (if last-title :cached :nil)
+    :last-windows (if last-windows :cached :nil)})
 
 # --- Action dispatch ---
 
@@ -198,7 +233,14 @@
       ((entry :create) (parse args))
       ((entry :create))))
   (def action-fn (if (table? action-obj) (action-obj :fn) action-obj))
-  (action-fn seat nil)
+  (def ctx @{:seat seat :binding nil
+             :outputs (state/wm :outputs)
+             :windows (state/wm :windows)
+             :render-order (state/wm :render-order)
+             :config state/config
+             :tag-layouts state/tag-layouts
+             :registry state/registry})
+  (action-fn ctx)
   true)
 
 (defn list-actions

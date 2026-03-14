@@ -164,8 +164,13 @@
 
   (put seat :focus-source :keyboard)
   (when-let [[binding action-fn action-name] (seat :pending-action)]
+    (def ctx @{:seat seat :binding binding
+               :outputs outputs :windows windows
+               :render-order render-order :config config
+               :tag-layouts state/tag-layouts
+               :registry state/registry})
     (try
-      (action-fn seat binding)
+      (action-fn ctx)
       ([err fib]
         (eprintf "tidepool: action %s failed: %s" action-name err)
         (debug/stacktrace fib err ""))))

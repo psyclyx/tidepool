@@ -1,4 +1,3 @@
-(import ./state)
 (import ./window)
 (import ./output)
 (import ./seat)
@@ -51,9 +50,8 @@
 
 (defn target
   "Find the navigation target window for a seat in the given direction."
-  [seat dir]
-  (def outputs (state/wm :outputs))
-  (def windows (state/wm :windows))
+  [ctx dir]
+  (def {:seat seat :outputs outputs :windows windows :config config} ctx)
   (when-let [w (seat :focused)
              o (window/tag-output w outputs)
              visible (output/visible o windows)
@@ -73,15 +71,16 @@
                   (or nav-ctx {:output o :windows tiled :focused w})))
               (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
                     results (layout-fn (output/usable-area o) tiled
-                              (o :layout-params) state/config w)]
+                              (o :layout-params) config w)]
                 (layout/navigate-by-geometry results ti dir))))
           (when target-i (get tiled target-i)))))))
 
-(defn- scroll/focused-column [seat]
+(defn- scroll/focused-column [ctx]
+  (def {:seat seat :outputs outputs :windows windows} ctx)
   (when-let [o (seat :focused-output)]
     (when (= (o :layout) :scroll)
-      (when-let [ctx (scroll/context o (state/wm :windows) (seat :focused) (seat :focus-prev))]
-        (get (ctx :cols) (ctx :focused-col))))))
+      (when-let [sctx (scroll/context o windows (seat :focused) (seat :focus-prev))]
+        (get (sctx :cols) (sctx :focused-col))))))
 
 # --- Window actions ---
 
@@ -89,24 +88,24 @@
   "Action: spawn a command."
   [command]
   (act "spawn" "Spawn command" [command]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
       (ev/spawn (os/proc-wait (os/spawn command :p)))))))
 
 (defn close
   "Action: close the focused window."
   []
   (act "close" "Close window" []
-    (fn [] (fn [seat binding]
-      (when-let [w (seat :focused)]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
         (:close (w :obj)))))))
 
 (defn zoom
   "Action: swap the focused window to master position."
   []
   (act "zoom" "Zoom to master" []
-    (fn [] (fn [seat binding]
-      (def outputs (state/wm :outputs))
-      (def windows (state/wm :windows))
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :windows windows
+            :render-order render-order :config config} ctx)
       (when-let [focused (seat :focused)
                  o (window/tag-output focused outputs)
                  visible (output/visible o windows)
@@ -114,31 +113,36 @@
                  i (assert (index-of t windows))]
         (array/remove windows i)
         (array/insert windows 0 t)
-        (seat/focus seat (first windows) (state/wm :render-order) state/config))))))
+        (seat/focus seat (first windows) render-order config))))))
 
 (defn focus
   "Action: focus in a direction, crossing outputs if needed."
   [dir]
   (act "focus" "Focus" [dir]
-    (fn [] (fn [seat binding]
-      (def outputs (state/wm :outputs))
-      (if-let [t (target seat dir)]
-        (seat/focus seat t (state/wm :render-order) state/config)
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :windows windows
+            :render-order render-order :config config} ctx)
+      (if-let [t (target ctx dir)]
+        (seat/focus seat t render-order config)
         (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
-                               (seat :focused-output))
-                   adjacent (find-adjacent-output current outputs dir)]
-          (seat/focus-output seat adjacent)
-          (seat/focus seat nil (state/wm :render-order) state/config)))))))
+                               (seat :focused-output))]
+          (if-let [adjacent (find-adjacent-output current outputs dir)]
+            (do (seat/focus-output seat adjacent)
+                (seat/focus seat nil render-order config))
+            # Nothing focused and no adjacent output — pick top visible window
+            (unless (seat :focused)
+              (when-let [visible (output/visible current windows)
+                         top (last visible)]
+                (seat/focus seat top render-order config))))))))))
 
 (defn swap
   "Action: swap the focused window in a direction."
   [dir]
   (act "swap" "Swap" [dir]
-    (fn [] (fn [seat binding]
-      (def outputs (state/wm :outputs))
-      (def windows (state/wm :windows))
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :windows windows} ctx)
       (when-let [w (seat :focused)]
-        (if-let [t (target seat dir)
+        (if-let [t (target ctx dir)
                  wi (index-of w windows)
                  ti (index-of t windows)]
           (do
@@ -168,35 +172,36 @@
   "Action: focus the next or adjacent output."
   [&opt dir]
   (act "focus-output" "Focus output" [(or dir :next)]
-    (fn [] (fn [seat binding]
-      (def outputs (state/wm :outputs))
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
       (if dir
         (when-let [current (or (seat :focused-output) (first outputs))
                    adjacent (find-adjacent-output current outputs dir)]
           (seat/focus-output seat adjacent)
-          (seat/focus seat nil (state/wm :render-order) state/config))
+          (seat/focus seat nil render-order config))
         (when-let [focused (seat :focused-output)
                    i (assert (index-of focused outputs))
                    t (or (get outputs (+ i 1)) (first outputs))]
           (seat/focus-output seat t)
-          (seat/focus seat nil (state/wm :render-order) state/config)))))))
+          (seat/focus seat nil render-order config)))))))
 
 (defn focus-last
   "Action: focus the previously focused window."
   []
   (act "focus-last" "Focus last" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
       (when-let [prev (seat :focus-prev)]
         (when (and (not (prev :closed))
-                   (window/tag-output prev (state/wm :outputs)))
-          (seat/focus seat prev (state/wm :render-order) state/config)))))))
+                   (window/tag-output prev outputs))
+          (seat/focus seat prev render-order config)))))))
 
 (defn send-to-output
   "Action: send the focused window to the next output."
   []
   (act "send-to-output" "Send to output" []
-    (fn [] (fn [seat binding]
-      (def outputs (state/wm :outputs))
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs} ctx)
       (when-let [w (seat :focused)
                  current (seat :focused-output)
                  i (assert (index-of current outputs))
@@ -207,19 +212,20 @@
   "Action: toggle floating on the focused window."
   []
   (act "float" "Toggle float" []
-    (fn [] (fn [seat binding]
-      (when-let [w (seat :focused)]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
         (window/set-float w (not (w :float))))))))
 
 (defn fullscreen
   "Action: toggle fullscreen on the focused window."
   []
   (act "fullscreen" "Toggle fullscreen" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs} ctx)
       (when-let [w (seat :focused)]
         (if (w :fullscreen)
           (window/set-fullscreen w nil)
-          (window/set-fullscreen w (window/tag-output w (state/wm :outputs)))))))))
+          (window/set-fullscreen w (window/tag-output w outputs))))))))
 
 # --- Tags ---
 
@@ -227,24 +233,24 @@
   "Action: move the focused window to a tag."
   [tag]
   (act "set-tag" "Set tag" [tag]
-    (fn [] (fn [seat binding]
-      (when-let [w (seat :focused)]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
         (put w :tag tag))))))
 
 (defn focus-tag
   "Action: show only the given tag on the focused output."
   [tag]
   (act "focus-tag" "Focus tag" [tag]
-    (fn [] (fn [seat binding]
-      (when-let [o (seat :focused-output)]
+    (fn [] (fn [ctx]
+      (when-let [o ((ctx :seat) :focused-output)]
         (put o :tags @{tag true}))))))
 
 (defn toggle-tag
   "Action: toggle a tag's visibility on the focused output."
   [tag]
   (act "toggle-tag" "Toggle tag" [tag]
-    (fn [] (fn [seat binding]
-      (when-let [o (seat :focused-output)]
+    (fn [] (fn [ctx]
+      (when-let [o ((ctx :seat) :focused-output)]
         (if ((o :tags) tag)
           (put (o :tags) tag nil)
           (put (o :tags) tag true)))))))
@@ -253,16 +259,16 @@
   "Action: show all tags on the focused output."
   []
   (act "focus-all-tags" "Show all tags" []
-    (fn [] (fn [seat binding]
-      (when-let [o (seat :focused-output)]
+    (fn [] (fn [ctx]
+      (when-let [o ((ctx :seat) :focused-output)]
         (put o :tags (table ;(mapcat |[$ true] (range 1 10)))))))))
 
 (defn toggle-scratchpad
   "Action: toggle scratchpad (tag 0) visibility."
   []
   (act "toggle-scratchpad" "Toggle scratchpad" []
-    (fn [] (fn [seat binding]
-      (when-let [o (seat :focused-output)]
+    (fn [] (fn [ctx]
+      (when-let [o ((ctx :seat) :focused-output)]
         (if ((o :tags) 0)
           (put (o :tags) 0 nil)
           (put (o :tags) 0 true)))))))
@@ -271,8 +277,8 @@
   "Action: send the focused window to the scratchpad."
   []
   (act "send-to-scratchpad" "Send to scratchpad" []
-    (fn [] (fn [seat binding]
-      (when-let [w (seat :focused)]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
         (put w :tag 0)
         (window/set-float w true))))))
 
@@ -282,13 +288,14 @@
   "Action: adjust the layout split ratio by delta."
   [delta]
   (act "adjust-ratio" "Adjust ratio" [delta]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :windows windows :tag-layouts tag-layouts} ctx)
       (when-let [o (seat :focused-output)]
         (def params (o :layout-params))
         (case (o :layout)
           :scroll (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
           :dwindle (when-let [w (seat :focused)
-                             visible (output/visible o (state/wm :windows))
+                             visible (output/visible o windows)
                              tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
                              ti (index-of w tiled)]
                      (when (< ti (- (length tiled) 1))
@@ -297,60 +304,64 @@
                        (put ratios ti (max 0.1 (min 0.9 (+ current delta))))
                        (put params :dwindle-ratios ratios)))
           (put params :main-ratio (max 0.1 (min 0.9 (+ (params :main-ratio) delta)))))
-        (tag-layout/save o state/tag-layouts))))))
+        (tag-layout/save o tag-layouts))))))
 
 (defn adjust-main-count
   "Action: adjust the main window count by delta."
   [delta]
   (act "adjust-main-count" "Adjust main count" [delta]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :tag-layouts tag-layouts} ctx)
       (when-let [o (seat :focused-output)]
         (def params (o :layout-params))
         (put params :main-count (max 1 (+ (params :main-count) delta)))
-        (tag-layout/save o state/tag-layouts))))))
+        (tag-layout/save o tag-layouts))))))
 
 (defn cycle-layout
   "Action: cycle to the next/prev layout."
   [dir]
   (act "cycle-layout" "Cycle layout" [dir]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :config config :tag-layouts tag-layouts} ctx)
       (when-let [o (seat :focused-output)]
-        (def layouts (state/config :layouts))
+        (def layouts (config :layouts))
         (def current (o :layout))
         (def i (or (index-of current layouts) 0))
         (def next-i (case dir
                       :next (% (+ i 1) (length layouts))
                       :prev (% (+ (- i 1) (length layouts)) (length layouts))))
         (put o :layout (get layouts next-i))
-        (tag-layout/save o state/tag-layouts))))))
+        (tag-layout/save o tag-layouts))))))
 
 (defn set-layout
   "Action: set the layout on the focused output."
   [lo]
   (act "set-layout" "Set layout" [lo]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :tag-layouts tag-layouts} ctx)
       (when-let [o (seat :focused-output)]
         (put o :layout lo)
-        (tag-layout/save o state/tag-layouts))))))
+        (tag-layout/save o tag-layouts))))))
 
 (defn adjust-column-width
   "Action: adjust the default column width by delta."
   [delta]
   (act "adjust-column-width" "Adjust column width" [delta]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :tag-layouts tag-layouts} ctx)
       (when-let [o (seat :focused-output)]
         (def params (o :layout-params))
         (put params :column-width (max 0.1 (min 1.0 (+ (params :column-width) delta))))
-        (tag-layout/save o state/tag-layouts))))))
+        (tag-layout/save o tag-layouts))))))
 
 (defn resize-column
   "Action: resize the focused scroll column by delta."
   [delta]
   (act "resize-column" "Resize column" [delta]
-    (fn [] (fn [seat binding]
-      (when-let [col (scroll/focused-column seat)]
+    (fn [] (fn [ctx]
+      (when-let [col (scroll/focused-column ctx)]
         (def current (or ((first col) :col-width)
-                         (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
+                         (get-in ((ctx :seat) :focused-output) [:layout-params :column-width] 0.5)))
         (def new-width (max 0.1 (min 1.0 (+ current delta))))
         (each win col (put win :col-width new-width)))))))
 
@@ -358,9 +369,9 @@
   "Action: resize the focused window's weight by delta."
   [delta]
   (act "resize-window" "Resize window" [delta]
-    (fn [] (fn [seat binding]
-      (when-let [w (seat :focused)
-                 col (scroll/focused-column seat)]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)
+                 col (scroll/focused-column ctx)]
         (when (> (length col) 1)
           (def current (or (w :col-weight) 1.0))
           (put w :col-weight (max 0.1 (+ current delta)))))))))
@@ -369,12 +380,12 @@
   "Action: cycle the focused column through width presets."
   []
   (act "preset-column-width" "Cycle column width" []
-    (fn [] (fn [seat binding]
-      (when-let [col (scroll/focused-column seat)]
-        (def presets (state/config :column-presets))
+    (fn [] (fn [ctx]
+      (when-let [col (scroll/focused-column ctx)]
+        (def presets ((ctx :config) :column-presets))
         (when (and presets (> (length presets) 0))
           (def current (or ((first col) :col-width)
-                           (get-in (seat :focused-output) [:layout-params :column-width] 0.5)))
+                           (get-in ((ctx :seat) :focused-output) [:layout-params :column-width] 0.5)))
           (def next-width
             (or (find |(> $ (+ current 0.01)) (sorted presets))
                 (first (sorted presets))))
@@ -384,20 +395,21 @@
   "Action: reset all row weights in the focused column."
   []
   (act "equalize-column" "Equalize column" []
-    (fn [] (fn [seat binding]
-      (when-let [col (scroll/focused-column seat)]
+    (fn [] (fn [ctx]
+      (when-let [col (scroll/focused-column ctx)]
         (each win col (put win :col-weight nil)))))))
 
 (defn consume-column
   "Action: merge the focused window into an adjacent column."
   [dir]
   (act "consume-column" "Consume column" [dir]
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :windows windows} ctx)
       (when-let [o (seat :focused-output)
                  w (seat :focused)]
         (when (= (o :layout) :scroll)
-          (when-let [ctx (scroll/context o (state/wm :windows) w (seat :focus-prev))]
-            (def {:cols cols :num-cols num-cols :focused-col my-col} ctx)
+          (when-let [sctx (scroll/context o windows w (seat :focus-prev))]
+            (def {:cols cols :num-cols num-cols :focused-col my-col} sctx)
             (def target-ci (case dir :left (- my-col 1) :right (+ my-col 1)))
             (when (and (>= target-ci 0) (< target-ci num-cols) (not= target-ci my-col))
               (put w :column ((first (get cols target-ci)) :column))))))))))
@@ -406,12 +418,13 @@
   "Action: expel the focused window into a new column."
   []
   (act "expel-column" "Expel column" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :windows windows} ctx)
       (when-let [o (seat :focused-output)
                  w (seat :focused)]
         (when (= (o :layout) :scroll)
-          (when-let [ctx (scroll/context o (state/wm :windows) w (seat :focus-prev))]
-            (def {:cols cols :focused-col my-col :windows tiled} ctx)
+          (when-let [sctx (scroll/context o windows w (seat :focus-prev))]
+            (def {:cols cols :focused-col my-col :windows tiled} sctx)
             (when (> (length (get cols my-col)) 1)
               (var max-col -1)
               (each win tiled (set max-col (max max-col (or (win :column) 0))))
@@ -423,23 +436,26 @@
   "Action: start a pointer move operation."
   []
   (act "pointer-move" "Pointer move" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
-        (seat/pointer-move seat w (state/wm :render-order) state/config))))))
+        (seat/pointer-move seat w render-order config))))))
 
 (defn pointer-resize
   "Action: start a pointer resize operation."
   []
   (act "pointer-resize" "Pointer resize" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
-        (seat/pointer-resize seat w {:bottom true :right true} (state/wm :render-order) state/config))))))
+        (seat/pointer-resize seat w {:bottom true :right true} render-order config))))))
 
 (defn passthrough
   "Action: toggle keybinding passthrough."
   []
   (act "passthrough" "Passthrough" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
+      (def {:seat seat :binding binding} ctx)
       (put binding :passthrough (not (binding :passthrough)))
       (def request (if (binding :passthrough) :disable :enable))
       (each other (seat :xkb-bindings)
@@ -453,15 +469,28 @@
   "Action: restart tidepool (exit code 42)."
   []
   (act "restart" "Restart" []
-    (fn [] (fn [seat binding]
+    (fn [] (fn [ctx]
       (os/exit 42)))))
 
 (defn exit
   "Action: exit tidepool."
   []
   (act "exit" "Exit" []
-    (fn [] (fn [seat binding]
-      (:stop (state/registry "river_window_manager_v1"))))))
+    (fn [] (fn [ctx]
+      (:stop ((ctx :registry) "river_window_manager_v1"))))))
+
+# --- Signals ---
+
+(var emit-signal-fn nil)
+
+(defn signal
+  "Action: emit a named signal to IPC watchers."
+  [parsed]
+  (def [name args] parsed)
+  (act "signal" "Emit signal" [name ;args]
+    (fn [] (fn [ctx]
+      (when emit-signal-fn
+        (emit-signal-fn name (if (> (length args) 0) args)))))))
 
 # --- Action registry for IPC dispatch ---
 
@@ -498,4 +527,5 @@
     "pointer-resize" @{:create pointer-resize}
     "passthrough" @{:create passthrough}
     "restart" @{:create restart}
-    "exit" @{:create exit}})
+    "exit" @{:create exit}
+    "signal" @{:create signal :parse |(do (def name ($ 0)) (def rest (slice $ 1)) [name rest])}})
