@@ -1,6 +1,7 @@
 (import ../animation)
 
 (defn- sum [xs] (reduce + 0 xs))
+(defn- win-row [w] (or (w :row) 0))
 
 (defn assign
   "Assign column indices to windows, inserting new ones after focus."
@@ -70,9 +71,11 @@
 
 (defn context
   "Get the scroll layout context (columns, focus) for tiled visible windows."
-  [visible focused &opt focus-prev]
-  (when (empty? visible) (break nil))
-  (def cols (group visible focused focus-prev))
+  [visible focused &opt focus-prev active-row]
+  (def row (or active-row 0))
+  (def row-windows (filter |(= (win-row $) row) visible))
+  (when (empty? row-windows) (break nil))
+  (def cols (group row-windows focused focus-prev))
   (def num-cols (length cols))
   (var focused-col 0)
   (var focused-row 0)
@@ -82,12 +85,14 @@
       (when (= (get col ri) focused)
         (set focused-col ci)
         (set focused-row ri))))
-  @{:windows visible :cols cols :num-cols num-cols
-    :focused-win focused :focused-col focused-col :focused-row focused-row})
+  @{:windows row-windows :cols cols :num-cols num-cols
+    :focused-win focused :focused-col focused-col :focused-row focused-row
+    :active-row row})
 
 (defn layout
   "Arrange windows in horizontally scrollable columns."
   [usable windows params config focused &opt now focus-prev]
+  (def active-row (or (params :active-row) 0))
   (def outer (config :outer-padding))
   (def inner (config :inner-padding))
   (def peek (* 2 inner))
@@ -97,7 +102,24 @@
   (def row-h-ratio (or (config :column-row-height) 0))
 
   (when (empty? windows) (break @[]))
-  (def cols (group windows focused focus-prev))
+
+  # Auto-assign new windows to active row
+  (each win windows
+    (when (nil? (win :row))
+      (put win :row active-row)))
+
+  # Split into active row and hidden rows
+  (def row-windows (filter |(= (win-row $) active-row) windows))
+  (def hidden-windows (filter |(not= (win-row $) active-row) windows))
+
+  # Build hidden results for non-active-row windows
+  (def results @[])
+  (each win hidden-windows
+    (array/push results {:window win :hidden true :scroll-placed true}))
+
+  (when (empty? row-windows) (break results))
+
+  (def cols (group row-windows focused focus-prev))
   (def num-cols (length cols))
   (def focused-win focused)
   (var focused-col-idx 0)
@@ -135,7 +157,6 @@
   (def clip-top (usable :y))
   (def clip-bottom (+ (usable :y) (usable :h)))
 
-  (def results @[])
   (for ci 0 num-cols
     (def col (get cols ci))
     (def cw (col-width col content-w default-ratio))
@@ -202,7 +223,8 @@
     (var y-acc 0)
     (for ri 0 num-rows
       (def win (get col ri))
-      (put win :layout-meta @{:column ci :column-total num-cols :row ri :row-total num-rows})
+      (put win :layout-meta @{:column ci :column-total num-cols :row ri :row-total num-rows
+                               :scroll-row active-row})
       (def h (get heights ri))
       (def y-off (if overflows (- y-acc v-scroll) y-acc))
       (def placement (place

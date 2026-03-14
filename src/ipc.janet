@@ -32,6 +32,7 @@
   @{:outputs (seq [o :in outputs]
       @{:x (o :x) :y (o :y)
         :layout (string (o :layout))
+        :active-row (or (get-in o [:layout-params :active-row]) 0)
         :focused (= o focused-output)})})
 
 (defn- compute-title
@@ -60,6 +61,7 @@
       :float (if (w :float) true false)
       :fullscreen (if (w :fullscreen) true false)
       :visible (if (w :visible) true false)
+      :row (or (w :row) 0)
       :layout (when o (string (o :layout)))
       :meta (w :layout-meta)}))
 

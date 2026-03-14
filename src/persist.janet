@@ -22,6 +22,7 @@
           :column (w :column)
           :col-width (w :col-width)
           :col-weight (w :col-weight)
+          :row (w :row)
           :float (w :float)})))
 
   (def out-data @[])
@@ -87,4 +88,6 @@
       (when (saved :col-width)
         (put window :col-width (saved :col-width)))
       (when (saved :col-weight)
-        (put window :col-weight (saved :col-weight))))))
+        (put window :col-weight (saved :col-weight)))
+      (when (saved :row)
+        (put window :row (saved :row))))))

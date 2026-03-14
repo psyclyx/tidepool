@@ -35,7 +35,8 @@
   (put window :float-changed true)
   (put window :column nil)
   (put window :col-width nil)
-  (put window :col-weight nil))
+  (put window :col-weight nil)
+  (put window :row nil))
 
 (defn set-fullscreen
   "Enter or exit fullscreen (pure data mutation)."

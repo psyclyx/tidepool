@@ -429,6 +429,88 @@
             (each win tiled (set max-col (max max-col (or (win :column) 0))))
             (put w :column (+ max-col 1)))))))))
 
+# --- Rows (scroll layout) ---
+
+(defn- save-row-state
+  "Save current scroll state for the active row before switching."
+  [params row]
+  (def row-state (or (params :row-state) @{}))
+  (put row-state row @{:scroll-offset (params :scroll-offset)})
+  (put params :row-state row-state))
+
+(defn- restore-row-state
+  "Restore scroll state for a row after switching to it."
+  [params row]
+  (when-let [row-state (params :row-state)
+             saved (get row-state row)]
+    (put params :scroll-offset (or (saved :scroll-offset) 0))))
+
+(defn focus-row
+  "Action: switch to a specific scroll row."
+  [row]
+  (act "focus-row" "Focus row" [row]
+    (fn [] (fn [ctx]
+      (def {:seat seat :tag-layouts tag-layouts} ctx)
+      (when-let [o (seat :focused-output)]
+        (when (= (o :layout) :scroll)
+          (def params (o :layout-params))
+          (def current (or (params :active-row) 0))
+          (unless (= current row)
+            (save-row-state params current)
+            (put params :active-row row)
+            (restore-row-state params row)
+            (tag-layout/save o tag-layouts))))))))
+
+(defn cycle-row
+  "Action: cycle to the next/prev scroll row."
+  [dir]
+  (act "cycle-row" "Cycle row" [dir]
+    (fn [] (fn [ctx]
+      (def {:seat seat :windows windows :tag-layouts tag-layouts} ctx)
+      (when-let [o (seat :focused-output)]
+        (when (= (o :layout) :scroll)
+          (def params (o :layout-params))
+          (def current (or (params :active-row) 0))
+          # Find all occupied rows
+          (def visible (output/visible o windows))
+          (def tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible))
+          (def rows (sorted (distinct (map |(or ($ :row) 0) tiled))))
+          (when (> (length rows) 1)
+            (def i (or (index-of current rows) 0))
+            (def next-i (case dir
+                          :next (% (+ i 1) (length rows))
+                          :prev (% (+ (- i 1) (length rows)) (length rows))))
+            (def next-row (get rows next-i))
+            (save-row-state params current)
+            (put params :active-row next-row)
+            (restore-row-state params next-row)
+            (tag-layout/save o tag-layouts))))))))
+
+(defn send-to-row
+  "Action: send the focused window to a specific scroll row."
+  [row]
+  (act "send-to-row" "Send to row" [row]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
+        (put w :row row)
+        (put w :column nil))))))
+
+(defn expel-row
+  "Action: send the focused window to a new row (max + 1)."
+  []
+  (act "expel-row" "Expel to new row" []
+    (fn [] (fn [ctx]
+      (def {:seat seat :windows windows} ctx)
+      (when-let [o (seat :focused-output)
+                 w (seat :focused)]
+        (when (= (o :layout) :scroll)
+          (def visible (output/visible o windows))
+          (def tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible))
+          (var max-row 0)
+          (each win tiled (set max-row (max max-row (or (win :row) 0))))
+          (put w :row (+ max-row 1))
+          (put w :column nil)))))))
+
 # --- Input ---
 
 (defn pointer-move
@@ -522,6 +604,10 @@
     "equalize-column" @{:create equalize-column}
     "consume-column" @{:create consume-column :parse |(keyword ($ 0))}
     "expel-column" @{:create expel-column}
+    "focus-row" @{:create focus-row :parse |(scan-number ($ 0))}
+    "cycle-row" @{:create cycle-row :parse |(keyword ($ 0))}
+    "send-to-row" @{:create send-to-row :parse |(scan-number ($ 0))}
+    "expel-row" @{:create expel-row}
     "pointer-move" @{:create pointer-move}
     "pointer-resize" @{:create pointer-resize}
     "passthrough" @{:create passthrough}

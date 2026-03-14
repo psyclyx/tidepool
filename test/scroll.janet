@@ -521,5 +521,68 @@
       (string/format "focus col %d: right edge %d <= zone-right %d"
         focus-ci (+ focused-x cw) zone-right))))
 
+# --- Row filtering tests ---
+
+(import ../src/layout/scroll :as scroll)
+
+(defn make-row-win [&keys {:column col :row row :col-width cw}]
+  @{:column col :row row :col-width cw})
+
+(test "rows: nil row treated as row 0"
+  (def wins @[
+    (make-row-win :column 0)
+    (make-row-win :column 1 :row 0)
+    (make-row-win :column 2 :row 1)])
+  (def ctx (scroll/context wins nil nil 0))
+  (assert= (length (ctx :windows)) 2 "row 0 has 2 windows")
+  (assert= (ctx :num-cols) 2 "row 0 has 2 columns"))
+
+(test "rows: active row 1 filters correctly"
+  (def wins @[
+    (make-row-win :column 0 :row 0)
+    (make-row-win :column 0 :row 1)
+    (make-row-win :column 1 :row 1)])
+  (def ctx (scroll/context wins nil nil 1))
+  (assert= (length (ctx :windows)) 2 "row 1 has 2 windows")
+  (assert= (ctx :num-cols) 2 "row 1 has 2 columns"))
+
+(test "rows: empty row returns nil context"
+  (def wins @[(make-row-win :column 0 :row 0)])
+  (def ctx (scroll/context wins nil nil 5))
+  (assert (nil? ctx) "empty row should return nil"))
+
+(test "rows: focused column tracking in row context"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 1 :row 0))
+  (def w2 (make-row-win :column 0 :row 1))
+  (def wins @[w0 w1 w2])
+  (def ctx (scroll/context wins w1 nil 0))
+  (assert= (ctx :focused-col) 1 "focused column is 1"))
+
+(test "rows: auto-assign new windows to active row"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w-new @{})
+  (def wins @[w0 w-new])
+  (def usable {:x 0 :y 0 :w 1920 :h 1080})
+  (def params @{:column-width 0.5 :scroll-offset 0 :active-row 2})
+  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
+  (scroll/layout usable wins params config nil)
+  (assert= (w-new :row) 2 "new window auto-assigned to active row"))
+
+(test "rows: non-active row windows hidden in layout"
+  (def w0 @{:row 0})
+  (def w1 @{:row 1})
+  (def wins @[w0 w1])
+  (def usable {:x 0 :y 0 :w 1920 :h 1080})
+  (def params @{:column-width 0.5 :scroll-offset 0 :active-row 0})
+  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
+  (def results (scroll/layout usable wins params config nil))
+  (def hidden (filter |($ :hidden) results))
+  (def visible (filter |(not ($ :hidden)) results))
+  (assert= (length hidden) 1 "1 hidden window")
+  (assert= ((first hidden) :window) w1 "row 1 window is hidden")
+  (assert= (length visible) 1 "1 visible window")
+  (assert= ((first visible) :window) w0 "row 0 window is visible"))
+
 (printf "\n%d tests, %d failures" test-count fail-count)
 (when (> fail-count 0) (os/exit 1))

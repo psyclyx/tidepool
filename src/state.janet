@@ -38,7 +38,7 @@
 #                  :pointer-move-requested :pointer-resize-requested
 #                  :border-status :border-rgb :border-width :border-applied-rgb
 #                  :border-applied-width :vis-applied :clip-rect
-#   scroll.janet:  :column :col-width :col-weight :scroll-placed
+#   scroll.janet:  :column :col-width :col-weight :row :scroll-placed
 #   animation.janet: :anim :anim-clip :anim-destroy :needs-open-anim
 #   layout (all):  :layout-hidden :layout-meta
 
