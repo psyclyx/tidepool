@@ -1,5 +1,4 @@
 (import ../animation)
-(import ../output)
 
 (defn- sum [xs] (reduce + 0 xs))
 
@@ -70,10 +69,8 @@
   positions)
 
 (defn context
-  "Get the scroll layout context (columns, focus) for an output."
-  [o windows focused &opt focus-prev]
-  (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
-                       (output/visible o windows)))
+  "Get the scroll layout context (columns, focus) for tiled visible windows."
+  [visible focused &opt focus-prev]
   (when (empty? visible) (break nil))
   (def cols (group visible focused focus-prev))
   (def num-cols (length cols))

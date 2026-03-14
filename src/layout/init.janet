@@ -24,8 +24,12 @@
 
 (def context-fns
   "Layout context function dispatch table.
-  Returns layout-specific context (e.g. scroll columns) for action use."
-  @{:scroll scroll/context})
+  Signature: (ctx-fn output windows focused &opt focus-prev)
+  Filters to visible tiled windows before calling the layout's context fn."
+  @{:scroll (fn [o windows focused &opt focus-prev]
+              (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
+                                   (output/visible o windows)))
+              (scroll/context visible focused focus-prev))})
 
 (defn navigate-by-geometry
   "Navigate by finding the nearest window in the given direction.
