@@ -518,7 +518,7 @@
   []
   (act "pointer-move" "Pointer move" []
     (fn [] (fn [ctx]
-      (def {:seat seat :render-order render-order :config config} ctx)
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
         (seat/pointer-move seat w outputs render-order config))))))
 
@@ -527,7 +527,7 @@
   []
   (act "pointer-resize" "Pointer resize" []
     (fn [] (fn [ctx]
-      (def {:seat seat :render-order render-order :config config} ctx)
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
       (when-let [w (seat :pointer-target)]
         (seat/pointer-resize seat w {:bottom true :right true} outputs render-order config))))))
 
