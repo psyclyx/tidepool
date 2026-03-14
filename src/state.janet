@@ -29,6 +29,19 @@
     :xcursor-theme "Adwaita"
     :xcursor-size 24})
 
+# Window key ownership:
+#   window.janet:  :obj :node :tag :float :fullscreen :fullscreen-output
+#                  :x :y :w :h :proposed-w :proposed-h :min-w :min-h :max-w :max-h
+#                  :app-id :title :wl-parent :decoration-hint
+#                  :new :closed :closing :visible :needs-ssd :float-changed
+#                  :fullscreen-changed :fullscreen-requested
+#                  :pointer-move-requested :pointer-resize-requested
+#                  :border-status :border-rgb :border-width :border-applied-rgb
+#                  :border-applied-width :vis-applied :clip-rect
+#   scroll.janet:  :column :col-width :col-weight :scroll-placed
+#   animation.janet: :anim :anim-clip :anim-destroy :needs-open-anim
+#   layout (all):  :layout-hidden :layout-meta
+
 (def wm
   "Global window manager state."
   @{:config config
