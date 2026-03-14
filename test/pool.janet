@@ -159,11 +159,10 @@
   (def found (pool/find-ancestor a |(= ($ :mode) :scroll)))
   (assert= found outer "found scroll ancestor"))
 
-(test "tag-pool"
+(test "tag-pool: walks to root"
   (def a (w))
   (def tag (pool/make-pool :scroll @[a] @{:id :main}))
-  (def output (pool/make-pool :tabbed @[tag]))
-  (assert= (pool/tag-pool a) tag "tag pool from window"))
+  (assert= (pool/tag-pool a) tag "tag pool from window (root of subtree)"))
 
 (test "find-pool-by-id"
   (def a (w))
@@ -174,15 +173,15 @@
   (assert= (pool/find-pool-by-id output :web) tag2)
   (assert= (pool/find-pool-by-id output :nope) nil))
 
-(test "sync-tags"
+(test "sync-tags: stamps tag from table keys"
   (def a (w))
   (def b (w))
-  (def tag1 (pool/make-pool :scroll @[a] @{:id :main}))
-  (def tag2 (pool/make-pool :scroll @[b] @{:id :web}))
-  (def output (pool/make-pool :tabbed @[tag1 tag2]))
-  (pool/sync-tags output)
-  (assert= (a :tag) :main "a tagged :main")
-  (assert= (b :tag) :web "b tagged :web"))
+  (def tag1 (pool/make-pool :scroll @[a] @{:id 1}))
+  (def tag2 (pool/make-pool :scroll @[b] @{:id 2}))
+  (def tag-pools @{1 tag1 2 tag2})
+  (pool/sync-tags tag-pools)
+  (assert= (a :tag) 1 "a tagged 1")
+  (assert= (b :tag) 2 "b tagged 2"))
 
 (test "auto-unwrap: stack-v with defaults"
   (def a (w))

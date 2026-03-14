@@ -241,20 +241,17 @@
 # --- focus-pool ---
 
 (defn focus-pool
-  "Activate the child pool with :id on the output (root tabbed)."
-  [root id]
-  (def children (root :children))
-  (for i 0 (length children)
-    (when (= (get (get children i) :id) id)
-      (put root :active i)
-      (break))))
+  "Activate the tag with the given ID on the output."
+  [output id]
+  (when (get (output :tag-pools) id)
+    (put output :active-tag id)))
 
 # --- send-to-pool ---
 
 (defn send-to-pool
-  "Move focused window to the pool with :id."
-  [root focused id]
-  (def target (pool/find-pool-by-id root id))
+  "Move focused window to the tag pool with the given ID."
+  [tag-pools focused id]
+  (def target (get tag-pools id))
   (when (nil? target) (break))
   (def parent (focused :parent))
   (when (nil? parent) (break))
@@ -276,25 +273,17 @@
 # --- toggle-pool ---
 
 (defn toggle-pool
-  "Toggle visibility of pool with :id. Sets :multi-active for multi-tag view."
-  [root id]
-  (def children (root :children))
-  (var target-idx nil)
-  (for i 0 (length children)
-    (when (= (get (get children i) :id) id)
-      (set target-idx i)
-      (break)))
-  (when (nil? target-idx) (break))
-  (def current-active (or (root :active) 0))
-  (if (= current-active target-idx)
-    nil  # can't toggle off the only active
+  "Toggle visibility of a tag. Sets :multi-active for multi-tag view."
+  [output id]
+  (def current-active (or (output :active-tag) 1))
+  (if (= current-active id)
+    nil  # can't toggle off the primary active tag
     (do
-      # Set multi-active
-      (def ma (or (root :multi-active) @{}))
-      (if (get ma target-idx)
-        (put ma target-idx nil)
-        (put ma target-idx true))
-      (put root :multi-active ma))))
+      (def ma (or (output :multi-active) @{}))
+      (if (get ma id)
+        (put ma id nil)
+        (put ma id true))
+      (put output :multi-active ma))))
 
 # --- insert-window ---
 
@@ -410,31 +399,3 @@
       (def row (pool/make-pool :stack-v (array ;windows)))
       (pool/append-child tag row))))
 
-# --- float-toggle ---
-
-(defn float-toggle
-  "Toggle floating. Float removes from tree, unfloat inserts back."
-  [root focused]
-  (if (focused :floating)
-    (do
-      # Unfloat: insert into the first available pool
-      (put focused :floating nil)
-      # Find a pool to insert into — use root's active tag
-      (def active (or (root :active) 0))
-      (def tag (get (root :children) active))
-      (when tag
-        (if (= (tag :mode) :scroll)
-          (let [row (get (tag :children) (or (tag :active-row) 0))]
-            (when row (pool/append-child row focused)))
-          (pool/append-child tag focused))))
-    (do
-      # Float: remove from tree
-      (def parent (focused :parent))
-      (when parent
-        (def idx (pool/child-index parent focused))
-        (when idx
-          (pool/remove-child parent idx)
-          (put focused :floating true)
-          (if (= (length (parent :children)) 0)
-            (pool/maybe-prune parent)
-            (pool/maybe-unwrap parent)))))))

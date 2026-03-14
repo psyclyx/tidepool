@@ -94,13 +94,17 @@
       result)))
 
 (defn serialize
-  "Serialize outputs' pool trees to a pretty-printed JDN string."
+  "Serialize outputs' tag pools to a pretty-printed JDN string."
   [outputs]
   (def data
     @{:outputs
       (seq [o :in outputs]
+        (def tp-data @{})
+        (eachp [id tp] (o :tag-pools)
+          (put tp-data id (serialize-node tp)))
         @{:connector (o :connector)
-          :pool (serialize-node (o :pool))})})
+          :active-tag (o :active-tag)
+          :tag-pools tp-data})})
   (pp-jdn data))
 
 # --- Restore ---
@@ -148,21 +152,41 @@
       p)))
 
 (defn restore
-  "Restore pool trees from saved data, matching windows by (app-id, title).
-  Returns {:outputs [{:connector :pool} ...]}."
+  "Restore tag pools from saved data, matching windows by (app-id, title).
+  Returns {:outputs [{:connector :tag-pools :active-tag} ...]}."
   [data windows]
   (def available (array ;windows))
   (def outputs
     (seq [saved-out :in (or (data :outputs) @[])]
-      (def p (restore-node (saved-out :pool) available))
+      (def tag-pools @{})
+      (if (saved-out :tag-pools)
+        # New format: tag-pools table
+        (eachp [id saved-tp] (saved-out :tag-pools)
+          (def p (restore-node saved-tp available))
+          (when p (put tag-pools id p)))
+        # Legacy format: single root pool with tag children
+        (when-let [root-data (saved-out :pool)]
+          (def root (restore-node root-data available))
+          (when root
+            (for i 0 (length (root :children))
+              (def child (get (root :children) i))
+              (put child :parent nil)
+              (put tag-pools (or (child :id) i) child)))))
       @{:connector (saved-out :connector)
-        :pool p}))
-  # Append unmatched windows to the first output's first pool
+        :tag-pools tag-pools
+        :active-tag (or (saved-out :active-tag) 1)}))
+  # Append unmatched windows to the first output's active tag pool
   (when (and (> (length available) 0) (> (length outputs) 0))
-    (def first-pool (get (get outputs 0) :pool))
-    (when first-pool
+    (def first-out (get outputs 0))
+    (def active (or (first-out :active-tag) 1))
+    (when-let [tp (or (get (first-out :tag-pools) active)
+                      # Fallback: first available tag pool
+                      (do (var found nil)
+                        (eachp [_ p] (first-out :tag-pools)
+                          (when (not found) (set found p)))
+                        found))]
       # Find a leaf-level pool to append to
-      (var target first-pool)
+      (var target tp)
       (while (and (target :children) (> (length (target :children)) 0))
         (def first-child (get (target :children) 0))
         (if (and (table? first-child) (first-child :children))

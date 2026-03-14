@@ -32,9 +32,8 @@
   [outputs focused-output]
   @{:outputs (seq [o :in outputs]
       (def tag-pool
-        (when-let [root (o :pool)]
-          (def active (or (root :active) 0))
-          (get (root :children) active)))
+        (when-let [tp (o :tag-pools)]
+          (get tp (or (o :active-tag) 1))))
       @{:x (o :x) :y (o :y)
         :layout (if tag-pool (string (tag-pool :mode)) "unknown")
         :focused (= o focused-output)})})
@@ -254,12 +253,14 @@
   []
   (def errors @[])
   (each o (state/wm :outputs)
-    (when-let [root (o :pool)]
-      (def errs (pool/validate root))
-      (when (> (length errs) 0)
-        (array/push errors
-          @{"output" (string (o :x) "," (o :y))
-            "errors" errs}))))
+    (when-let [tag-pools (o :tag-pools)]
+      (eachp [id tp] tag-pools
+        (def errs (pool/validate tp))
+        (when (> (length errs) 0)
+          (array/push errors
+            @{"output" (string (o :x) "," (o :y))
+              "tag" id
+              "errors" errs})))))
   (json/encode errors))
 
 # --- Save/load wrappers ---

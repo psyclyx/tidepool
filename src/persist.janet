@@ -6,17 +6,12 @@
   "Serialize current state to a JDN string and print to stdout."
   []
   (def outputs (state/wm :outputs))
-  # Use position as output identifier
-  (def out-data
-    (seq [o :in outputs]
-      (when (and (o :x) (o :y) (o :pool))
-        @{:position (string (o :x) "," (o :y))
-          :pool o})))
   (def wrapped-outputs
     (filter truthy? (seq [o :in outputs]
-      (when (and (o :x) (o :y) (o :pool))
+      (when (and (o :x) (o :y) (o :tag-pools))
         @{:connector (string (o :x) "," (o :y))
-          :pool (o :pool)}))))
+          :tag-pools (o :tag-pools)
+          :active-tag (or (o :active-tag) 1)}))))
   (print (pool-persist/serialize wrapped-outputs))
   (flush))
 
@@ -44,4 +39,6 @@
     (when-let [actual (find |(= (string ($ :x) "," ($ :y))
                                 (restored :connector))
                             outputs)]
-      (put actual :pool (restored :pool)))))
+      (put actual :tag-pools (restored :tag-pools))
+      (when (restored :active-tag)
+        (put actual :active-tag (restored :active-tag))))))

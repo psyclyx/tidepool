@@ -283,8 +283,7 @@
   (def col (pool/make-pool :stack-v @[a]))
   (def row (pool/make-pool :stack-v @[col]))
   (def tag (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
-  (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (actions/set-mode root a :stack-h :tag)
+  (actions/set-mode tag a :stack-h :tag)
   (assert= (tag :mode) :stack-h "tag mode changed"))
 
 # ===== resize =====
@@ -341,25 +340,23 @@
 # ===== focus-pool (tag switching) =====
 
 (test "focus-pool: switch active tag"
-  (def a (w "a"))
-  (def b (w "b"))
   (def tag1 (pool/make-pool :scroll @[] @{:id :main}))
   (def tag2 (pool/make-pool :scroll @[] @{:id :web}))
-  (def root (pool/make-pool :tabbed @[tag1 tag2] @{:active 0}))
-  (actions/focus-pool root :web)
-  (assert= (root :active) 1 "switched to :web"))
+  (def output @{:tag-pools @{:main tag1 :web tag2} :active-tag :main})
+  (actions/focus-pool output :web)
+  (assert= (output :active-tag) :web "switched to :web"))
 
 (test "focus-pool: no-op if already active"
   (def tag1 (pool/make-pool :scroll @[] @{:id :main}))
-  (def root (pool/make-pool :tabbed @[tag1] @{:active 0}))
-  (actions/focus-pool root :main)
-  (assert= (root :active) 0 "still :main"))
+  (def output @{:tag-pools @{:main tag1} :active-tag :main})
+  (actions/focus-pool output :main)
+  (assert= (output :active-tag) :main "still :main"))
 
 (test "focus-pool: non-existent id is no-op"
   (def tag1 (pool/make-pool :scroll @[] @{:id :main}))
-  (def root (pool/make-pool :tabbed @[tag1] @{:active 0}))
-  (actions/focus-pool root :nonexistent)
-  (assert= (root :active) 0 "unchanged"))
+  (def output @{:tag-pools @{:main tag1} :active-tag :main})
+  (actions/focus-pool output :nonexistent)
+  (assert= (output :active-tag) :main "unchanged"))
 
 # ===== send-to-pool =====
 
@@ -370,8 +367,8 @@
   (def tag1 (pool/make-pool :scroll @[row1] @{:id :main :active-row 0}))
   (def row2 (pool/make-pool :stack-v @[]))
   (def tag2 (pool/make-pool :scroll @[row2] @{:id :web :active-row 0}))
-  (def root (pool/make-pool :tabbed @[tag1 tag2] @{:active 0}))
-  (actions/send-to-pool root a :web)
+  (def tag-pools @{:main tag1 :web tag2})
+  (actions/send-to-pool tag-pools a :web)
   # a should now be in tag2's active row
   (assert= (a :parent) row2 "a moved to tag2 row")
   (assert= (length (row1 :children)) 1 "row1 lost a child"))
@@ -383,8 +380,8 @@
   (def tag1 (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
   (def row2 (pool/make-pool :stack-v @[]))
   (def tag2 (pool/make-pool :scroll @[row2] @{:id :web :active-row 0}))
-  (def root (pool/make-pool :tabbed @[tag1 tag2] @{:active 0}))
-  (actions/send-to-pool root a :web)
+  (def tag-pools @{:main tag1 :web tag2})
+  (actions/send-to-pool tag-pools a :web)
   # group should be pruned (empty after removal), row may also be pruned
   (assert= (a :parent) row2 "a in target"))
 
@@ -393,12 +390,9 @@
 (test "toggle-pool: toggle second tag visible"
   (def tag1 (pool/make-pool :scroll @[] @{:id :main}))
   (def tag2 (pool/make-pool :scroll @[] @{:id :web}))
-  (def root (pool/make-pool :tabbed @[tag1 tag2] @{:active 0}))
-  (actions/toggle-pool root :web)
-  # After toggle, both tags should be visible. Implementation detail:
-  # root may have :multi-active or equivalent
-  (assert (or (root :multi-active) (= (root :active) 1))
-          "web tag toggled visible"))
+  (def output @{:tag-pools @{:main tag1 :web tag2} :active-tag :main})
+  (actions/toggle-pool output :web)
+  (assert (get (output :multi-active) :web) "web tag toggled visible"))
 
 # ===== insert-window (window routing) =====
 
@@ -491,8 +485,7 @@
   (def c (w "c"))
   (def row (pool/make-pool :stack-v @[a b c]))
   (def tag (pool/make-pool :scroll @[row] @{:id :main :active-row 0}))
-  (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (actions/cycle-preset root a)
+  (actions/cycle-preset tag a)
   # After cycling from scroll, tag should become master-stack (stack-h)
   (assert= (tag :mode) :stack-h "changed to master-stack")
   (assert (tag :ratio) "has ratio set"))
@@ -501,31 +494,8 @@
   (def a (w "a"))
   (def b (w "b"))
   (def tag (pool/make-pool :stack-h @[a b] @{:id :main :ratio 0.55}))
-  (def root (pool/make-pool :tabbed @[tag] @{:active 0}))
-  (actions/cycle-preset root a)
+  (actions/cycle-preset tag a)
   (assert= (tag :mode) :tabbed "changed to monocle"))
-
-# ===== float =====
-
-(test "float-toggle: float removes from tree"
-  (def a (w "a"))
-  (def b (w "b"))
-  (def p (pool/make-pool :stack-v @[a b]))
-  (def root (pool/make-pool :tabbed @[p] @{:active 0}))
-  (actions/float-toggle root a)
-  (assert= (length (p :children)) 1 "a removed from pool")
-  (assert (a :floating) "a is marked floating"))
-
-(test "float-toggle: unfloat inserts back"
-  (def a (w "a"))
-  (def b (w "b"))
-  (put a :floating true)
-  (def p (pool/make-pool :stack-v @[b]))
-  (def root (pool/make-pool :tabbed @[p] @{:active 0}))
-  # Unfloat should insert a back at the focused position
-  (actions/float-toggle root a)
-  (assert (not (a :floating)) "a is no longer floating")
-  (assert= (a :parent) p "a inserted into pool"))
 
 # ===== Edge cases =====
 

@@ -19,10 +19,8 @@
 
   (def global-layout
     (when focused-output
-      (when-let [root (focused-output :pool)]
-        (def active (or (root :active) 0))
-        (when-let [tag (get (root :children) active)]
-          (string (tag :mode) "\n")))))
+      (when-let [tp (get (focused-output :tag-pools) (or (focused-output :active-tag) 1))]
+        (string (tp :mode) "\n"))))
 
   (def per-output @[])
   (each o outputs
@@ -30,10 +28,8 @@
     (def output-str (string/join (map string output-tags) ","))
     (def active (= o focused-output))
     (def layout-name
-      (when-let [root (o :pool)]
-        (def a (or (root :active) 0))
-        (when-let [tag (get (root :children) a)]
-          (string (tag :mode)))))
+      (when-let [tp (get (o :tag-pools) (or (o :active-tag) 1))]
+        (string (tp :mode))))
     (array/push per-output
       @{:x (o :x) :y (o :y)
         :tags-str (string "focused:" output-str
@@ -63,10 +59,8 @@
   "Notify layout change via files and optionally notify-send."
   [o config]
   (def layout-name
-    (when-let [root (o :pool)]
-      (def active (or (root :active) 0))
-      (when-let [tag (get (root :children) active)]
-        (string (tag :mode)))))
+    (when-let [tp (get (o :tag-pools) (or (o :active-tag) 1))]
+      (string (tp :mode))))
   (when (config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
       (spit (string rd "/tidepool-layout") (string (or layout-name "") "\n"))

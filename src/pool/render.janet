@@ -142,12 +142,13 @@
   (def default-ratio (or (config :column-width) 0.5))
   (def content-w (- (rect :w) (* 2 inner)))
 
-  # Compute column x-positions in content space
+  # Compute column x-positions in content space (with inter-column gaps)
   (def col-xs @[])
   (var x-acc 0)
   (for i 0 num-cols
     (array/push col-xs x-acc)
-    (+= x-acc (col-width-px (get cols i) content-w default-ratio)))
+    (+= x-acc (+ (col-width-px (get cols i) content-w default-ratio)
+                  (if (< i (- num-cols 1)) inner 0))))
   (def total-content-w (+ (* 2 inner) x-acc))
 
   # Find focused column

@@ -41,8 +41,10 @@
   [bg output config registry]
   (def wallpaper (config :wallpaper))
   (def bg-color (config :background))
-  (def cache-key [(output :w) (output :h) wallpaper bg-color])
+  (def cache-key [(output :x) (output :y) (output :w) (output :h) wallpaper bg-color])
   (when (deep= cache-key (bg :last-render))
+    (break))
+  (unless (and (output :x) (output :y) (output :w) (output :h))
     (break))
   (put bg :last-render cache-key)
   (:sync-next-commit (bg :shell-surface))
@@ -78,54 +80,43 @@
 
 # --- Pool tree helpers ---
 
-(defn make-default-pool
-  "Create the default pool tree for a new output.
-  Root is tabbed with tag pools 0-10 as children."
+(defn make-default-tag-pools
+  "Create default tag pools for a new output.
+  Returns a table mapping tag ID (0-10) to standalone tag pools."
   [config]
   (def default-mode (or (config :default-layout) :scroll))
   (def presets (config :column-presets))
-  (def tags @[])
+  (def tag-pools @{})
   (for i 0 11
-    (def tag-pool
+    (put tag-pools i
       (if (= default-mode :scroll)
         (pool/make-pool :scroll
           @[(pool/make-pool :stack-v @[])]
           @{:id i :active-row 0 :presets presets})
-        (pool/make-pool default-mode @[] @{:id i})))
-    (array/push tags tag-pool))
-  (pool/make-pool :tabbed tags @{:active 1}))
+        (pool/make-pool default-mode @[] @{:id i}))))
+  tag-pools)
 
 (defn sync-output-tags
-  "Derive active tag set from pool tree and write to (output :tags)."
+  "Compute active tag set from :active-tag and :multi-active."
   [output]
-  (def root (output :pool))
-  (when (nil? root) (break))
   (def tags @{})
-  (def active (or (root :active) 0))
-  (when (< active (length (root :children)))
-    (def tag (get (root :children) active))
-    (when (tag :id) (put tags (tag :id) true)))
-  (when-let [ma (root :multi-active)]
-    (eachp [idx vis] ma
-      (when (and vis (< idx (length (root :children))))
-        (def tag (get (root :children) idx))
-        (when (tag :id) (put tags (tag :id) true)))))
+  (def active (or (output :active-tag) 1))
+  (put tags active true)
+  (when-let [ma (output :multi-active)]
+    (eachp [id vis] ma
+      (when vis (put tags id true))))
   (put output :tags tags))
 
 (defn active-tag-id
-  "Get the active tag pool's :id from the pool tree."
+  "Get the active tag ID."
   [output]
-  (when-let [root (output :pool)]
-    (def active (or (root :active) 0))
-    (when-let [tag (get (root :children) active)]
-      (tag :id))))
+  (or (output :active-tag) 1))
 
 (defn active-tag-pool
-  "Get the active tag pool from the output's pool tree."
+  "Get the active tag pool."
   [output]
-  (when-let [root (output :pool)]
-    (def active (or (root :active) 0))
-    (get (root :children) active)))
+  (when-let [tp (output :tag-pools)]
+    (get tp (or (output :active-tag) 1))))
 
 (defn visible
   "Filter windows visible on this output's tags."
@@ -152,37 +143,34 @@
       (when (and (output :x) (output :y))
         (put state/output-pool-cache
              (string (output :x) "," (output :y))
-             (output :pool)))
+             @{:tag-pools (output :tag-pools)
+               :active-tag (output :active-tag)}))
       (put output :pending-destroy true)
       nil)
     output))
 
 (defn manage
-  "Initialize new outputs with pool tree."
+  "Initialize new outputs with tag pools."
   [output outputs]
   (when (output :new)
     (def cache-key (when (and (output :x) (output :y))
                      (string (output :x) "," (output :y))))
     (if-let [saved (and cache-key (get state/output-pool-cache cache-key))]
       (do
-        (put output :pool saved)
+        (put output :tag-pools (saved :tag-pools))
+        (put output :active-tag (saved :active-tag))
         (put state/output-pool-cache cache-key nil))
       # Find a tag not shown by any other output and activate it
-      (let [root (output :pool)
-            shown @{}]
+      (let [shown @{}]
         (each o outputs
           (when (and (not= o output) (not (o :removed)))
-            (when-let [r (o :pool)]
-              (def a (or (r :active) 0))
-              (when-let [tag (get (r :children) a)]
-                (put shown (tag :id) true)))))
+            (put shown (or (o :active-tag) 1) true)))
         (var found false)
-        (for i 0 (length (root :children))
-          (when (and (not found)
-                     (not (shown ((get (root :children) i) :id))))
-            (put root :active i)
+        (for i 1 11
+          (when (and (not found) (not (shown i)))
+            (put output :active-tag i)
             (set found true)))
-        (unless found (put root :active 1))))))
+        (unless found (put output :active-tag 1))))))
 
 (defn manage-finish
   "Clear per-frame transient state."
@@ -196,7 +184,8 @@
                 :bg (bg/create registry)
                 :layer-shell (:get-output (registry "river_layer_shell_v1") obj)
                 :new true
-                :pool (make-default-pool config)
+                :tag-pools (make-default-tag-pools config)
+                :active-tag 1
                 :tags @{}})
   (defn handle-event [event]
     (match event

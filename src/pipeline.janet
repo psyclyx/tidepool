@@ -110,14 +110,12 @@
 (defn- insert-window-into-pool
   "Insert a new tiled window into the focused output's active tag pool."
   [output window seat]
-  (def root (output :pool))
-  (def active (or (root :active) 0))
-  (def tag-pool (get (root :children) active))
+  (def tag-pool (output/active-tag-pool output))
   (when (nil? tag-pool) (break))
   # Try to insert after the focused window if it's in this tag pool
   (if-let [focused (and seat (seat :focused))
            _ (pool/find-window tag-pool focused)]
-    (pool-actions/insert-window root focused window)
+    (pool-actions/insert-window tag-pool focused window)
     # Otherwise append to the tag pool
     (if (= (tag-pool :mode) :scroll)
       (do
@@ -144,20 +142,19 @@
 (defn- apply-pool-layout
   "Render the active tag pools for an output."
   [o seats config now]
-  (def root (o :pool))
-  (when (nil? root) (break))
-  (def active (or (root :active) 0))
-  # Collect active tag indices to render
+  (def tag-pools (o :tag-pools))
+  (when (nil? tag-pools) (break))
+  (def active (or (o :active-tag) 1))
+  # Collect active tag IDs to render
   (def tags-to-render @[active])
-  (when-let [ma (root :multi-active)]
-    (eachp [idx vis] ma
-      (when (and vis (not= idx active) (< idx (length (root :children))))
-        (array/push tags-to-render idx))))
+  (when-let [ma (o :multi-active)]
+    (eachp [id vis] ma
+      (when (and vis (not= id active))
+        (array/push tags-to-render id))))
   (def usable (output/usable-area o config))
   (def focused (when-let [seat (first seats)] (seat :focused)))
-  (each tag-idx tags-to-render
-    (def tag-pool (get (root :children) tag-idx))
-    (when tag-pool
+  (each tag-id tags-to-render
+    (when-let [tag-pool (get tag-pools tag-id)]
       (try
         (do
           (def result (pool-render/render-pool tag-pool usable config focused now))
@@ -165,7 +162,7 @@
           (when (result :animating)
             (put state/wm :anim-active true)))
         ([err fib]
-          (eprintf "tidepool: render tag %d failed: %s" tag-idx err)
+          (eprintf "tidepool: render tag %d failed: %s" tag-id err)
           (debug/stacktrace fib err ""))))))
 
 (defn- in-tabbed-pool?
@@ -225,16 +222,17 @@
   # Collect all windows that are in active tag pools
   (def active-set @{})
   (each o outputs
-    (when-let [root (o :pool)]
-      (def active (or (root :active) 0))
-      (when (< active (length (root :children)))
-        (each w (pool/collect-windows (get (root :children) active))
+    (when-let [tag-pools (o :tag-pools)]
+      (def active (or (o :active-tag) 1))
+      (when-let [tp (get tag-pools active)]
+        (each w (pool/collect-windows tp)
           (put active-set w true)))
-      (when-let [ma (root :multi-active)]
-        (eachp [idx vis] ma
-          (when (and vis (not= idx active) (< idx (length (root :children))))
-            (each w (pool/collect-windows (get (root :children) idx))
-              (put active-set w true)))))))
+      (when-let [ma (o :multi-active)]
+        (eachp [id vis] ma
+          (when (and vis (not= id active))
+            (when-let [tp (get tag-pools id)]
+              (each w (pool/collect-windows tp)
+                (put active-set w true))))))))
   (each w windows
     (put w :visible
       (if (or (w :closing)
@@ -365,8 +363,36 @@
   # Sync pool tree state → output :tags and window :tag
   (trace-begin "sync-tags")
   (each o outputs (output/sync-output-tags o))
-  (each o outputs (pool/sync-tags (o :pool)))
+  (each o outputs (pool/sync-tags (o :tag-pools)))
   (trace-end "sync-tags")
+
+  # Recover orphaned windows (not in any pool tree)
+  (trace-begin "recover-orphans")
+  (each w windows
+    (when (and (not (w :closed)) (not (w :closing)) (not (w :float))
+               (not (w :new)) (nil? (w :parent)))
+      (def tag (or (w :tag) 1))
+      # Find output with a tag pool matching this window's tag
+      (var recovered false)
+      (each o outputs
+        (when (and (not recovered) (o :tag-pools))
+          (when-let [tp (get (o :tag-pools) tag)]
+            (if (= (tp :mode) :scroll)
+              (if (> (length (tp :children)) 0)
+                (let [row (get (tp :children) (or (tp :active-row) 0))]
+                  (when (pool/pool? row)
+                    (pool/append-child row w)
+                    (set recovered true)))
+                (let [row (pool/make-pool :stack-v @[w])]
+                  (pool/append-child tp row)
+                  (put tp :active-row 0)
+                  (set recovered true)))
+              (do (pool/append-child tp w)
+                  (set recovered true))))))
+      (when recovered
+        (eprintf "tidepool: recovered orphaned window %s (%s) into tag %d"
+                 (or (w :app-id) "?") (or (w :title) "?") tag))))
+  (trace-end "recover-orphans")
 
   (trace-begin "layout")
   (clear-layout-state)
@@ -374,6 +400,15 @@
   (compute-borders seats config)
   (start-animations prev-positions now config)
   (compute-visibility outputs windows)
+  # Safety: if focused window ended up hidden (e.g. tab-hidden or wrong tag),
+  # find the best visible window to focus instead. We use :visible (the
+  # authoritative flag from compute-visibility) rather than output/visible
+  # which only checks :tag and would re-pick the same hidden window.
+  (each s seats
+    (when-let [w (s :focused)]
+      (when (and (not (w :visible)) (not (w :closing)))
+        (def best (last (filter |(and ($ :visible) (not ($ :closing))) render-order)))
+        (seat/focus s best render-order config))))
   (trace-end "layout")
 
   # --- Effect application ---

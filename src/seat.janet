@@ -1,6 +1,7 @@
 (import ./state)
 (import ./window)
 (import ./output)
+(import ./pool)
 
 (import xkbcommon)
 
@@ -10,6 +11,17 @@
   (unless (= o (seat :focused-output))
     (put seat :focused-output o)
     (put seat :focus-output-changed true)))
+
+(defn- output-at-pointer
+  "Find the output containing the pointer coordinates."
+  [seat outputs]
+  (when-let [px (seat :pointer-x)
+             py (seat :pointer-y)]
+    (find (fn [o]
+            (and (o :x) (o :y) (o :w) (o :h)
+                 (>= px (o :x)) (< px (+ (o :x) (o :w)))
+                 (>= py (o :y)) (< py (+ (o :y) (o :h)))))
+          outputs)))
 
 (defn focus
   "Focus a window, respecting layer shell focus state (pure data mutation)."
@@ -140,6 +152,10 @@
           ((seat :focused-output) :removed))
     (focus-output seat (first outputs)))
 
+  # Track output under pointer so empty monitors can receive focus
+  (when-let [o (output-at-pointer seat outputs)]
+    (focus-output seat o))
+
   (put seat :focus-source :pointer)
   (focus seat nil render-order config)
   (each w windows
@@ -155,7 +171,14 @@
       (action-fn seat binding)
       ([err fib]
         (eprintf "tidepool: action %s failed: %s" action-name err)
-        (debug/stacktrace fib err ""))))
+        (debug/stacktrace fib err "")))
+    # Sync tags immediately — action may have changed active tag or moved
+    # windows between tag pools. Without this, the post-action focus below
+    # sees stale output :tags and focuses a window from the old tag, which
+    # then gets hidden by compute-visibility (causing freeze/lost windows).
+    (each o outputs
+      (output/sync-output-tags o)
+      (when (o :tag-pools) (pool/sync-tags (o :tag-pools)))))
 
   (put seat :focus-source :pointer)
   (focus seat nil render-order config)

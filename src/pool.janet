@@ -119,20 +119,13 @@
   result)
 
 (defn tag-pool
-  "Walk up from node to find the tag-level pool (direct child of the root/output pool).
-  The root pool has no :parent. Its direct children are tag pools."
+  "Walk up :parent pointers to find the root pool (which is the tag pool).
+  Tag pools are standalone roots with no parent."
   [node]
-  (var prev node)
-  (var current (node :parent))
-  (while current
-    (when (nil? (current :parent))
-      # current is root, prev is tag pool
-      (break))
-    (set prev current)
+  (var current node)
+  (while (current :parent)
     (set current (current :parent)))
-  (if (and current (nil? (current :parent)) (not= prev node))
-    prev
-    nil))
+  current)
 
 (defn find-pool-by-id
   "Find a pool with the given :id in the tree."
@@ -148,11 +141,10 @@
       found)))
 
 (defn sync-tags
-  "Walk the output pool tree, stamp :tag on each window based on tag pool id."
-  [output-pool]
-  (each child (output-pool :children)
-    (def tag-id (child :id))
-    (walk-windows child (fn [w] (put w :tag tag-id)))))
+  "Walk tag pools, stamp :tag on each window based on tag ID."
+  [tag-pools]
+  (eachp [tag-id pool] tag-pools
+    (walk-windows pool (fn [w] (put w :tag tag-id)))))
 
 (defn auto-unwrap?
   "True if this pool should auto-unwrap when it has one child.

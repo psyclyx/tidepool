@@ -118,13 +118,10 @@
         (set-float window false)
         (when (fixed-size? window)
           (set-float window true))
-        # Set preliminary tag from focused output's active pool tag
+        # Set preliminary tag from focused output's active tag
         (when-let [seat (first seats)
                    o (seat :focused-output)]
-          (when-let [root (o :pool)]
-            (def active (or (root :active) 0))
-            (when-let [tag (get (root :children) active)]
-              (put window :tag (tag :id)))))
+          (put window :tag (or (o :active-tag) 1)))
         (match-rule window (config :rules)))))
 
   (match (window :fullscreen-requested)
