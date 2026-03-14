@@ -19,23 +19,19 @@
 
   (def global-layout
     (when focused-output
-      (when-let [tp (get (focused-output :tag-pools) (or (focused-output :active-tag) 1))]
-        (string (tp :mode) "\n"))))
+      (string (focused-output :layout) "\n")))
 
   (def per-output @[])
   (each o outputs
     (def output-tags (sorted (keys (o :tags))))
     (def output-str (string/join (map string output-tags) ","))
     (def active (= o focused-output))
-    (def layout-name
-      (when-let [tp (get (o :tag-pools) (or (o :active-tag) 1))]
-        (string (tp :mode))))
     (array/push per-output
       @{:x (o :x) :y (o :y)
         :tags-str (string "focused:" output-str
                           " occupied:" occupied-str
                           " active:" (if active "true" "false"))
-        :layout-str (string (or layout-name "unknown") "\n")}))
+        :layout-str (string (o :layout) "\n")}))
 
   @{:global-tags global-tags
     :global-layout global-layout
@@ -58,16 +54,14 @@
 (defn layout-changed
   "Notify layout change via files and optionally notify-send."
   [o config]
-  (def layout-name
-    (when-let [tp (get (o :tag-pools) (or (o :active-tag) 1))]
-      (string (tp :mode))))
+  (def layout-name (string (o :layout)))
   (when (config :indicator-file)
     (when-let [rd (os/getenv "XDG_RUNTIME_DIR")]
-      (spit (string rd "/tidepool-layout") (string (or layout-name "") "\n"))
+      (spit (string rd "/tidepool-layout") (string layout-name "\n"))
       (spit (string rd "/tidepool-layout-" (o :x) "," (o :y))
-            (string (or layout-name "") "\n"))))
+            (string layout-name "\n"))))
   (when (config :indicator-notify)
     (ev/spawn (os/proc-wait
       (os/spawn ["notify-send" "-t" "1000"
                  "-h" "string:x-canonical-private-synchronous:tidepool-layout"
-                 "Layout" (or layout-name "unknown")] :p)))))
+                 "Layout" layout-name] :p)))))

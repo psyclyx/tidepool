@@ -1,7 +1,6 @@
 (import ./state)
 (import ./window)
 (import ./output)
-(import ./pool)
 
 (import xkbcommon)
 
@@ -97,13 +96,16 @@
   (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
                                         (seat :obj) (xkbcommon/keysym keysym) mods)
                  :keysym keysym :mods mods})
+  # Store action metadata for IPC introspection
   (when (table? action)
     (put binding :action-name (action :name))
-    (put binding :action-args (action :args))
-    (put binding :action-desc (action :desc)))
+    (put binding :action-desc (action :desc))
+    (put binding :action-args (action :args)))
+  (def action-fn (if (table? action) (action :fn) action))
+  (def action-name (if (table? action) (action :name) "unknown"))
   (defn handle-event [event]
     (match event
-      [:pressed] (put seat :pending-action [binding action])))
+      [:pressed] (put seat :pending-action [binding action-fn action-name])))
   (:set-handler (binding :obj) handle-event)
   (:enable (binding :obj))
   (array/push (seat :xkb-bindings) binding))
@@ -112,15 +114,12 @@
   "Register a pointer binding for a button+mods combo."
   [seat button mods action]
   (def button-code {:left 0x110 :right 0x111 :middle 0x112})
-  (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)
-                 :button button :mods mods})
-  (when (table? action)
-    (put binding :action-name (action :name))
-    (put binding :action-args (action :args))
-    (put binding :action-desc (action :desc)))
+  (def binding @{:obj (:get-pointer-binding (seat :obj) (button-code button) mods)})
+  (def action-fn (if (table? action) (action :fn) action))
+  (def action-name (if (table? action) (action :name) "unknown"))
   (defn handle-event [event]
     (match event
-      [:pressed] (put seat :pending-action [binding action])))
+      [:pressed] (put seat :pending-action [binding action-fn action-name])))
   (:set-handler (binding :obj) handle-event)
   (:enable (binding :obj))
   (array/push (seat :pointer-bindings) binding))
@@ -164,21 +163,12 @@
     (focus seat w render-order config))
 
   (put seat :focus-source :keyboard)
-  (when-let [[binding action] (seat :pending-action)]
-    (def action-fn (if (table? action) (action :fn) action))
-    (def action-name (if (table? action) (action :name) "anon"))
+  (when-let [[binding action-fn action-name] (seat :pending-action)]
     (try
       (action-fn seat binding)
       ([err fib]
         (eprintf "tidepool: action %s failed: %s" action-name err)
-        (debug/stacktrace fib err "")))
-    # Sync tags immediately — action may have changed active tag or moved
-    # windows between tag pools. Without this, the post-action focus below
-    # sees stale output :tags and focuses a window from the old tag, which
-    # then gets hidden by compute-visibility (causing freeze/lost windows).
-    (each o outputs
-      (output/sync-output-tags o)
-      (when (o :tag-pools) (pool/sync-tags (o :tag-pools)))))
+        (debug/stacktrace fib err ""))))
 
   (put seat :focus-source :pointer)
   (focus seat nil render-order config)
@@ -191,6 +181,7 @@
                                  config)))
   (when (and (seat :op-release) (seat :op))
     (put seat :op-ended true)
+    (window/update-tag ((seat :op) :window) outputs)
     (focus-output seat (window/tag-output ((seat :op) :window) outputs))
     (put seat :op nil)))
 

@@ -10,7 +10,8 @@
 (import ./seat)
 (import ./actions :as action)
 (import ./pipeline)
-(import ./pool)
+(import ./layout)
+(import ./layout/scroll)
 (import ./persist)
 (import ./ipc)
 

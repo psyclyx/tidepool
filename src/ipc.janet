@@ -1,6 +1,5 @@
 (import ./state)
 (import ./persist)
-(import ./pool)
 (import ./actions :as action)
 (import spork/json)
 
@@ -28,14 +27,11 @@
     :occupied (sorted (keys occupied))})
 
 (defn- compute-layout
-  "Compute layout state: per-output active tag pool mode."
+  "Compute layout state: per-output layout name."
   [outputs focused-output]
   @{:outputs (seq [o :in outputs]
-      (def tag-pool
-        (when-let [tp (o :tag-pools)]
-          (get tp (or (o :active-tag) 1))))
       @{:x (o :x) :y (o :y)
-        :layout (if tag-pool (string (tag-pool :mode)) "unknown")
+        :layout (string (o :layout))
         :focused (= o focused-output)})})
 
 (defn- compute-title
@@ -238,37 +234,13 @@
   (eprintf "tidepool: debug %s" (if new-val "enabled" "disabled"))
   new-val)
 
-(defn set-trace
-  "Toggle or set trace mode. Logs per-phase timing and actions. Returns current state."
-  [&opt val]
-  (def new-val (if (nil? val) (not (state/config :trace)) val))
-  (put state/config :trace new-val)
-  (eprintf "tidepool: trace %s" (if new-val "enabled" "disabled"))
-  new-val)
-
-# --- Tree validation ---
-
-(defn validate-tree
-  "Validate all output pool trees. Returns JSON array of errors."
-  []
-  (def errors @[])
-  (each o (state/wm :outputs)
-    (when-let [tag-pools (o :tag-pools)]
-      (eachp [id tp] tag-pools
-        (def errs (pool/validate tp))
-        (when (> (length errs) 0)
-          (array/push errors
-            @{"output" (string (o :x) "," (o :y))
-              "tag" id
-              "errors" errs})))))
-  (json/encode errors))
-
 # --- Save/load wrappers ---
 
 (defn serialize-state
   "Serialize current state as JDN, prints to stdout."
   []
-  (persist/serialize))
+  (print (persist/serialize (state/wm :windows) (state/wm :outputs) state/tag-layouts))
+  (flush))
 
 (defn apply-state
   "Apply parsed state data."

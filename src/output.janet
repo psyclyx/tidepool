@@ -1,6 +1,5 @@
 (import ./state)
 (import ./image)
-(import ./pool)
 
 (defn rgb-to-u32-rgba
   "Convert an RGB integer to [R G B A] u32 components."
@@ -78,46 +77,6 @@
   (:destroy (bg :surface))
   (:destroy (bg :node)))
 
-# --- Pool tree helpers ---
-
-(defn make-default-tag-pools
-  "Create default tag pools for a new output.
-  Returns a table mapping tag ID (0-10) to standalone tag pools."
-  [config]
-  (def default-mode (or (config :default-layout) :scroll))
-  (def presets (config :column-presets))
-  (def tag-pools @{})
-  (for i 0 11
-    (put tag-pools i
-      (if (= default-mode :scroll)
-        (pool/make-pool :scroll
-          @[(pool/make-pool :stack-v @[])]
-          @{:id i :active-row 0 :presets presets})
-        (pool/make-pool default-mode @[] @{:id i}))))
-  tag-pools)
-
-(defn sync-output-tags
-  "Compute active tag set from :active-tag and :multi-active."
-  [output]
-  (def tags @{})
-  (def active (or (output :active-tag) 1))
-  (put tags active true)
-  (when-let [ma (output :multi-active)]
-    (eachp [id vis] ma
-      (when vis (put tags id true))))
-  (put output :tags tags))
-
-(defn active-tag-id
-  "Get the active tag ID."
-  [output]
-  (or (output :active-tag) 1))
-
-(defn active-tag-pool
-  "Get the active tag pool."
-  [output]
-  (when-let [tp (output :tag-pools)]
-    (get tp (or (output :active-tag) 1))))
-
 (defn visible
   "Filter windows visible on this output's tags."
   [output windows]
@@ -125,15 +84,11 @@
     (filter |(and (tags ($ :tag)) (not ($ :closing))) windows)))
 
 (defn usable-area
-  "Get the output area excluding layer shell exclusive zones, inset by outer padding."
-  [output &opt config]
-  (def pad (if config (or (config :outer-padding) 0) 0))
-  (def [x y w h]
-    (if-let [[ex ey ew eh] (output :non-exclusive-area)]
-      [ex ey ew eh]
-      [(output :x) (output :y) (output :w) (output :h)]))
-  {:x (+ x pad) :y (+ y pad)
-   :w (- w (* 2 pad)) :h (- h (* 2 pad))})
+  "Get the output area excluding layer shell exclusive zones."
+  [output]
+  (if-let [[x y w h] (output :non-exclusive-area)]
+    {:x x :y y :w w :h h}
+    {:x (output :x) :y (output :y) :w (output :w) :h (output :h)}))
 
 (defn manage-start
   "Cache state and flag removed outputs for destruction."
@@ -141,36 +96,28 @@
   (if (output :removed)
     (do
       (when (and (output :x) (output :y))
-        (put state/output-pool-cache
-             (string (output :x) "," (output :y))
-             @{:tag-pools (output :tag-pools)
-               :active-tag (output :active-tag)}))
+        (put state/output-state-cache (string (output :x) "," (output :y))
+             @{:tags (table/clone (output :tags))
+               :layout (output :layout)
+               :layout-params (table/clone (output :layout-params))}))
       (put output :pending-destroy true)
       nil)
     output))
 
 (defn manage
-  "Initialize new outputs with tag pools."
+  "Assign tags for new outputs (pure data)."
   [output outputs]
   (when (output :new)
     (def cache-key (when (and (output :x) (output :y))
                      (string (output :x) "," (output :y))))
-    (if-let [saved (and cache-key (get state/output-pool-cache cache-key))]
+    (if-let [saved (and cache-key (get state/output-state-cache cache-key))]
       (do
-        (put output :tag-pools (saved :tag-pools))
-        (put output :active-tag (saved :active-tag))
-        (put state/output-pool-cache cache-key nil))
-      # Find a tag not shown by any other output and activate it
-      (let [shown @{}]
-        (each o outputs
-          (when (and (not= o output) (not (o :removed)))
-            (put shown (or (o :active-tag) 1) true)))
-        (var found false)
-        (for i 1 11
-          (when (and (not found) (not (shown i)))
-            (put output :active-tag i)
-            (set found true)))
-        (unless found (put output :active-tag 1))))))
+        (put output :tags (saved :tags))
+        (put output :layout (saved :layout))
+        (merge-into (output :layout-params) (saved :layout-params))
+        (put state/output-state-cache cache-key nil))
+      (let [unused (find (fn [tag] (not (find |(($ :tags) tag) outputs))) (range 1 10))]
+        (put (output :tags) unused true)))))
 
 (defn manage-finish
   "Clear per-frame transient state."
@@ -184,9 +131,13 @@
                 :bg (bg/create registry)
                 :layer-shell (:get-output (registry "river_layer_shell_v1") obj)
                 :new true
-                :tag-pools (make-default-tag-pools config)
-                :active-tag 1
-                :tags @{}})
+                :tags @{}
+                :layout (config :default-layout)
+                :layout-params @{:main-ratio (config :main-ratio)
+                                 :main-count (config :main-count)
+                                 :scroll-offset 0
+                                 :column-width (config :column-width)
+                                 :dwindle-ratio (config :dwindle-ratio)}})
   (defn handle-event [event]
     (match event
       [:removed] (put output :removed true)

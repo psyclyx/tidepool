@@ -23,10 +23,13 @@
          (= min-w max-w) (= min-h max-h))))
 
 (defn set-float
-  "Set floating state."
+  "Set floating state and clear column layout attributes."
   [window float]
   (put window :float float)
-  (put window :float-changed true))
+  (put window :float-changed true)
+  (put window :column nil)
+  (put window :col-width nil)
+  (put window :col-weight nil))
 
 (defn set-fullscreen
   "Enter or exit fullscreen (pure data mutation)."
@@ -62,6 +65,13 @@
           (set max-overlap overlap)
           (set max-output o))))
     max-output))
+
+(defn update-tag
+  "Reassign the window's tag to match its most-overlapping output."
+  [window outputs]
+  (when-let [o (max-overlap-output window outputs)]
+    (unless (= o (tag-output window outputs))
+      (put window :tag (or (min-of (keys (o :tags))) 1)))))
 
 (defn match-rule
   "Apply config rules matching the window's app-id/title."
@@ -112,16 +122,17 @@
       (do
         (set-float window true)
         (put window :tag (parent :tag))
-        (put window :proposed-w 0)
-        (put window :proposed-h 0))
+        # Propose parent's dimensions so floating dialogs aren't minimally sized
+        (when (and (parent :w) (parent :h))
+          (put window :proposed-w (parent :w))
+          (put window :proposed-h (parent :h))))
       (do
         (set-float window false)
         (when (fixed-size? window)
           (set-float window true))
-        # Set preliminary tag from focused output's active tag
         (when-let [seat (first seats)
                    o (seat :focused-output)]
-          (put window :tag (or (o :active-tag) 1)))
+          (put window :tag (or (min-of (keys (o :tags))) 1)))
         (match-rule window (config :rules)))))
 
   (match (window :fullscreen-requested)
