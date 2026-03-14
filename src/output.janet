@@ -50,7 +50,7 @@
   (:place-bottom (bg :node))
   (:set-position (bg :node) (output :x) (output :y))
   (if (string? wallpaper)
-    (let [img (image/create-buffer wallpaper)
+    (let [img (image/create-buffer wallpaper registry)
           [sx sy sw sh] (bg/fill-source (img :width) (img :height)
                                         (output :w) (output :h))]
       (:set-source (bg :viewport) sx sy sw sh)

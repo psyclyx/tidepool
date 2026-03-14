@@ -93,7 +93,7 @@
 (defn xkb-binding/create
   "Register a keyboard binding for a keysym+mods combo."
   [seat keysym mods action]
-  (def binding @{:obj (:get-xkb-binding (state/registry "river_xkb_bindings_v1")
+  (def binding @{:obj (:get-xkb-binding ((seat :registry) "river_xkb_bindings_v1")
                                         (seat :obj) (xkbcommon/keysym keysym) mods)
                  :keysym keysym :mods mods})
   # Store action metadata for IPC introspection
@@ -168,7 +168,7 @@
                :outputs outputs :windows windows
                :render-order render-order :config config
                :tag-layouts state/tag-layouts
-               :registry state/registry})
+               :registry (seat :registry)})
     (try
       (action-fn ctx)
       ([err fib]
@@ -215,9 +215,10 @@
 
 (defn create
   "Create a seat from a Wayland seat object."
-  [obj]
+  [obj registry config]
   (def seat @{:obj obj
-              :layer-shell (:get-seat (state/registry "river_layer_shell_v1") obj)
+              :registry registry
+              :layer-shell (:get-seat (registry "river_layer_shell_v1") obj)
               :layer-focus :none
               :xkb-bindings @[]
               :pointer-bindings @[]
@@ -240,5 +241,5 @@
   (:set-handler obj handle-event)
   (:set-handler (seat :layer-shell) handle-layer-shell-event)
   (:set-user-data obj seat)
-  (:set-xcursor-theme obj (state/config :xcursor-theme) (state/config :xcursor-size))
+  (:set-xcursor-theme obj (config :xcursor-theme) (config :xcursor-size))
   seat)
