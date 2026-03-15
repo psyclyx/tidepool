@@ -24,6 +24,7 @@
       (put occupied (w :tag) true)))
   @{:outputs (seq [o :in outputs]
       @{:x (o :x) :y (o :y)
+        :name (or (o :name) "")
         :tags (sorted (keys (o :tags)))
         :focused (= o focused-output)})
     :occupied (sorted (keys occupied))})
@@ -48,6 +49,7 @@
   [outputs focused-output]
   @{:outputs (seq [o :in outputs]
       @{:x (o :x) :y (o :y)
+        :name (or (o :name) "")
         :w (or (o :w) 0) :h (or (o :h) 0)
         :layout (string (o :layout))
         :active-row (or (get-in o [:layout-params :active-row]) 0)

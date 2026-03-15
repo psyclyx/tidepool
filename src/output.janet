@@ -142,7 +142,13 @@
     (match event
       [:removed] (put output :removed true)
       [:position x y] (do (put output :x x) (put output :y y))
-      [:dimensions w h] (do (put output :w w) (put output :h h))))
+      [:dimensions w h] (do (put output :w w) (put output :h h))
+      [:wl-output global-name]
+      (let [wl-out (:bind (registry :obj) global-name "wl_output" 4)]
+        (:set-handler wl-out
+          (fn [ev]
+            (match ev
+              [:name n] (put output :name n)))))))
   (defn handle-layer-shell-event [event]
     (match event
       [:non-exclusive-area x y w h] (put output :non-exclusive-area [x y w h])))
