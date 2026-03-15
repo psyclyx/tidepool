@@ -1,5 +1,7 @@
 (import ./animation)
 
+(var next-wid 0)
+
 (defn set-position
   "Set the window's position (pure data mutation)."
   [window x y]
@@ -43,11 +45,16 @@
   [window fullscreen-output]
   (if fullscreen-output
     (do
+      (when (window :float)
+        (put window :pre-fullscreen-pos [(window :x) (window :y)]))
       (put window :fullscreen true)
       (put window :fullscreen-output fullscreen-output))
     (do
       (put window :fullscreen false)
-      (put window :fullscreen-output nil)))
+      (put window :fullscreen-output nil)
+      (when-let [pos (window :pre-fullscreen-pos)]
+        (set-position window (pos 0) (pos 1))
+        (put window :pre-fullscreen-pos nil))))
   (put window :fullscreen-changed true))
 
 (defn tag-output
@@ -170,7 +177,8 @@
   (def window @{:obj obj
                 :node (:get-node obj)
                 :new true
-                :tag 1})
+                :tag 1
+                :wid (++ next-wid)})
   (defn handle-event [event]
     (match event
       [:closed] (put window :closed true)
