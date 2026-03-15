@@ -3,6 +3,11 @@
   [t]
   (- 1 (math/pow (- 1 t) 3)))
 
+(defn ease-out-quart
+  "Quartic ease-out — snappier start, softer landing."
+  [t]
+  (- 1 (math/pow (- 1 t) 4)))
+
 (defn start
   "Start an animation on a window (:open, :close, or :move)."
   [window type props now config]
@@ -56,10 +61,10 @@
         (let [existing (params anim-key)
               duration (config :animation-duration)]
           (if existing
-            (do (put existing :to target)
-                (when (>= (- now (existing :start)) duration)
-                  (put params key target)
-                  (put params anim-key nil)))
+            # Retarget from current interpolated position
+            (do (put existing :from current)
+                (put existing :to target)
+                (put existing :start now))
             (put params anim-key @{:from current :to target :start now :duration duration})))))))
 
 (defn scroll-update
@@ -69,7 +74,7 @@
   (when-let [anim (params anim-key)]
     (def dur (anim :duration))
     (def t (if (> dur 0) (min 1.0 (/ (- now (anim :start)) dur)) 1.0))
-    (def e (ease-out-cubic t))
+    (def e (ease-out-quart t))
     (def val (+ (anim :from) (* e (- (anim :to) (anim :from)))))
     (put params key (math/round val))
     (if (>= t 1.0)
