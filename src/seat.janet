@@ -152,23 +152,22 @@
     (focus-output seat (first outputs)))
 
   # Track output under pointer so empty monitors can receive focus
-  (when-let [o (output-at-pointer seat outputs)]
-    (focus-output seat o))
+  (when (and (seat :pointer-moved) (config :focus-follows-mouse))
+    (when-let [o (output-at-pointer seat outputs)]
+      (focus-output seat o)))
 
   (put seat :focus-source :pointer)
   (focus seat nil outputs render-order config)
   (each w windows
-    (when (w :new) (focus seat w outputs render-order config)))
+    (when (and (w :new)
+               (when-let [o (seat :focused-output)] ((o :tags) (w :tag))))
+      (focus seat w outputs render-order config)))
   (if-let [w (seat :window-interaction)]
     (focus seat w outputs render-order config))
 
   (put seat :focus-source :keyboard)
   (when-let [[binding action-fn action-name] (seat :pending-action)]
-    (def ctx @{:seat seat :binding binding
-               :outputs outputs :windows windows
-               :render-order render-order :config config
-               :tag-layouts state/tag-layouts
-               :registry (seat :registry)})
+    (def ctx (state/action-context seat binding))
     (try
       (action-fn ctx)
       ([err fib]
@@ -202,7 +201,8 @@
   (put seat :focus-output-changed nil)
   (put seat :op-started nil)
   (put seat :op-ended nil)
-  (put seat :warp-target nil))
+  (put seat :warp-target nil)
+  (put seat :pointer-moved nil))
 
 (defn render
   "Compute pointer move position during drag operations (pure data)."
@@ -228,10 +228,11 @@
       [:removed] (put seat :removed true)
       [:pointer-enter w] (put seat :pointer-target (:get-user-data w))
       [:pointer-leave] (put seat :pointer-target nil)
-      [:pointer-position x y] (do (put seat :pointer-x x) (put seat :pointer-y y))
+      [:pointer-position x y] (do (put seat :pointer-x x) (put seat :pointer-y y)
+                                  (put seat :pointer-moved true))
       [:window-interaction w] (put seat :window-interaction (:get-user-data w))
       [:shell-surface-interaction _] (do)
-      [:op-delta dx dy] (do (put (seat :op) :dx dx) (put (seat :op) :dy dy))
+      [:op-delta dx dy] (when-let [op (seat :op)] (put op :dx dx) (put op :dy dy))
       [:op-release] (put seat :op-release true)))
   (defn handle-layer-shell-event [event]
     (match event
