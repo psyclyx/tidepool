@@ -20,6 +20,7 @@
     (fn [event]
       (match event
         [:name n] (do (put head :name n) (put output-heads n head))
+        [:description d] (put head :description d)
         [:mode mode-obj] (handle-mode head mode-obj)
         [:current-mode mode-obj] (put head :current-mode mode-obj)
         [:enabled e] (put head :enabled (not= e 0))
@@ -29,6 +30,19 @@
 
 (defn find-mode "Find a mode matching the given width and height." [head w h]
   (find |(and (= ($ :width) w) (= ($ :height) h)) (head :modes)))
+
+(defn- find-output-config
+  "Find config entry for a head, matching by connector name first, then by description."
+  [outputs name description]
+  (or (get outputs name)
+      (when description
+        (var found nil)
+        (eachp [key target] outputs
+          (when (and (not found)
+                     (not= key name)
+                     (string/find key description))
+            (set found target)))
+        found)))
 
 (defn apply-config "Apply user output configuration (mode, position, scale)." []
   (when output-config-applied (break))
@@ -45,7 +59,7 @@
           [:failed] (eprint "tidepool: output configuration failed")
           [:cancelled] (eprint "tidepool: output configuration cancelled"))))
     (eachp [name head] output-heads
-      (if-let [target (get outputs name)]
+      (if-let [target (find-output-config outputs name (head :description))]
         (if (not= false (target :enable))
           (let [cfg-head (:enable-head cfg (head :obj))]
             (when-let [[tw th] (target :mode)
