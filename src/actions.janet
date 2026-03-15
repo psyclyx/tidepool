@@ -356,15 +356,25 @@
         (put w :tag tag))))))
 
 (defn focus-tag
-  "Action: show only the given tag on the focused output."
+  "Action: show only the given tag on the focused output.
+  If the tag is already visible on another output, focus that output instead."
   [tag]
   (act "focus-tag" "Focus tag" [tag]
     (fn [] (fn [ctx]
       (when-let [o ((ctx :seat) :focused-output)]
-        (def current-tag (output/primary-tag o))
-        (unless (= current-tag tag)
-          (nav-trail/push (ctx :seat)))
-        (put o :tags @{tag true}))))))
+        # Check if tag is already visible on another output
+        (def other (find |(and (not= $ o) (($ :tags) tag)) (ctx :outputs)))
+        (if other
+          # Tag is visible elsewhere — just move focus to that output
+          (do
+            (nav-trail/push (ctx :seat))
+            (seat/focus-output (ctx :seat) other))
+          # Tag not visible — switch this output to it
+          (do
+            (def current-tag (output/primary-tag o))
+            (unless (= current-tag tag)
+              (nav-trail/push (ctx :seat)))
+            (put o :tags @{tag true}))))))))
 
 (defn toggle-tag
   "Action: toggle a tag's visibility on the focused output."
