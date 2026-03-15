@@ -1,3 +1,4 @@
+(import ./state)
 (import ./window)
 (import ./output)
 (import ./seat)
@@ -6,8 +7,43 @@
 (defn- clamp [x lo hi] (min hi (max lo x)))
 (defn- wrap [x n] (% (+ (% x n) n) n))
 
+# Forward declaration — set by ipc.janet to avoid circular import
+(var emit-signal-fn nil)
+
 (defn- output/primary-tag [o]
   (min-of (keys (o :tags))))
+
+# --- Navigation trail ---
+
+(defn- nav-trail/push
+  "Push current focus state onto the nav trail.
+  Truncates forward history if cursor is mid-trail."
+  [seat]
+  (def trail state/nav-trail)
+  (def entries (trail :entries))
+  (def cursor (trail :cursor))
+  (when-let [w (seat :focused)]
+    (def entry @{:window w :tag (w :tag)})
+    # If mid-trail, truncate forward entries
+    (when (and cursor (< cursor (- (length entries) 1)))
+      (array/remove entries (+ cursor 1) (- (length entries) cursor 1)))
+    # Push and cap
+    (array/push entries entry)
+    (when (> (length entries) (trail :capacity))
+      (array/remove entries 0))
+    (put trail :cursor nil)))
+
+(defn- nav-trail/try-push
+  "Push to trail if the navigation crosses a tag or output boundary."
+  [ctx target]
+  (def {:seat seat :outputs outputs} ctx)
+  (when-let [current (seat :focused)]
+    (when (not= current target)
+      (def cur-output (window/tag-output current outputs))
+      (def tgt-output (window/tag-output target outputs))
+      (when (or (not= (current :tag) (target :tag))
+                (not= cur-output tgt-output))
+        (nav-trail/push seat)))))
 
 (defn tag-layout/save
   "Persist the current layout for the output's primary tag."
@@ -15,7 +51,7 @@
   (when-let [tag (output/primary-tag o)]
     (put tag-layouts tag
          @{:layout (o :layout)
-           :params (table/clone (o :layout-params))})))
+           :params (state/clone-layout-params (o :layout-params))})))
 
 # --- Action tagging ---
 
@@ -48,31 +84,71 @@
   best)
 
 (defn target
-  "Find the navigation target window for a seat in the given direction."
+  "Find the navigation target window for a seat in the given direction.
+  For directional navigation, tries tiled-only layout nav first, then
+  falls back to geometry over all visible (including floats)."
   [ctx dir]
   (def {:seat seat :outputs outputs :windows windows :config config} ctx)
   (when-let [w (seat :focused)
              o (window/tag-output w outputs)
              visible (output/visible o windows)
-             i (assert (index-of w visible))]
+             i (index-of w visible)]
     (case dir
       :next (get visible (+ i 1) (first visible))
       :prev (get visible (- i 1) (last visible))
-      (let [tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible)
-            ti (index-of w tiled)]
-        (when ti
-          (def lo (o :layout))
-          (def target-i
-            (if-let [nav-fn (get layout/navigate-fns lo)]
-              (let [ctx-fn (get layout/context-fns lo)
-                    nav-ctx (when ctx-fn (ctx-fn o windows w (seat :focus-prev)))]
-                (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
-                  (or nav-ctx {:output o :windows tiled :focused w})))
-              (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
-                    results (layout-fn (output/usable-area o) tiled
-                              (o :layout-params) config w)]
-                (layout/navigate-by-geometry results ti dir))))
-          (when target-i (get tiled target-i)))))))
+      (do
+        # Try tiled-only layout navigation first
+        (def tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible))
+        (def ti (index-of w tiled))
+        (def tiled-result
+          (when ti
+            (def lo (o :layout))
+            (def target-i
+              (if-let [nav-fn (get layout/navigate-fns lo)]
+                (let [ctx-fn (get layout/context-fns lo)
+                      nav-ctx (when ctx-fn (ctx-fn o windows w (seat :focus-prev)))]
+                  (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
+                    (or nav-ctx {:output o :windows tiled :focused w})))
+                (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
+                      results (layout-fn (output/usable-area o) tiled
+                                (o :layout-params) config w)]
+                  (layout/navigate-by-geometry results ti dir))))
+            (when target-i (get tiled target-i))))
+        (or tiled-result
+            # Fall back to geometry nav over all visible (includes floats)
+            (let [candidates (filter |(not (or ($ :fullscreen) ($ :layout-hidden))) visible)
+                  results (seq [c :in candidates]
+                            @{:x (or (c :x) 0) :y (or (c :y) 0)
+                              :w (or (c :w) 1) :h (or (c :h) 1)
+                              :window c})
+                  fi (index-of w candidates)]
+              (when fi
+                (when-let [ri (layout/navigate-by-geometry results fi dir)]
+                  (get candidates ri)))))))))
+
+(defn- resolve-target
+  "Resolve a target window from a resolver spec.
+  Specs: keyword direction (:left, :right, :last, etc.) or
+  tuple resolver ([:mark name], [:wid id])."
+  [ctx spec]
+  (cond
+    (= spec :last)
+    (let [prev ((ctx :seat) :focus-prev)]
+      (when (and prev (not (prev :closed)) (not (prev :closing)))
+        prev))
+
+    (keyword? spec)
+    (target ctx spec)
+
+    (and (indexed? spec) (= (first spec) :mark))
+    (let [w (get state/marks (get spec 1))]
+      (when (and w (not (w :closed)) (not (w :closing)))
+        w))
+
+    (and (indexed? spec) (= (first spec) :wid))
+    (find |(= ($ :wid) (get spec 1))
+          (filter |(not (or ($ :closed) ($ :closing)))
+                  (ctx :windows)))))
 
 (defn- focused-column [ctx]
   (def {:seat seat :windows windows} ctx)
@@ -99,7 +175,7 @@
         (:close (w :obj)))))))
 
 (defn zoom
-  "Action: swap the focused window to master position."
+  "Action: swap the focused window with master position."
   []
   (act "zoom" "Zoom to master" []
     (fn [] (fn [ctx]
@@ -109,63 +185,99 @@
                  o (window/tag-output focused outputs)
                  visible (output/visible o windows)
                  t (if (= focused (first visible)) (get visible 1) focused)
-                 i (assert (index-of t windows))]
-        (array/remove windows i)
-        (array/insert windows 0 t)
-        (seat/focus seat (first windows) outputs render-order config))))))
+                 ti (index-of t windows)
+                 mi (index-of (first visible) windows)]
+        (put windows ti (first visible))
+        (put windows mi t)
+        (seat/focus seat t outputs render-order config))))))
 
 (defn focus
-  "Action: focus in a direction, crossing outputs if needed."
-  [dir]
-  (act "focus" "Focus" [dir]
+  "Action: focus a target window. Accepts direction keywords (:left, :right,
+  :next, :prev, :last) or resolver tuples ([:mark name], [:wid id]).
+  For directional resolvers, crosses outputs if no target found."
+  [resolver]
+  (act "focus" "Focus" [resolver]
     (fn [] (fn [ctx]
       (def {:seat seat :outputs outputs :windows windows
             :render-order render-order :config config} ctx)
-      (if-let [t (target ctx dir)]
-        (seat/focus seat t outputs render-order config)
-        (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
-                               (seat :focused-output))]
-          (if-let [adjacent (find-adjacent-output current outputs dir)]
-            (do (seat/focus-output seat adjacent)
-                (seat/focus seat nil outputs render-order config))
+      (if-let [t (resolve-target ctx resolver)]
+        # Target found -- ensure its tag is visible, switch output if needed
+        (do
+          (nav-trail/try-push ctx t)
+          (def to (window/tag-output t outputs))
+          (if to
+            (do
+              (when (not= to (seat :focused-output))
+                (seat/focus-output seat to))
+              (unless ((to :tags) (t :tag))
+                (put to :tags @{(t :tag) true})))
+            # Tag not visible anywhere -- show it on the focused output
+            (when-let [fo (seat :focused-output)]
+              (put fo :tags @{(t :tag) true})))
+          (seat/focus seat t outputs render-order config))
+        # No target -- for directional resolvers, try crossing outputs
+        (when (keyword? resolver)
+          (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
+                                 (seat :focused-output))]
+            (if-let [adjacent (find-adjacent-output current outputs resolver)]
+              (do (seat/focus-output seat adjacent)
+                  (seat/focus seat nil outputs render-order config))
             # Nothing focused and no adjacent output — pick top visible window
             (unless (seat :focused)
               (when-let [visible (output/visible current windows)
                          top (last visible)]
-                (seat/focus seat top outputs render-order config))))))))))
+                (seat/focus seat top outputs render-order config)))))))))))
 
 (defn swap
-  "Action: swap the focused window in a direction."
-  [dir]
-  (act "swap" "Swap" [dir]
+  "Action: swap the focused window with a target. Accepts direction keywords
+  or resolver tuples ([:mark name], [:wid id]).
+  When the focused window is floating and the resolver is a direction keyword,
+  nudges the float by :float-step pixels instead of swapping."
+  [resolver]
+  (act "swap" "Swap" [resolver]
     (fn [] (fn [ctx]
-      (def {:seat seat :outputs outputs :windows windows} ctx)
+      (def {:seat seat :outputs outputs :windows windows :config config} ctx)
       (when-let [w (seat :focused)]
-        (if-let [t (target ctx dir)
-                 wi (index-of w windows)
-                 ti (index-of t windows)]
-          (do
-            (def wc (w :column))
-            (def tc (t :column))
-            (put w :column tc)
-            (put t :column wc)
-            (def wcw (w :col-width))
-            (def tcw (t :col-width))
-            (put w :col-width tcw)
-            (put t :col-width wcw)
-            (def wcwt (w :col-weight))
-            (def tcwt (t :col-weight))
-            (put w :col-weight tcwt)
-            (put t :col-weight wcwt)
-            (put windows wi t)
-            (put windows ti w))
-          (when-let [current (window/tag-output w outputs)
-                     adjacent (find-adjacent-output current outputs dir)]
-            (put w :tag (or (min-of (keys (adjacent :tags))) 1))
-            (put w :column nil)
-            (put w :col-width nil)
-            (put w :col-weight nil)
-            (seat/focus-output seat adjacent))))))))
+        # Floating + directional: nudge instead of swap
+        (if (and (w :float) (keyword? resolver)
+                 (find |(= $ resolver) [:left :right :up :down]))
+          (when (and (w :x) (w :y))
+            (def step (or (config :float-step) 20))
+            (def [dx dy] (case resolver
+                           :left [(- step) 0]
+                           :right [step 0]
+                           :up [0 (- step)]
+                           :down [0 step]))
+            (window/set-position w (+ (w :x) dx) (+ (w :y) dy))
+            (window/update-tag w outputs))
+          # Tiled: swap positions in layout
+          (if-let [t (resolve-target ctx resolver)
+                   wi (index-of w windows)
+                   ti (index-of t windows)]
+            (do
+              (def wc (w :column))
+              (def tc (t :column))
+              (put w :column tc)
+              (put t :column wc)
+              (def wcw (w :col-width))
+              (def tcw (t :col-width))
+              (put w :col-width tcw)
+              (put t :col-width wcw)
+              (def wcwt (w :col-weight))
+              (def tcwt (t :col-weight))
+              (put w :col-weight tcwt)
+              (put t :col-weight wcwt)
+              (put windows wi t)
+              (put windows ti w))
+            (when (keyword? resolver)
+              (when-let [current (window/tag-output w outputs)
+                         adjacent (find-adjacent-output current outputs resolver)]
+                (put w :tag (or (min-of (keys (adjacent :tags))) 1))
+                (put w :column nil)
+                (put w :col-width nil)
+                (put w :col-weight nil)
+                (put w :row nil)
+                (seat/focus-output seat adjacent))))))))))
 
 (defn focus-output
   "Action: focus the next or adjacent output."
@@ -173,13 +285,14 @@
   (act "focus-output" "Focus output" [(or dir :next)]
     (fn [] (fn [ctx]
       (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
+      (nav-trail/push seat)
       (if dir
         (when-let [current (or (seat :focused-output) (first outputs))
                    adjacent (find-adjacent-output current outputs dir)]
           (seat/focus-output seat adjacent)
           (seat/focus seat nil outputs render-order config))
         (when-let [focused (seat :focused-output)
-                   i (assert (index-of focused outputs))
+                   i (index-of focused outputs)
                    t (or (get outputs (+ i 1)) (first outputs))]
           (seat/focus-output seat t)
           (seat/focus seat nil outputs render-order config)))))))
@@ -203,9 +316,13 @@
       (def {:seat seat :outputs outputs} ctx)
       (when-let [w (seat :focused)
                  current (seat :focused-output)
-                 i (assert (index-of current outputs))
+                 i (index-of current outputs)
                  t (or (get outputs (+ i 1)) (first outputs))]
-        (put w :tag (or (min-of (keys (t :tags))) 1)))))))
+        (put w :tag (or (min-of (keys (t :tags))) 1))
+        (put w :column nil)
+        (put w :col-width nil)
+        (put w :col-weight nil)
+        (put w :row nil))))))
 
 (defn float
   "Action: toggle floating on the focused window."
@@ -234,6 +351,8 @@
   (act "set-tag" "Set tag" [tag]
     (fn [] (fn [ctx]
       (when-let [w ((ctx :seat) :focused)]
+        (when (and (= (w :tag) 0) (not= tag 0) (w :float))
+          (window/set-float w false))
         (put w :tag tag))))))
 
 (defn focus-tag
@@ -242,6 +361,9 @@
   (act "focus-tag" "Focus tag" [tag]
     (fn [] (fn [ctx]
       (when-let [o ((ctx :seat) :focused-output)]
+        (def current-tag (output/primary-tag o))
+        (unless (= current-tag tag)
+          (nav-trail/push (ctx :seat)))
         (put o :tags @{tag true}))))))
 
 (defn toggle-tag
@@ -511,6 +633,216 @@
           (put w :row (+ max-row 1))
           (put w :column nil)))))))
 
+# --- Summon ---
+
+(defn summon
+  "Action: bring a target window to the current tag and focus it.
+  Accepts resolver tuples ([:mark name], [:wid id]) or direction keywords."
+  [resolver]
+  (act "summon" "Summon" [resolver]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
+      (when-let [t (resolve-target ctx resolver)
+                 o (seat :focused-output)]
+        (def target-tag (or (output/primary-tag o) 1))
+        (unless (= (t :tag) target-tag)
+          (nav-trail/push seat)
+          (put t :tag target-tag)
+          (put t :column nil)
+          (put t :col-width nil)
+          (put t :col-weight nil)
+          (put t :row nil))
+        (seat/focus seat t outputs render-order config))))))
+
+(defn send-to
+  "Action: send the focused window to the resolved target, inserting
+  it right after the target in the window list (same tag, adjacent position).
+  Accepts resolver tuples ([:mark name], [:wid id]) or :last."
+  [resolver]
+  (act "send-to" "Send to" [resolver]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :windows windows} ctx)
+      (when-let [w (seat :focused)
+                 t (resolve-target ctx resolver)
+                 wi (index-of w windows)
+                 ti (index-of t windows)]
+        (put w :tag (t :tag))
+        (put w :column nil)
+        (put w :col-width nil)
+        (put w :col-weight nil)
+        (put w :row nil)
+        # Remove w from current position and insert after t
+        (array/remove windows wi)
+        (def new-ti (index-of t windows))
+        (array/insert windows (+ new-ti 1) w))))))
+
+# --- Marks ---
+
+(defn mark-set
+  "Action: label the focused window with a mark name."
+  [name]
+  (act "mark-set" "Set mark" [name]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
+        # Clear any existing mark on this window
+        (when (w :mark)
+          (put state/marks (w :mark) nil))
+        # Clear any existing window with this mark name
+        (when-let [prev (get state/marks name)]
+          (put prev :mark nil))
+        (put state/marks name w)
+        (put w :mark name))))))
+
+(defn mark-clear
+  "Action: remove a mark by name."
+  [name]
+  (act "mark-clear" "Clear mark" [name]
+    (fn [] (fn [ctx]
+      (when-let [w (get state/marks name)]
+        (put w :mark nil))
+      (put state/marks name nil)))))
+
+# --- Navigation trail actions ---
+
+(defn nav-back
+  "Action: navigate backward through the nav trail."
+  []
+  (act "nav-back" "Nav back" []
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
+      (def trail state/nav-trail)
+      (def entries (trail :entries))
+      (when (> (length entries) 0)
+        (def cursor (or (trail :cursor) (length entries)))
+        # Walk backward, skipping closed windows
+        (var i (- cursor 1))
+        (while (>= i 0)
+          (def entry (entries i))
+          (def w (entry :window))
+          (if (or (w :closed) (w :closing))
+            (-- i)
+            (do
+              # Push current position if this is the first back step
+              (when (nil? (trail :cursor))
+                (nav-trail/push seat))
+              (put trail :cursor i)
+              (def to (window/tag-output w outputs))
+              (if to
+                (do
+                  (when (not= to (seat :focused-output))
+                    (seat/focus-output seat to))
+                  (unless ((to :tags) (w :tag))
+                    (put to :tags @{(w :tag) true})))
+                (when-let [fo (seat :focused-output)]
+                  (put fo :tags @{(w :tag) true})))
+              (seat/focus seat w outputs render-order config)
+              (when emit-signal-fn (emit-signal-fn "nav-back"))
+              (break)))))))))
+
+(defn nav-forward
+  "Action: navigate forward through the nav trail."
+  []
+  (act "nav-forward" "Nav forward" []
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
+      (def trail state/nav-trail)
+      (def entries (trail :entries))
+      (when-let [cursor (trail :cursor)]
+        # Walk forward, skipping closed windows
+        (var i (+ cursor 1))
+        (while (< i (length entries))
+          (def entry (entries i))
+          (def w (entry :window))
+          (if (or (w :closed) (w :closing))
+            (++ i)
+            (do
+              (put trail :cursor (if (= i (- (length entries) 1)) nil i))
+              (def to (window/tag-output w outputs))
+              (if to
+                (do
+                  (when (not= to (seat :focused-output))
+                    (seat/focus-output seat to))
+                  (unless ((to :tags) (w :tag))
+                    (put to :tags @{(w :tag) true})))
+                (when-let [fo (seat :focused-output)]
+                  (put fo :tags @{(w :tag) true})))
+              (seat/focus seat w outputs render-order config)
+              (when emit-signal-fn (emit-signal-fn "nav-forward"))
+              (break)))))))))
+
+# --- Scroll home ---
+
+(defn scroll-home-set
+  "Action: save the focused window as the scroll home position."
+  []
+  (act "scroll-home-set" "Set scroll home" []
+    (fn [] (fn [ctx]
+      (when-let [o ((ctx :seat) :focused-output)
+                 w ((ctx :seat) :focused)]
+        (put (o :layout-params) :scroll-home-win w))))))
+
+(defn scroll-home
+  "Action: focus the scroll home window, auto-scrolling to reveal it."
+  []
+  (act "scroll-home" "Scroll home" []
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
+      (when-let [o (seat :focused-output)
+                 w (get-in o [:layout-params :scroll-home-win])]
+        (if (or (w :closed) (w :closing))
+          (put (o :layout-params) :scroll-home-win nil)
+          (seat/focus seat w outputs render-order config)))))))
+
+# --- Floating ---
+
+(defn float-move
+  "Action: nudge the focused floating window in a direction."
+  [dir]
+  (act "float-move" "Move float" [dir]
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs :config config} ctx)
+      (when-let [w (seat :focused)]
+        (when (and (w :float) (w :x) (w :y))
+          (def step (or (config :float-step) 20))
+          (def [dx dy] (case dir
+                         :left [(- step) 0]
+                         :right [step 0]
+                         :up [0 (- step)]
+                         :down [0 step]))
+          (window/set-position w (+ (w :x) dx) (+ (w :y) dy))
+          (window/update-tag w outputs)))))))
+
+(defn float-resize
+  "Action: resize the focused floating window. Takes :width or :height
+  and a signed pixel delta (positive grows, negative shrinks).
+  Resizes symmetrically around center."
+  [axis delta]
+  (act "float-resize" "Resize float" [axis delta]
+    (fn [] (fn [ctx]
+      (when-let [w ((ctx :seat) :focused)]
+        (when (and (w :float) (w :w) (w :h) (w :x) (w :y))
+          (case axis
+            :width (let [nw (max 1 (+ (w :w) delta))]
+                     (window/set-position w (- (w :x) (div delta 2)) (w :y))
+                     (window/propose-dimensions w nw (w :h) (ctx :config)))
+            :height (let [nh (max 1 (+ (w :h) delta))]
+                      (window/set-position w (w :x) (- (w :y) (div delta 2)))
+                      (window/propose-dimensions w (w :w) nh (ctx :config))))))))))
+
+(defn float-center
+  "Action: center the focused floating window on its output."
+  []
+  (act "float-center" "Center float" []
+    (fn [] (fn [ctx]
+      (def {:seat seat :outputs outputs} ctx)
+      (when-let [w (seat :focused)]
+        (when (and (w :float) (w :w) (w :h))
+          (when-let [o (or (window/tag-output w outputs) (seat :focused-output))]
+            (def area (output/usable-area o))
+            (window/set-position w
+              (+ (area :x) (div (- (area :w) (w :w)) 2))
+              (+ (area :y) (div (- (area :h) (w :h)) 2))))))))))
+
 # --- Input ---
 
 (defn pointer-move
@@ -562,8 +894,6 @@
 
 # --- Signals ---
 
-(var emit-signal-fn nil)
-
 (defn signal
   "Action: emit a named signal to IPC watchers."
   [parsed]
@@ -575,42 +905,93 @@
 
 # --- Action registry for IPC dispatch ---
 
+(defn- parse-resolver
+  "Parse IPC args into a resolver spec.
+  'left' -> :left, 'mark a' -> [:mark \"a\"], 'wid 5' -> [:wid 5]"
+  [args]
+  (case (args 0)
+    "mark" [:mark (args 1)]
+    "wid" [:wid (scan-number (args 1))]
+    (keyword (args 0))))
+
+# Arg spec types for interactive dispatch:
+#   "resolver"              — direction keyword or mark/wid tuple
+#   ["choice" & options]    — pick from list
+#   ["number" prompt]       — enter a number
+#   ["string" prompt]       — enter a string
+
 (def registry
   "Registry of action constructors for IPC dispatch."
-  @{"spawn" @{:create spawn :parse |[(string ;$)]}
-    "close" @{:create close}
-    "zoom" @{:create zoom}
-    "focus" @{:create focus :parse |(keyword ($ 0))}
-    "swap" @{:create swap :parse |(keyword ($ 0))}
-    "focus-output" @{:create focus-output :parse |(keyword ($ 0))}
-    "focus-last" @{:create focus-last}
-    "send-to-output" @{:create send-to-output}
-    "float" @{:create float}
-    "fullscreen" @{:create fullscreen}
-    "set-tag" @{:create set-tag :parse |(scan-number ($ 0))}
-    "focus-tag" @{:create focus-tag :parse |(scan-number ($ 0))}
-    "toggle-tag" @{:create toggle-tag :parse |(scan-number ($ 0))}
-    "focus-all-tags" @{:create focus-all-tags}
-    "toggle-scratchpad" @{:create toggle-scratchpad}
-    "send-to-scratchpad" @{:create send-to-scratchpad}
-    "adjust-ratio" @{:create adjust-ratio :parse |(scan-number ($ 0))}
-    "adjust-main-count" @{:create adjust-main-count :parse |(scan-number ($ 0))}
-    "cycle-layout" @{:create cycle-layout :parse |(keyword ($ 0))}
-    "set-layout" @{:create set-layout :parse |(keyword ($ 0))}
-    "adjust-column-width" @{:create adjust-column-width :parse |(scan-number ($ 0))}
-    "resize-column" @{:create resize-column :parse |(scan-number ($ 0))}
-    "resize-window" @{:create resize-window :parse |(scan-number ($ 0))}
-    "preset-column-width" @{:create preset-column-width}
-    "equalize-column" @{:create equalize-column}
-    "consume-column" @{:create consume-column :parse |(keyword ($ 0))}
-    "expel-column" @{:create expel-column}
-    "focus-row" @{:create focus-row :parse |(scan-number ($ 0))}
-    "cycle-row" @{:create cycle-row :parse |(keyword ($ 0))}
-    "send-to-row" @{:create send-to-row :parse |(scan-number ($ 0))}
-    "expel-row" @{:create expel-row}
-    "pointer-move" @{:create pointer-move}
-    "pointer-resize" @{:create pointer-resize}
-    "passthrough" @{:create passthrough}
-    "restart" @{:create restart}
-    "exit" @{:create exit}
-    "signal" @{:create signal :parse |(do (def name ($ 0)) (def rest (slice $ 1)) [name rest])}})
+  @{"spawn" @{:create spawn :parse |[(string ;$)]
+              :desc "Spawn command" :spec [["string" "Command"]]}
+    "close" @{:create close :desc "Close window"}
+    "zoom" @{:create zoom :desc "Zoom to master"}
+    "focus" @{:create focus :parse parse-resolver
+              :desc "Focus window" :spec ["resolver"]}
+    "swap" @{:create swap :parse parse-resolver
+             :desc "Swap/move window" :spec ["resolver"]}
+    "summon" @{:create summon :parse parse-resolver
+               :desc "Summon window here" :spec ["resolver"]}
+    "send-to" @{:create send-to :parse parse-resolver
+                :desc "Send focused to target's tag" :spec ["resolver"]}
+    "focus-output" @{:create focus-output :parse |(keyword ($ 0))
+                     :desc "Focus output" :spec [["choice" "left" "right"]]}
+    "focus-last" @{:create |(focus :last) :desc "Focus previous window"}
+    "send-to-output" @{:create send-to-output :desc "Send to next output"}
+    "float" @{:create float :desc "Toggle floating"}
+    "fullscreen" @{:create fullscreen :desc "Toggle fullscreen"}
+    "set-tag" @{:create set-tag :parse |(scan-number ($ 0))
+                :desc "Move window to tag" :spec [["choice" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10"]]}
+    "focus-tag" @{:create focus-tag :parse |(scan-number ($ 0))
+                  :desc "Focus tag" :spec [["choice" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10"]]}
+    "toggle-tag" @{:create toggle-tag :parse |(scan-number ($ 0))
+                   :desc "Toggle tag visibility" :spec [["choice" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10"]]}
+    "focus-all-tags" @{:create focus-all-tags :desc "Show all tags"}
+    "toggle-scratchpad" @{:create toggle-scratchpad :desc "Toggle scratchpad"}
+    "send-to-scratchpad" @{:create send-to-scratchpad :desc "Send to scratchpad"}
+    "adjust-ratio" @{:create adjust-ratio :parse |(scan-number ($ 0))
+                     :desc "Adjust split ratio" :spec [["choice" "-0.05" "0.05" "-0.1" "0.1"]]}
+    "adjust-main-count" @{:create adjust-main-count :parse |(scan-number ($ 0))
+                          :desc "Adjust main count" :spec [["choice" "-1" "1"]]}
+    "cycle-layout" @{:create cycle-layout :parse |(keyword ($ 0))
+                     :desc "Cycle layout" :spec [["choice" "next" "prev"]]}
+    "set-layout" @{:create set-layout :parse |(keyword ($ 0))
+                   :desc "Set layout" :spec [["choice" "master-stack" "grid" "dwindle" "scroll" "tabbed"]]}
+    "adjust-column-width" @{:create adjust-column-width :parse |(scan-number ($ 0))
+                            :desc "Adjust column width" :spec [["choice" "-0.05" "0.05" "-0.1" "0.1"]]}
+    "resize-column" @{:create resize-column :parse |(scan-number ($ 0))
+                      :desc "Resize column" :spec [["choice" "-0.1" "0.1" "-0.2" "0.2"]]}
+    "resize-window" @{:create resize-window :parse |(scan-number ($ 0))
+                      :desc "Resize window weight" :spec [["choice" "-0.1" "0.1" "-0.2" "0.2"]]}
+    "preset-column-width" @{:create preset-column-width :desc "Cycle column width presets"}
+    "equalize-column" @{:create equalize-column :desc "Equalize column"}
+    "consume-column" @{:create consume-column :parse |(keyword ($ 0))
+                       :desc "Consume column" :spec [["choice" "left" "right"]]}
+    "expel-column" @{:create expel-column :desc "Expel to new column"}
+    "focus-row" @{:create focus-row :parse |(scan-number ($ 0))
+                  :desc "Focus scroll row" :spec [["number" "Row"]]}
+    "cycle-row" @{:create cycle-row :parse |(keyword ($ 0))
+                  :desc "Cycle scroll row" :spec [["choice" "next" "prev"]]}
+    "send-to-row" @{:create send-to-row :parse |(scan-number ($ 0))
+                    :desc "Send to scroll row" :spec [["number" "Row"]]}
+    "expel-row" @{:create expel-row :desc "Expel to new row"}
+    "mark-set" @{:create mark-set :parse |($ 0)
+                 :desc "Set mark on window" :spec [["string" "Mark name"]]}
+    "mark-clear" @{:create mark-clear :parse |($ 0)
+                   :desc "Clear mark" :spec [["string" "Mark name"]]}
+    "float-move" @{:create float-move :parse |(keyword ($ 0))
+                   :desc "Move floating window" :spec [["choice" "left" "right" "up" "down"]]}
+    "float-resize" @{:create float-resize :parse |(do [(keyword ($ 0)) (scan-number ($ 1))])
+                     :desc "Resize floating window" :spec [["choice" "width" "height"] ["number" "Delta (px)"]]}
+    "float-center" @{:create float-center :desc "Center floating window"}
+    "nav-back" @{:create nav-back :desc "Navigate back"}
+    "nav-forward" @{:create nav-forward :desc "Navigate forward"}
+    "scroll-home-set" @{:create scroll-home-set :desc "Set scroll home"}
+    "scroll-home" @{:create scroll-home :desc "Jump to scroll home"}
+    "pointer-move" @{:create pointer-move :desc "Pointer move"}
+    "pointer-resize" @{:create pointer-resize :desc "Pointer resize"}
+    "passthrough" @{:create passthrough :desc "Toggle passthrough"}
+    "restart" @{:create restart :desc "Restart tidepool"}
+    "exit" @{:create exit :desc "Exit tidepool"}
+    "signal" @{:create signal :parse |(do (def name ($ 0)) (def rest (slice $ 1)) [name rest])
+               :desc "Emit signal" :spec [["string" "Signal name"]]}})

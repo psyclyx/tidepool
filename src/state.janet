@@ -25,12 +25,15 @@
     :pointer-bindings @[]
     :rules @[]
     :debug false
+    :float-step 20
+    :focus-follows-mouse false
     :warp-pointer false
     :xcursor-theme "Adwaita"
     :xcursor-size 24})
 
 # Window key ownership:
 #   window.janet:  :obj :node :tag :float :fullscreen :fullscreen-output
+#                  :pre-fullscreen-pos
 #                  :x :y :w :h :proposed-w :proposed-h :min-w :min-h :max-w :max-h
 #                  :app-id :title :wl-parent :decoration-hint
 #                  :new :closed :closing :visible :needs-ssd :float-changed
@@ -39,6 +42,7 @@
 #                  :border-status :border-rgb :border-width :border-applied-rgb
 #                  :border-applied-width :vis-applied :clip-rect
 #   scroll.janet:  :column :col-width :col-weight :row :scroll-placed
+#   actions.janet:   :mark
 #   animation.janet: :anim :anim-clip :anim-destroy :needs-open-anim
 #   layout (all):  :layout-hidden :layout-meta
 
@@ -52,6 +56,32 @@
     :anim-active false})
 
 (def tag-layouts "Per-tag layout persistence cache." @{})
+(def tag-focus "Per-tag focused window memory." @{})
+(def marks "User-assigned window marks (name -> window)." @{})
+
+# Navigation trail: bounded deque with browser-style back/forward.
+# Entries are {:window w :tag t}. Auto-pushed on cross-tag/output navigation.
+(def nav-trail "Navigation history trail." @{:entries @[] :cursor nil :capacity 20})
 
 (def output-state-cache "Cached output state for reconnecting monitors." @{})
 (def registry "Wayland protocol object registry." @{})
+
+(defn clone-layout-params
+  "Clone layout params, filtering transient animation state."
+  [params]
+  (def out @{})
+  (eachp [k v] params
+    (def s (string k))
+    (unless (or (string/has-suffix? "-anim" s)
+                (= k :scroll-animating)
+                (= k :scroll-home-win))
+      (put out k v)))
+  out)
+
+(defn action-context
+  "Build the standard action dispatch context for a seat."
+  [seat &opt binding]
+  @{:seat seat :binding binding
+    :outputs (wm :outputs) :windows (wm :windows)
+    :render-order (wm :render-order) :config config
+    :tag-layouts tag-layouts :registry registry})

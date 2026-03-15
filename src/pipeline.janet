@@ -43,10 +43,25 @@
       (output/bg/destroy (o :bg))))
   (each w (state/wm :windows)
     (when (w :pending-destroy)
+      # Clean up marks referencing this window
+      (when (w :mark)
+        (put state/marks (w :mark) nil))
+      # Prune from nav trail
+      (def trail-entries (state/nav-trail :entries))
+      (var ti 0)
+      (while (< ti (length trail-entries))
+        (if (= ((trail-entries ti) :window) w)
+          (do
+            (when-let [cursor (state/nav-trail :cursor)]
+              (when (>= cursor ti)
+                (put state/nav-trail :cursor (max 0 (- cursor 1)))))
+            (array/remove trail-entries ti))
+          (++ ti)))
       (:destroy (w :obj))
       (:destroy (w :node))))
   (each s (state/wm :seats)
     (when (s :pending-destroy)
+      (:destroy (s :layer-shell))
       (:destroy (s :obj))))
   (remove-destroyed (state/wm :outputs))
   (remove-destroyed (state/wm :windows))
@@ -60,12 +75,12 @@
 
 # --- Pure data computation helpers ---
 
-(defn- save-positions [config]
+(defn- save-geometry [config]
   (def prev @{})
   (when (config :animate)
     (each w (state/wm :windows)
       (when (and (w :x) (w :y) (not (w :new)) (not (w :closing)))
-        (put prev w [(w :x) (w :y)]))))
+        (put prev w [(w :x) (w :y) (w :w) (w :h)]))))
   prev)
 
 (defn- sort-outputs []
@@ -121,7 +136,7 @@
             (window/set-borders w :normal config))
           (window/set-borders w :normal config))))))
 
-(defn- start-animations [prev-positions now config]
+(defn- start-animations [prev-geometry now config]
   (when (config :animate)
     (each w (state/wm :windows)
       (when (and (w :new) (not (w :float)) (not (w :closing)))
@@ -139,15 +154,29 @@
             :clip-to @[0 0 cw ch]}
           now config))
       (when (and (not (w :new)) (not (w :closing))
-                 (not (w :anim)) (not (w :layout-hidden))
+                 (not (w :layout-hidden))
                  (not (w :scroll-placed)))
-        (when-let [prev (get prev-positions w)]
-          (def [px py] prev)
-          (when (or (not= px (w :x)) (not= py (w :y)))
-            (animation/start w :move
-              @{:from-x px :from-y py
-                :to-x (w :x) :to-y (w :y)}
-              now config)))))))
+        (when-let [prev (get prev-geometry w)]
+          (def [px py pw ph] prev)
+          (def tx (w :x))
+          (def ty (w :y))
+          (def moved (or (not= px tx) (not= py ty)))
+          (def nw (w :proposed-w))
+          (def nh (w :proposed-h))
+          (def resized (and pw ph nw nh
+                            (or (not= pw nw) (not= ph nh))))
+          (when (or moved resized)
+            (def props @{})
+            (when moved
+              (put props :from-x px) (put props :from-y py)
+              (put props :to-x tx) (put props :to-y ty))
+            (when resized
+              (put props :clip-from @[0 0 pw ph])
+              (put props :clip-to @[0 0 nw nh]))
+            (if-let [existing (w :anim)]
+              (when (= (existing :type) :move)
+                (animation/start w :move props now config))
+              (animation/start w :move props now config))))))))
 
 (defn- compute-visibility [outputs windows]
   (def all-tags @{})
@@ -164,8 +193,8 @@
 (defn reconcile-tags
   ``Enforce tag invariants: each tag 1-9 on at most one output (focused wins),
   tag 0 (scratchpad) exempt, every output has at least one tag,
-  and primary-tag changes trigger layout save/restore.``
-  [outputs focused tag-layouts]
+  primary-tag changes trigger layout save/restore and focus memory.``
+  [outputs focused tag-layouts tag-focus focused-window]
 
   # Tags 1-9: focused output wins conflicts
   (when focused
@@ -181,7 +210,7 @@
       (when-let [o (find |(empty? ($ :tags)) outputs)]
         (put (o :tags) tag true))))
 
-  # Save/restore per-tag layouts on primary-tag change
+  # Save/restore per-tag layouts and focus on primary-tag change
   (each o outputs
     (def prev (o :primary-tag))
     (def curr (min-of (keys (o :tags))))
@@ -189,10 +218,13 @@
       (when prev
         (put tag-layouts prev
              @{:layout (o :layout)
-               :params (table/clone (o :layout-params))}))
+               :params (state/clone-layout-params (o :layout-params))})
+        (when focused-window
+          (put tag-focus prev focused-window)))
       (when-let [saved (get tag-layouts curr)]
         (put o :layout (saved :layout))
         (merge-into (o :layout-params) (saved :params)))
+      (put o :tag-focus-hint (get tag-focus curr))
       (put o :primary-tag curr))))
 
 # --- Effect application passes ---
@@ -280,7 +312,7 @@
   (apply-destroys)
 
   # --- Pure data computation ---
-  (def prev-positions (save-positions config))
+  (def prev-geometry (save-geometry config))
   (sort-outputs)
   (each o outputs (output/manage o outputs))
   (each w windows (window/manage w config seats))
@@ -288,7 +320,15 @@
   (each s seats (seat/manage s outputs windows render-order config))
   (reconcile-tags outputs
                   (when-let [s (first seats)] (s :focused-output))
-                  state/tag-layouts)
+                  state/tag-layouts state/tag-focus
+                  (when-let [s (first seats)] (s :focused)))
+  (each o outputs
+    (when-let [hint (o :tag-focus-hint)]
+      (put o :tag-focus-hint nil)
+      (when (and (not (hint :closed)) (not (hint :closing)))
+        (each s seats
+          (when (= (s :focused-output) o)
+            (seat/focus s hint outputs render-order config))))))
   (sanitize)
   (clear-layout-state)
   (def tag-map (build-tag-map outputs))
@@ -297,13 +337,13 @@
     (when (get-in o [:layout-params :scroll-animating])
       (put state/wm :anim-active true)))
   (compute-borders seats config tag-map)
-  (start-animations prev-positions now config)
+  (start-animations prev-geometry now config)
   (compute-visibility outputs windows)
 
   # Safety: if focused window ended up hidden, re-pick from visible
   (each s seats
     (when-let [w (s :focused)]
-      (when (and (not (w :visible)) (not (w :closing)))
+      (when (and (not (w :visible)) (not (w :closing)) (not (w :new)))
         (def best (last (filter |(and ($ :visible) (not ($ :closing))) render-order)))
         (seat/focus s best outputs render-order config))))
 

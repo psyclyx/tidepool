@@ -1,6 +1,8 @@
 (import ./state)
 (import ./persist)
 (import ./actions :as action)
+(import ./output)
+(import ./layout/scroll)
 (import spork/json)
 
 # --- Debug logging ---
@@ -26,14 +28,31 @@
         :focused (= o focused-output)})
     :occupied (sorted (keys occupied))})
 
+(defn- compute-viewport
+  "Compute viewport context for an output's current layout."
+  [o]
+  (def params (o :layout-params))
+  (when (nil? params) (break nil))
+  (def usable (output/usable-area o))
+  (def base @{:x (usable :x) :y (usable :y)
+              :w (usable :w) :h (usable :h)})
+  (when (= (o :layout) :scroll)
+    (put base :scroll-offset (or (params :scroll-offset) 0))
+    (put base :total-content-w (or (params :total-content-w) 0))
+    (when (params :column-widths)
+      (put base :column-widths (params :column-widths))))
+  base)
+
 (defn- compute-layout
-  "Compute layout state: per-output layout name."
+  "Compute layout state: per-output layout name and viewport."
   [outputs focused-output]
   @{:outputs (seq [o :in outputs]
       @{:x (o :x) :y (o :y)
+        :w (or (o :w) 0) :h (or (o :h) 0)
         :layout (string (o :layout))
         :active-row (or (get-in o [:layout-params :active-row]) 0)
-        :focused (= o focused-output)})})
+        :focused (= o focused-output)
+        :viewport (compute-viewport o)})})
 
 (defn- compute-title
   "Compute focused window title."
@@ -52,7 +71,8 @@
   (each o outputs (eachk tag (o :tags) (put tag-map tag o)))
   (seq [w :in windows :when (not (or (w :closed) (w :closing)))]
     (def o (get tag-map (w :tag)))
-    @{:app-id (or (w :app-id) "")
+    @{:wid (w :wid)
+      :app-id (or (w :app-id) "")
       :title (or (w :title) "")
       :tag (w :tag)
       :x (or (w :x) 0) :y (or (w :y) 0)
@@ -62,6 +82,7 @@
       :fullscreen (if (w :fullscreen) true false)
       :visible (if (w :visible) true false)
       :row (or (w :row) 0)
+      :mark (w :mark)
       :layout (when o (string (o :layout)))
       :meta (w :layout-meta)}))
 
@@ -235,22 +256,31 @@
       ((entry :create) (parse args))
       ((entry :create))))
   (def action-fn (if (table? action-obj) (action-obj :fn) action-obj))
-  (def ctx @{:seat seat :binding nil
-             :outputs (state/wm :outputs)
-             :windows (state/wm :windows)
-             :render-order (state/wm :render-order)
-             :config state/config
-             :tag-layouts state/tag-layouts
-             :registry state/registry})
-  (action-fn ctx)
+  (action-fn (state/action-context seat))
   true)
 
 (defn list-actions
-  "Return array of all registered actions with descriptions."
+  "Return array of all registered actions with descriptions, specs, and keybinds."
   []
+  # Build reverse map: action-name+args -> keybind string
+  (def bind-map @{})
+  (each seat (state/wm :seats)
+    (each b (seat :xkb-bindings)
+      (when (b :action-name)
+        (def args (b :action-args))
+        (def key (if (and args (> (length args) 0))
+                   (string (b :action-name) " " (string/join (map string args) " "))
+                   (b :action-name)))
+        (put bind-map key (format-keybind b)))))
   (sorted-by |($ "name")
     (seq [[name entry] :pairs action/registry]
-      @{"name" name})))
+      (def out @{"name" name})
+      (when (entry :desc) (put out "desc" (entry :desc)))
+      (when (entry :spec) (put out "spec" (entry :spec)))
+      # Check for keybinds matching this action (with no args = bare action)
+      (when-let [key (get bind-map name)]
+        (put out "key" key))
+      out)))
 
 (defn list-bindings
   "Return all keyboard bindings with action metadata as a JSON string."

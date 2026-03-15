@@ -178,7 +178,7 @@ _tidepoolmsg() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     commands="repl eval action bindings debug trace watch save load help completions"
     topics="tags layout title windows signal"
-    actions="spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode focus-row cycle-row send-to-row expel-row passthrough restart exit signal"
+    actions="spawn close zoom float fullscreen focus swap summon send-to focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad adjust-ratio adjust-main-count cycle-layout set-layout adjust-column-width resize-column resize-window preset-column-width equalize-column consume-column expel-column focus-row cycle-row send-to-row expel-row mark-set mark-clear nav-back nav-forward scroll-home-set scroll-home float-move float-resize float-center pointer-move pointer-resize passthrough restart exit signal"
 
     case "$prev" in
         tidepoolmsg)
@@ -220,7 +220,7 @@ _tidepoolmsg() {
         'completions:output shell completions'
     )
     topics=(tags layout title windows signal)
-    actions=(spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode focus-row cycle-row send-to-row expel-row passthrough restart exit signal)
+    actions=(spawn close zoom float fullscreen focus swap summon send-to focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad adjust-ratio adjust-main-count cycle-layout set-layout adjust-column-width resize-column resize-window preset-column-width equalize-column consume-column expel-column focus-row cycle-row send-to-row expel-row mark-set mark-clear nav-back nav-forward scroll-home-set scroll-home float-move float-resize float-center pointer-move pointer-resize passthrough restart exit signal)
 
     if (( CURRENT == 2 )); then
         _describe 'command' commands
@@ -262,7 +262,7 @@ complete -c tidepoolmsg -n '__fish_use_subcommand' -a save -d 'serialize current
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a load -d 'apply state from stdin'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a help -d 'show usage information'
 complete -c tidepoolmsg -n '__fish_use_subcommand' -a completions -d 'output shell completions'
-complete -c tidepoolmsg -n '__fish_seen_subcommand_from action' -a 'spawn close zoom float fullscreen focus swap focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad cycle-layout set-layout resize cycle-width equalize consume expel cycle-mode set-mode focus-row cycle-row send-to-row expel-row passthrough restart exit signal'
+complete -c tidepoolmsg -n '__fish_seen_subcommand_from action' -a 'spawn close zoom float fullscreen focus swap summon send-to focus-output focus-last send-to-output focus-tag set-tag toggle-tag focus-all-tags toggle-scratchpad send-to-scratchpad adjust-ratio adjust-main-count cycle-layout set-layout adjust-column-width resize-column resize-window preset-column-width equalize-column consume-column expel-column focus-row cycle-row send-to-row expel-row mark-set mark-clear nav-back nav-forward scroll-home-set scroll-home float-move float-resize float-center pointer-move pointer-resize passthrough restart exit signal'
 complete -c tidepoolmsg -n '__fish_seen_subcommand_from watch' -a 'tags layout title windows signal'
 complete -c tidepoolmsg -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
 ```)

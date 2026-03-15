@@ -2,13 +2,6 @@
 
 (def- saved-windows @[])
 
-(defn- filter-anim-keys [params]
-  (def out @{})
-  (eachp [k v] params
-    (unless (string/has-suffix? "-anim" (string k))
-      (put out k v)))
-  out)
-
 (defn serialize
   "Serialize window, output, and tag-layout state to a JDN string."
   [windows outputs tag-layouts]
@@ -32,13 +25,13 @@
         @{:position (string (o :x) "," (o :y))
           :tags (table/clone (o :tags))
           :layout (o :layout)
-          :layout-params (filter-anim-keys (o :layout-params))})))
+          :layout-params (state/clone-layout-params (o :layout-params))})))
 
   (def tl-data @{})
   (eachp [tag saved] tag-layouts
     (put tl-data tag
          @{:layout (saved :layout)
-           :params (filter-anim-keys (saved :params))}))
+           :params (state/clone-layout-params (saved :params))}))
 
   (def data @{:windows win-data :outputs out-data :tag-layouts tl-data})
   (string/format "%j" data))

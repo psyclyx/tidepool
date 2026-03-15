@@ -137,6 +137,10 @@
   (def total-content-w
     (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
 
+  # Expose layout geometry to IPC via params
+  (put params :total-content-w total-content-w)
+  (put params :column-widths (seq [col :in cols] (col-width col content-w default-ratio)))
+
   (def focused-x (+ inner (get col-xs focused-col-idx)))
   (def focused-col-w (col-width (get cols focused-col-idx) content-w default-ratio))
 
