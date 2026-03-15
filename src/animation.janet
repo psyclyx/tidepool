@@ -7,17 +7,20 @@
   "Start an animation on a window (:open, :close, or :move)."
   [window type props now config]
   (when (config :animate)
-    (put window :anim (merge @{:type type
-                                :start now
-                                :duration (config :animation-duration)}
-                              props))))
+    (def duration (config :animation-duration))
+    (when (and duration (> duration 0))
+      (put window :anim (merge @{:type type
+                                  :start now
+                                  :duration duration}
+                                props)))))
 
 (defn tick
   ``Advance a window's animation by one frame. Pure: stores computed values
   on the window table (:x/:y for moves, :anim-clip for clips). Returns true if active.``
   [window now]
   (when-let [anim (window :anim)]
-    (def t (min 1.0 (/ (- now (anim :start)) (anim :duration))))
+    (def dur (anim :duration))
+    (def t (if (> dur 0) (min 1.0 (/ (- now (anim :start)) dur)) 1.0))
     (def e (ease-out-cubic t))
     (if (>= t 1.0)
       (do (put window :anim nil)
@@ -64,7 +67,8 @@
   [params key now]
   (def anim-key (keyword (string key "-anim")))
   (when-let [anim (params anim-key)]
-    (def t (min 1.0 (/ (- now (anim :start)) (anim :duration))))
+    (def dur (anim :duration))
+    (def t (if (> dur 0) (min 1.0 (/ (- now (anim :start)) dur)) 1.0))
     (def e (ease-out-cubic t))
     (def val (+ (anim :from) (* e (- (anim :to) (anim :from)))))
     (put params key (math/round val))
