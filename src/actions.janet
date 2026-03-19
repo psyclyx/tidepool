@@ -301,7 +301,7 @@
                   (when-let [adjacent (find-adjacent-output current outputs resolver)]
                     (put w :tag (or (min-of (keys (adjacent :tags))) 1))
                     (window/clear-layout-placement w)
-                    (seat/focus-output seat adjacent)))))))))))
+                    (seat/focus-output seat adjacent))))))))))))
 
 (defn focus-output
   "Action: focus the next or adjacent output."
@@ -343,7 +343,7 @@
                  i (index-of current outputs)
                  t (or (get outputs (+ i 1)) (first outputs))]
         (put w :tag (or (min-of (keys (t :tags))) 1))
-        (window/clear-layout-placement w)))))
+        (window/clear-layout-placement w))))))
 
 (defn float
   "Action: toggle floating on the focused window."
