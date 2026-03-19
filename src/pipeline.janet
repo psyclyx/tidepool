@@ -291,9 +291,8 @@
     (unless (= vis (w :vis-applied))
       (if vis
         (do (put w :vis-applied vis) (:show (w :obj)))
-        # Don't hide windows that haven't received their initial configure —
-        # hiding prevents the compositor from sending dimensions, which
-        # permanently blocks needs-open-anim.
+        # Don't hide windows before their initial configure — the
+        # compositor won't send dimensions to a hidden surface.
         (when (w :w)
           (put w :vis-applied vis)
           (:hide (w :obj)))))))
