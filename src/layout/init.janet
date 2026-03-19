@@ -128,6 +128,8 @@
   (def focus-prev
     (when-let [seat (first seats)]
       (seat :focus-prev)))
+  (when (= (o :layout) :scroll)
+    (put params :output-bounds [(o :x) (o :y) (o :w) (o :h)]))
   (def results (layout-fn usable visible params config focused now focus-prev))
   (unless (= (o :layout) :scroll)
     (handle-tab-overflow results focused config))

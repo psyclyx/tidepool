@@ -170,10 +170,15 @@
   (animation/scroll-update params :scroll-offset now)
   (def scroll (params :scroll-offset))
 
-  (def clip-left (usable :x))
-  (def clip-right (+ (usable :x) (usable :w)))
-  (def clip-top (usable :y))
-  (def clip-bottom (+ (usable :y) (usable :h)))
+  # Clip against full output bounds, not usable area — usable can be
+  # transiently degenerate during layer shell reconfigures.  The real
+  # visual clip to output is handled downstream by clip-to-output.
+  (def [ob-x ob-y ob-w ob-h] (or (params :output-bounds)
+                                   [(usable :x) (usable :y) (usable :w) (usable :h)]))
+  (def clip-left ob-x)
+  (def clip-right (+ ob-x ob-w))
+  (def clip-top ob-y)
+  (def clip-bottom (+ ob-y ob-h))
 
   (for ci 0 num-cols
     (def col (get cols ci))
