@@ -262,7 +262,7 @@
   true)
 
 (defn list-actions
-  "Return array of all registered actions with descriptions, specs, and keybinds."
+  "Return all registered actions with descriptions, specs, and keybinds as a JSON string."
   []
   # Build reverse map: action-name+args -> keybind string
   (def bind-map @{})
@@ -274,15 +274,16 @@
                    (string (b :action-name) " " (string/join (map string args) " "))
                    (b :action-name)))
         (put bind-map key (format-keybind b)))))
-  (sorted-by |($ "name")
-    (seq [[name entry] :pairs action/registry]
-      (def out @{"name" name})
-      (when (entry :desc) (put out "desc" (entry :desc)))
-      (when (entry :spec) (put out "spec" (entry :spec)))
-      # Check for keybinds matching this action (with no args = bare action)
-      (when-let [key (get bind-map name)]
-        (put out "key" key))
-      out)))
+  (json/encode
+    (sorted-by |($ "name")
+      (seq [[name entry] :pairs action/registry]
+        (def out @{"name" name})
+        (when (entry :desc) (put out "desc" (entry :desc)))
+        (when (entry :spec) (put out "spec" (entry :spec)))
+        # Check for keybinds matching this action (with no args = bare action)
+        (when-let [key (get bind-map name)]
+          (put out "key" key))
+        out))))
 
 (defn list-bindings
   "Return all keyboard bindings with action metadata as a JSON string."
@@ -299,6 +300,23 @@
           (put entry "args" (map string args))))
       (array/push result entry)))
   (json/encode result))
+
+(defn list-windows
+  "Return all live windows as a JSON string."
+  []
+  (json/encode
+    (seq [w :in (state/wm :windows) :when (not (or (w :closed) (w :closing)))]
+      (def out @{"wid" (w :wid) "app" (or (w :app-id) "") "title" (or (w :title) "")})
+      (when (w :tag) (put out "tag" (w :tag)))
+      (when (w :mark) (put out "mark" (w :mark)))
+      out)))
+
+(defn list-marks
+  "Return all live marks as a JSON string."
+  []
+  (json/encode
+    (seq [[name w] :pairs state/marks :when (and w (not (w :closed)))]
+      @{"name" name "app" (or (w :app-id) "") "title" (or (w :title) "")})))
 
 # --- Debug ---
 
