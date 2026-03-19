@@ -163,10 +163,12 @@
       (def max-s (min max-scroll (- focused-x peek-l)))
       (def target-scroll (min max-s (max min-s (params :scroll-offset))))
       (animation/scroll-toward params :scroll-offset target-scroll now config))
-    # No focused window — clamp scroll so first column stays visible
+    # No focused window — clamp scroll so first column stays visible,
+    # and kill any stale animation that would override the clamp.
     (let [max-scroll (max 0 (- total-content-w total-w))
           clamped (min max-scroll (max 0 (params :scroll-offset)))]
-      (put params :scroll-offset clamped)))
+      (put params :scroll-offset clamped)
+      (put params :scroll-offset-anim nil)))
   (animation/scroll-update params :scroll-offset now)
   (def scroll (params :scroll-offset))
 
