@@ -106,9 +106,15 @@
   (buffer/push buf (json/encode obj))
   (buffer/push buf "\n"))
 
+(def- max-buf-size 65536)
+
 (defn- notify-watcher
   "Signal a watcher that new data is available. Non-blocking."
   [w]
+  # Drop stale buffered data if backpressure is building up — the consumer
+  # only cares about the latest state, which will be re-sent on next change.
+  (when (> (length (w :buf)) max-buf-size)
+    (buffer/clear (w :buf)))
   (when-let [ch (w :wake)]
     (unless (ev/full ch)
       (ev/give ch true))))
@@ -182,12 +188,16 @@
   (log "watch-json start: %j" topics)
   (def stream (dyn :netrepl-stream))
   (def send (make-stream-send stream))
-  (def buf @"")
   (def wake-ch (ev/chan 64))
   (def topic-set (tabseq [t :in topics] t true))
-  (def entry @{:buf buf :topics topic-set :wake wake-ch})
+  # Use a queue of ready-to-send snapshots instead of a shared mutable buffer.
+  # emit-events writes JSON into `buf`, then the wake handler snapshots and
+  # enqueues it. This avoids the buffer growing unboundedly when sends are slow.
+  (def buf @"")
+  (def outbox (ev/chan 256))
+  (def entry @{:buf buf :topics topic-set :wake wake-ch :outbox outbox})
 
-  # Send current state immediately.
+  # Send current state immediately — one message per topic to keep messages small.
   (each topic topics
     (def current (case topic
                    :tags last-tags
@@ -195,10 +205,9 @@
                    :title last-title
                    :windows (when last-windows @{:windows last-windows})))
     (when current
-      (write-json buf topic current)))
-  (when (> (length buf) 0)
-    (send (string "\xFF" buf))
-    (buffer/clear buf))
+      (def topic-buf @"")
+      (write-json topic-buf topic current)
+      (send (string "\xFF" topic-buf))))
 
   (array/push watchers entry)
   (defer (do
