@@ -118,6 +118,11 @@
     (unless (ev/full ch)
       (ev/give ch true))))
 
+(defn- topic-changed?
+  "Check if a topic's state changed, forcing true when tags changed."
+  [new old force]
+  (or force (not (deep= new old))))
+
 (defn emit-events
   "Compute per-topic state, update globals, write changes to watcher buffers."
   [outputs windows seats]
@@ -134,15 +139,15 @@
   # tag → different viewport, visible windows, focused title). Without this,
   # consumers see stale viewport data from the previous tag.
   (def layout (freeze (compute-layout outputs focused-output)))
-  (def layout-changed (or tags-changed (not (deep= layout last-layout))))
+  (def layout-changed (topic-changed? layout last-layout tags-changed))
   (when layout-changed (set last-layout layout))
 
   (def title (freeze (compute-title seats)))
-  (def title-changed (or tags-changed (not (deep= title last-title))))
+  (def title-changed (topic-changed? title last-title tags-changed))
   (when title-changed (set last-title title))
 
   (def win-state (freeze (compute-windows windows seats outputs)))
-  (def windows-changed (or tags-changed (not (deep= win-state last-windows))))
+  (def windows-changed (topic-changed? win-state last-windows tags-changed))
   (when windows-changed (set last-windows win-state))
 
   # Write changed topics to watcher buffers, then notify once
@@ -198,12 +203,8 @@
   (def send (make-stream-send stream))
   (def wake-ch (ev/chan 64))
   (def topic-set (tabseq [t :in topics] t true))
-  # Use a queue of ready-to-send snapshots instead of a shared mutable buffer.
-  # emit-events writes JSON into `buf`, then the wake handler snapshots and
-  # enqueues it. This avoids the buffer growing unboundedly when sends are slow.
   (def buf @"")
-  (def outbox (ev/chan 256))
-  (def entry @{:buf buf :topics topic-set :wake wake-ch :outbox outbox})
+  (def entry @{:buf buf :topics topic-set :wake wake-ch})
 
   # Send current state immediately — one message per topic to keep messages small.
   (each topic topics
