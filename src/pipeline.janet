@@ -175,7 +175,10 @@
               (put props :clip-to @[0 0 nw nh]))
             (if-let [existing (w :anim)]
               (when (= (existing :type) :move)
-                (animation/start w :move props now config))
+                (def retarget (or (not= (existing :to-x) (props :to-x))
+                                  (not= (existing :to-y) (props :to-y))))
+                (when retarget
+                  (animation/start w :move props now config)))
               (animation/start w :move props now config))))))))
 
 (defn- compute-visibility [outputs windows]

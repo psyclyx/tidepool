@@ -61,10 +61,11 @@
         (let [existing (params anim-key)
               duration (config :animation-duration)]
           (if existing
-            # Retarget from current interpolated position
-            (do (put existing :from current)
-                (put existing :to target)
-                (put existing :start now))
+            # Retarget only when destination changed
+            (when (not= (existing :to) target)
+              (put existing :from current)
+              (put existing :to target)
+              (put existing :start now))
             (put params anim-key @{:from current :to target :start now :duration duration})))))))
 
 (defn scroll-update
