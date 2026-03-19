@@ -29,8 +29,11 @@
   @{:scroll (fn [o windows focused &opt focus-prev]
               (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
                                    (output/visible o windows)))
-              (scroll/context visible focused focus-prev
-                              (or (get-in o [:layout-params :active-row]) 0)))})
+              (when-let [ctx (scroll/context visible focused focus-prev
+                               (or (get-in o [:layout-params :active-row]) 0))]
+                (put ctx :all-tiled visible)
+                (put ctx :params (o :layout-params))
+                ctx))})
 
 (defn navigate-by-geometry
   "Navigate by finding the nearest window in the given direction.

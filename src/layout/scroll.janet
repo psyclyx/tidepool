@@ -253,6 +253,47 @@
       true nil))
   results)
 
+(defn save-row-state
+  "Save current scroll state for a row before switching."
+  [params row]
+  (def row-states (or (params :row-states) @{}))
+  (put row-states row @{:scroll-offset (or (params :scroll-offset) 0)})
+  (put params :row-states row-states))
+
+(defn restore-row-state
+  "Restore scroll state for a row after switching to it."
+  [params row]
+  (def saved (when-let [row-states (params :row-states)] (get row-states row)))
+  (put params :scroll-offset (or (get saved :scroll-offset) 0)))
+
+(defn switch-to-row
+  "Switch active row, saving/restoring scroll state."
+  [params current-row target-row]
+  (save-row-state params current-row)
+  (put params :active-row target-row)
+  (restore-row-state params target-row))
+
+(defn row-boundary-info
+  "When at a column boundary in the given direction, return the adjacent row
+  number and list of windows in that row, or nil."
+  [ctx dir all-tiled]
+  (def {:focused-row my-row :cols cols :focused-col my-col :active-row active-row} ctx)
+  (def col (get cols my-col))
+  (def at-edge
+    (case dir
+      :up (= my-row 0)
+      :down (= my-row (- (length col) 1))
+      false))
+  (when at-edge
+    (def all-rows (sorted (distinct (map |(or ($ :row) 0) all-tiled))))
+    (def idx (index-of active-row all-rows))
+    (when idx
+      (def target-idx (case dir :up (- idx 1) :down (+ idx 1)))
+      (when (and (>= target-idx 0) (< target-idx (length all-rows)))
+        (def target-row (get all-rows target-idx))
+        (def row-windows (filter |(= (or ($ :row) 0) target-row) all-tiled))
+        {:target-row target-row :windows row-windows}))))
+
 (defn navigate
   "Navigate between columns and rows."
   [n main-count i dir ctx]

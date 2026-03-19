@@ -3,6 +3,7 @@
 (import ./output)
 (import ./seat)
 (import ./layout)
+(import ./layout/scroll)
 
 (defn- clamp [x lo hi] (min hi (max lo x)))
 (defn- wrap [x n] (% (+ (% x n) n) n))
@@ -215,18 +216,32 @@
             (when-let [fo (seat :focused-output)]
               (put fo :tags @{(t :tag) true})))
           (seat/focus seat t outputs render-order config))
-        # No target -- for directional resolvers, try crossing outputs
+        # No target -- for directional resolvers, try scroll row boundary, then cross-output
         (when (keyword? resolver)
           (when-let [current (or (when-let [w (seat :focused)] (window/tag-output w outputs))
                                  (seat :focused-output))]
-            (if-let [adjacent (find-adjacent-output current outputs resolver)]
-              (do (seat/focus-output seat adjacent)
-                  (seat/focus seat nil outputs render-order config))
-            # Nothing focused and no adjacent output — pick top visible window
-            (unless (seat :focused)
-              (when-let [visible (output/visible current windows)
-                         top (last visible)]
-                (seat/focus seat top outputs render-order config)))))))))))
+            # Try scroll row boundary crossing for up/down
+            (if (and (= (current :layout) :scroll)
+                     (find |(= $ resolver) [:up :down])
+                     (when-let [w (seat :focused)
+                                ctx-fn (get layout/context-fns :scroll)
+                                sctx (ctx-fn current windows w (seat :focus-prev))
+                                info (scroll/row-boundary-info sctx resolver (sctx :all-tiled))]
+                       (def params (current :layout-params))
+                       (scroll/switch-to-row params (or (params :active-row) 0) (info :target-row))
+                       (when-let [landing (first (info :windows))]
+                         (seat/focus seat landing outputs render-order config))
+                       true))
+              nil
+              (if-let [adjacent (find-adjacent-output current outputs resolver)]
+                (do (seat/focus-output seat adjacent)
+                    (seat/focus seat nil outputs render-order config))
+                # Nothing focused and no adjacent output — pick top visible window
+                (unless (seat :focused)
+                  (when-let [visible (output/visible current windows)
+                             top (last visible)]
+                    (seat/focus seat top outputs render-order config))))))))))))
+
 
 (defn swap
   "Action: swap the focused window with a target. Accepts direction keywords
@@ -270,11 +285,20 @@
               (put windows wi t)
               (put windows ti w))
             (when (keyword? resolver)
-              (when-let [current (window/tag-output w outputs)
-                         adjacent (find-adjacent-output current outputs resolver)]
-                (put w :tag (or (min-of (keys (adjacent :tags))) 1))
-                (window/clear-layout-placement w)
-                (seat/focus-output seat adjacent))))))))))
+              (when-let [current (window/tag-output w outputs)]
+                (if (and (= (current :layout) :scroll)
+                         (find |(= $ resolver) [:up :down])
+                         (when-let [ctx-fn (get layout/context-fns :scroll)
+                                    sctx (ctx-fn current windows w (seat :focus-prev))
+                                    info (scroll/row-boundary-info sctx resolver (sctx :all-tiled))]
+                           (put w :row (info :target-row))
+                           (put w :column nil)
+                           true))
+                  nil
+                  (when-let [adjacent (find-adjacent-output current outputs resolver)]
+                    (put w :tag (or (min-of (keys (adjacent :tags))) 1))
+                    (window/clear-layout-placement w)
+                    (seat/focus-output seat adjacent)))))))))))
 
 (defn focus-output
   "Action: focus the next or adjacent output."
@@ -555,87 +579,6 @@
             (each win tiled (set max-col (max max-col (or (win :column) 0))))
             (put w :column (+ max-col 1)))))))))
 
-# --- Rows (scroll layout) ---
-
-(defn- save-row-state
-  "Save current scroll state for the active row before switching."
-  [params row]
-  (def row-states (or (params :row-states) @{}))
-  (put row-states row @{:scroll-offset (params :scroll-offset)})
-  (put params :row-states row-states))
-
-(defn- restore-row-state
-  "Restore scroll state for a row after switching to it."
-  [params row]
-  (when-let [row-states (params :row-states)
-             saved (get row-states row)]
-    (put params :scroll-offset (or (saved :scroll-offset) 0))))
-
-(defn focus-row
-  "Action: switch to a specific scroll row."
-  [row]
-  (act "focus-row" "Focus row" [row]
-    (fn [] (fn [ctx]
-      (def {:seat seat :tag-layouts tag-layouts} ctx)
-      (when-let [o (seat :focused-output)]
-        (when (= (o :layout) :scroll)
-          (def params (o :layout-params))
-          (def current (or (params :active-row) 0))
-          (unless (= current row)
-            (save-row-state params current)
-            (put params :active-row row)
-            (restore-row-state params row)
-            (tag-layout/save o tag-layouts))))))))
-
-(defn cycle-row
-  "Action: cycle to the next/prev scroll row."
-  [dir]
-  (act "cycle-row" "Cycle row" [dir]
-    (fn [] (fn [ctx]
-      (def {:seat seat :windows windows :tag-layouts tag-layouts} ctx)
-      (when-let [o (seat :focused-output)]
-        (when (= (o :layout) :scroll)
-          (def params (o :layout-params))
-          (def current (or (params :active-row) 0))
-          # Find all occupied rows
-          (def visible (output/visible o windows))
-          (def tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible))
-          (def rows (sorted (distinct (map |(or ($ :row) 0) tiled))))
-          (when (> (length rows) 1)
-            (def i (or (index-of current rows) 0))
-            (def next-i (case dir
-                          :next (% (+ i 1) (length rows))
-                          :prev (% (+ (- i 1) (length rows)) (length rows))))
-            (def next-row (get rows next-i))
-            (save-row-state params current)
-            (put params :active-row next-row)
-            (restore-row-state params next-row)
-            (tag-layout/save o tag-layouts))))))))
-
-(defn send-to-row
-  "Action: send the focused window to a specific scroll row."
-  [row]
-  (act "send-to-row" "Send to row" [row]
-    (fn [] (fn [ctx]
-      (when-let [w ((ctx :seat) :focused)]
-        (put w :row row)
-        (put w :column nil))))))
-
-(defn expel-row
-  "Action: send the focused window to a new row (max + 1)."
-  []
-  (act "expel-row" "Expel to new row" []
-    (fn [] (fn [ctx]
-      (def {:seat seat :windows windows} ctx)
-      (when-let [o (seat :focused-output)
-                 w (seat :focused)]
-        (when (= (o :layout) :scroll)
-          (def visible (output/visible o windows))
-          (def tiled (filter |(not (or ($ :float) ($ :fullscreen))) visible))
-          (var max-row 0)
-          (each win tiled (set max-row (max max-row (or (win :row) 0))))
-          (put w :row (+ max-row 1))
-          (put w :column nil)))))))
 
 # --- Summon ---
 
@@ -966,13 +909,6 @@
     "consume-column" @{:create consume-column :parse |(keyword ($ 0))
                        :desc "Consume column" :spec [["choice" "left" "right"]]}
     "expel-column" @{:create expel-column :desc "Expel to new column"}
-    "focus-row" @{:create focus-row :parse |(scan-number ($ 0))
-                  :desc "Focus scroll row" :spec [["number" "Row"]]}
-    "cycle-row" @{:create cycle-row :parse |(keyword ($ 0))
-                  :desc "Cycle scroll row" :spec [["choice" "next" "prev"]]}
-    "send-to-row" @{:create send-to-row :parse |(scan-number ($ 0))
-                    :desc "Send to scroll row" :spec [["number" "Row"]]}
-    "expel-row" @{:create expel-row :desc "Expel to new row"}
     "mark-set" @{:create mark-set :parse |($ 0)
                  :desc "Set mark on window" :spec [["string" "Mark name"]]}
     "mark-clear" @{:create mark-clear :parse |($ 0)

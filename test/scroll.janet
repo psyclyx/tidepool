@@ -585,5 +585,88 @@
   (assert= (length visible) 1 "1 visible window")
   (assert= ((first visible) :window) w0 "row 0 window is visible"))
 
+# --- Row boundary navigation tests ---
+
+(test "row-boundary: down at bottom of single-window column detects boundary"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w0 nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :down all))
+  (assert (not (nil? info)) "should detect boundary")
+  (assert= (info :target-row) 1 "target is row 1")
+  (assert= (length (info :windows)) 1 "1 window in target row"))
+
+(test "row-boundary: up at top of column detects boundary"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w1 nil 1))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :up all))
+  (assert (not (nil? info)) "should detect boundary")
+  (assert= (info :target-row) 0 "target is row 0"))
+
+(test "row-boundary: down at bottom of multi-window column detects boundary"
+  (def w0a (make-row-win :column 0 :row 0))
+  (def w0b @{:column 0 :row 0 :col-weight 1.0})
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0a w0b w1])
+  (def ctx (scroll/context all w0b nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :down all))
+  (assert (not (nil? info)) "should detect boundary at bottom of stacked column"))
+
+(test "row-boundary: down in middle of stacked column returns nil"
+  (def w0a (make-row-win :column 0 :row 0))
+  (def w0b @{:column 0 :row 0 :col-weight 1.0})
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0a w0b w1])
+  (def ctx (scroll/context all w0a nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :down all))
+  (assert (nil? info) "not at boundary — middle of column"))
+
+(test "row-boundary: up at topmost row returns nil"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w0 nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :up all))
+  (assert (nil? info) "no row above row 0"))
+
+(test "row-boundary: down at bottommost row returns nil"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w1 nil 1))
+  (put ctx :all-tiled all)
+  (def info (scroll/row-boundary-info ctx :down all))
+  (assert (nil? info) "no row below row 1"))
+
+(test "row-boundary: left/right never triggers boundary"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w0 nil 0))
+  (put ctx :all-tiled all)
+  (assert (nil? (scroll/row-boundary-info ctx :left all)) "left never crosses rows")
+  (assert (nil? (scroll/row-boundary-info ctx :right all)) "right never crosses rows"))
+
+(test "switch-to-row: saves and restores scroll offsets"
+  (def params @{:scroll-offset 150 :active-row 0})
+  (scroll/switch-to-row params 0 1)
+  (assert= (params :active-row) 1 "active row switched")
+  (assert= (get-in params [:row-states 0 :scroll-offset]) 150 "old offset saved")
+  (assert= (params :scroll-offset) 0 "new row starts at 0"))
+
+(test "switch-to-row: restores previously saved offset"
+  (def params @{:scroll-offset 0 :active-row 0
+                :row-states @{1 @{:scroll-offset 300}}})
+  (scroll/switch-to-row params 0 1)
+  (assert= (params :scroll-offset) 300 "restored saved offset"))
+
 (printf "\n%d tests, %d failures" test-count fail-count)
 (when (> fail-count 0) (os/exit 1))
