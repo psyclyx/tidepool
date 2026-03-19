@@ -628,7 +628,7 @@
   (def info (scroll/row-boundary-info ctx :down all))
   (assert (nil? info) "not at boundary — middle of column"))
 
-(test "row-boundary: up at topmost row returns nil"
+(test "row-boundary: up at topmost row returns nil (focus stays)"
   (def w0 (make-row-win :column 0 :row 0))
   (def w1 (make-row-win :column 0 :row 1))
   (def all @[w0 w1])
@@ -637,7 +637,7 @@
   (def info (scroll/row-boundary-info ctx :up all))
   (assert (nil? info) "no row above row 0"))
 
-(test "row-boundary: down at bottommost row returns nil"
+(test "row-boundary: down at bottommost row returns nil (focus stays)"
   (def w0 (make-row-win :column 0 :row 0))
   (def w1 (make-row-win :column 0 :row 1))
   (def all @[w0 w1])
@@ -654,6 +654,50 @@
   (put ctx :all-tiled all)
   (assert (nil? (scroll/row-boundary-info ctx :left all)) "left never crosses rows")
   (assert (nil? (scroll/row-boundary-info ctx :right all)) "right never crosses rows"))
+
+(test "swap-boundary: down at bottommost row creates new row"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w1 nil 1))
+  (put ctx :all-tiled all)
+  (def info (scroll/swap-boundary-info ctx :down all))
+  (assert (not (nil? info)) "should create new row")
+  (assert= (info :target-row) 2 "new row is 2")
+  (assert (info :new) "marked as new")
+  (assert= (length (info :windows)) 0 "no windows in new row"))
+
+(test "swap-boundary: up at topmost row creates new row"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w0 nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/swap-boundary-info ctx :up all))
+  (assert (not (nil? info)) "should create new row")
+  (assert= (info :target-row) -1 "new row is -1")
+  (assert (info :new) "marked as new"))
+
+(test "swap-boundary: down with existing row below returns it (not new)"
+  (def w0 (make-row-win :column 0 :row 0))
+  (def w1 (make-row-win :column 0 :row 1))
+  (def all @[w0 w1])
+  (def ctx (scroll/context all w0 nil 0))
+  (put ctx :all-tiled all)
+  (def info (scroll/swap-boundary-info ctx :down all))
+  (assert (not (nil? info)) "should find existing row")
+  (assert= (info :target-row) 1 "target is row 1")
+  (assert (nil? (info :new)) "not marked as new"))
+
+(test "layout: auto-switches to populated row when active row is empty"
+  (def w0 @{:row 0})
+  (def w1 @{:row 2})
+  (def wins @[w0 w1])
+  (def usable {:x 0 :y 0 :w 1920 :h 1080})
+  (def params @{:column-width 0.5 :scroll-offset 0 :active-row 1})
+  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
+  (scroll/layout usable wins params config nil)
+  (assert= (params :active-row) 0 "snapped to nearest populated row"))
 
 (test "switch-to-row: saves and restores scroll offsets"
   (def params @{:scroll-offset 150 :active-row 0})

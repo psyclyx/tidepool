@@ -109,9 +109,17 @@
     (when (nil? (win :row))
       (put win :row active-row)))
 
-  # Split into active row and hidden rows
-  (def row-windows (filter |(= (win-row $) active-row) windows))
-  (def hidden-windows (filter |(not= (win-row $) active-row) windows))
+  # Split into active row and hidden rows, auto-switching if active row is empty
+  (var row-windows (filter |(= (win-row $) active-row) windows))
+  (when (empty? row-windows)
+    (def all-rows (sorted (distinct (map win-row windows))))
+    (def nearest (reduce |(if (< (math/abs (- $1 active-row))
+                                 (math/abs (- $0 active-row))) $1 $0)
+                         (first all-rows) all-rows))
+    (when nearest
+      (put params :active-row nearest)
+      (set row-windows (filter |(= (win-row $) nearest) windows))))
+  (def hidden-windows (filter |(not= (win-row $) (params :active-row)) windows))
 
   # Build hidden results for non-active-row windows
   (def results @[])
@@ -273,10 +281,10 @@
   (put params :active-row target-row)
   (restore-row-state params target-row))
 
-(defn row-boundary-info
-  "When at a column boundary in the given direction, return the adjacent row
-  number and list of windows in that row, or nil."
-  [ctx dir all-tiled]
+(defn- edge-info
+  "Shared edge detection for row boundary crossing.
+  Returns {:at-edge :all-rows :idx :target-idx} or nil if not at edge."
+  [ctx dir]
   (def {:focused-row my-row :cols cols :focused-col my-col :active-row active-row} ctx)
   (def col (get cols my-col))
   (def at-edge
@@ -285,14 +293,39 @@
       :down (= my-row (- (length col) 1))
       false))
   (when at-edge
+    {:active-row active-row :dir dir}))
+
+(defn row-boundary-info
+  "When at a column boundary in the given direction, return the adjacent row
+  number and list of windows in that row, or nil."
+  [ctx dir all-tiled]
+  (when-let [edge (edge-info ctx dir)]
     (def all-rows (sorted (distinct (map |(or ($ :row) 0) all-tiled))))
-    (def idx (index-of active-row all-rows))
+    (def idx (index-of (edge :active-row) all-rows))
     (when idx
-      (def target-idx (case dir :up (- idx 1) :down (+ idx 1)))
+      (def target-idx (case (edge :dir) :up (- idx 1) :down (+ idx 1)))
       (when (and (>= target-idx 0) (< target-idx (length all-rows)))
         (def target-row (get all-rows target-idx))
         (def row-windows (filter |(= (or ($ :row) 0) target-row) all-tiled))
         {:target-row target-row :windows row-windows}))))
+
+(defn swap-boundary-info
+  "Like row-boundary-info, but creates a new row when at the outer edge.
+  Returns {:target-row :windows :new true} for new rows."
+  [ctx dir all-tiled]
+  (when-let [edge (edge-info ctx dir)]
+    (def all-rows (sorted (distinct (map |(or ($ :row) 0) all-tiled))))
+    (def idx (index-of (edge :active-row) all-rows))
+    (when idx
+      (def target-idx (case (edge :dir) :up (- idx 1) :down (+ idx 1)))
+      (if (and (>= target-idx 0) (< target-idx (length all-rows)))
+        (let [target-row (get all-rows target-idx)
+              row-windows (filter |(= (or ($ :row) 0) target-row) all-tiled)]
+          {:target-row target-row :windows row-windows})
+        (let [target-row (case (edge :dir)
+                           :up (- (first all-rows) 1)
+                           :down (+ (last all-rows) 1))]
+          {:target-row target-row :windows @[] :new true})))))
 
 (defn navigate
   "Navigate between columns and rows."

@@ -290,9 +290,12 @@
                          (find |(= $ resolver) [:up :down])
                          (when-let [ctx-fn (get layout/context-fns :scroll)
                                     sctx (ctx-fn current windows w (seat :focus-prev))
-                                    info (scroll/row-boundary-info sctx resolver (sctx :all-tiled))]
+                                    info (scroll/swap-boundary-info sctx resolver (sctx :all-tiled))]
                            (put w :row (info :target-row))
                            (put w :column nil)
+                           (when (info :new)
+                             (def params (current :layout-params))
+                             (scroll/switch-to-row params (or (params :active-row) 0) (info :target-row)))
                            true))
                   nil
                   (when-let [adjacent (find-adjacent-output current outputs resolver)]
