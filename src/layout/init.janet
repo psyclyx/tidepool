@@ -72,33 +72,21 @@
         (window/set-position (r :window) (r :x) (r :y))
         (window/propose-dimensions (r :window) (r :w) (r :h) config)))))
 
-(defn apply
-  "Apply the current layout to an output's tiled windows."
-  [o windows seats config now]
-  (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
-                       (output/visible o windows)))
-  (when (empty? visible) (break))
-  (def layout-fn (get layout-fns (o :layout) master-stack/layout))
-  (def usable (output/usable-area o))
-  (def params (o :layout-params))
-  (def focused
-    (when-let [seat (first seats)]
-      (when-let [w (seat :focused)]
-        (when (find |(= $ w) visible) w))))
-  (def focus-prev
-    (when-let [seat (first seats)]
-      (seat :focus-prev)))
-  (def results (layout-fn usable visible params config focused now focus-prev))
-  # Tab overflow: if any result has non-positive dimensions, collapse it and
-  # all subsequent results into tabs sharing the last viable cell's geometry.
+(defn- handle-tab-overflow
+  "Collapse results that can't fit their windows into a tabbed group."
+  [results focused config]
+  (def bw (config :border-width))
   (var overflow-idx nil)
   (for i 0 (length results)
     (def r (get results i))
-    (when (and (not (r :hidden)) (or (<= (r :w) 0) (<= (r :h) 0)))
-      (set overflow-idx i)
-      (break)))
+    (when (not (r :hidden))
+      (def win (r :window))
+      (def min-w (+ (or (win :min-w) 1) (* 2 bw)))
+      (def min-h (+ (or (win :min-h) 1) (* 2 bw)))
+      (when (or (< (r :w) min-w) (< (r :h) min-h))
+        (set overflow-idx i)
+        (break))))
   (when overflow-idx
-    # Tab into the cell just before the first overflow (or the usable area if idx 0)
     (def tab-start (max 0 (- overflow-idx 1)))
     (def anchor (get results tab-start))
     (def tab-n (- (length results) tab-start))
@@ -119,5 +107,24 @@
         @{:window win
           :x (anchor :x) :y (anchor :y)
           :w (anchor :w) :h (anchor :h)
-          :hidden (not is-visible)})))
+          :hidden (not is-visible)}))))
+
+(defn apply
+  "Apply the current layout to an output's tiled windows."
+  [o windows seats config now]
+  (def visible (filter |(not (or ($ :float) ($ :fullscreen)))
+                       (output/visible o windows)))
+  (when (empty? visible) (break))
+  (def layout-fn (get layout-fns (o :layout) master-stack/layout))
+  (def usable (output/usable-area o))
+  (def params (o :layout-params))
+  (def focused
+    (when-let [seat (first seats)]
+      (when-let [w (seat :focused)]
+        (when (find |(= $ w) visible) w))))
+  (def focus-prev
+    (when-let [seat (first seats)]
+      (seat :focus-prev)))
+  (def results (layout-fn usable visible params config focused now focus-prev))
+  (handle-tab-overflow results focused config)
   (apply-geometry results config))
