@@ -127,36 +127,42 @@
   # and frozen structs/tuples as different types, so comparing a fresh mutable
   # result against a frozen last-* always returns false.
   (def tags (freeze (compute-tags outputs windows focused-output)))
-  (unless (deep= tags last-tags)
-    (set last-tags tags)
-    (each w watchers
-      (when ((w :topics) :tags)
-        (write-json (w :buf) :tags last-tags)
-        (notify-watcher w))))
+  (def tags-changed (not (deep= tags last-tags)))
+  (when tags-changed (set last-tags tags))
 
+  # When tags change, force-emit all topics — they're correlated (different
+  # tag → different viewport, visible windows, focused title). Without this,
+  # consumers see stale viewport data from the previous tag.
   (def layout (freeze (compute-layout outputs focused-output)))
-  (unless (deep= layout last-layout)
-    (set last-layout layout)
-    (each w watchers
-      (when ((w :topics) :layout)
-        (write-json (w :buf) :layout last-layout)
-        (notify-watcher w))))
+  (def layout-changed (or tags-changed (not (deep= layout last-layout))))
+  (when layout-changed (set last-layout layout))
 
   (def title (freeze (compute-title seats)))
-  (unless (deep= title last-title)
-    (set last-title title)
-    (each w watchers
-      (when ((w :topics) :title)
-        (write-json (w :buf) :title last-title)
-        (notify-watcher w))))
+  (def title-changed (or tags-changed (not (deep= title last-title))))
+  (when title-changed (set last-title title))
 
   (def win-state (freeze (compute-windows windows seats outputs)))
-  (unless (deep= win-state last-windows)
-    (set last-windows win-state)
-    (each w watchers
-      (when ((w :topics) :windows)
-        (write-json (w :buf) :windows @{:windows last-windows})
-        (notify-watcher w)))))
+  (def windows-changed (or tags-changed (not (deep= win-state last-windows))))
+  (when windows-changed (set last-windows win-state))
+
+  # Write changed topics to watcher buffers, then notify once
+  (var any-changed false)
+  (each w watchers
+    (when (and tags-changed ((w :topics) :tags))
+      (write-json (w :buf) :tags last-tags)
+      (set any-changed true))
+    (when (and layout-changed ((w :topics) :layout))
+      (write-json (w :buf) :layout last-layout)
+      (set any-changed true))
+    (when (and title-changed ((w :topics) :title))
+      (write-json (w :buf) :title last-title)
+      (set any-changed true))
+    (when (and windows-changed ((w :topics) :windows))
+      (write-json (w :buf) :windows @{:windows last-windows})
+      (set any-changed true))
+    (when any-changed
+      (notify-watcher w)
+      (set any-changed false))))
 
 (defn emit-signal
   "Emit a named signal to watchers on the :signal topic."
