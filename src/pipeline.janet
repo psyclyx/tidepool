@@ -189,8 +189,7 @@
     (put w :visible
       (if (or (w :closing)
               (and (all-tags (w :tag))
-                   (or (not (w :layout-hidden)) (w :anim))
-                   (not (w :needs-open-anim))))
+                   (or (not (w :layout-hidden)) (w :anim))))
         true false))))
 
 (defn reconcile-tags

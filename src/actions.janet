@@ -104,17 +104,21 @@
         (def tiled-result
           (when ti
             (def lo (o :layout))
+            (def ctx-fn (get layout/context-fns lo))
+            (def nav-ctx (when ctx-fn (ctx-fn o windows w (seat :focus-prev))))
             (def target-i
               (if-let [nav-fn (get layout/navigate-fns lo)]
-                (let [ctx-fn (get layout/context-fns lo)
-                      nav-ctx (when ctx-fn (ctx-fn o windows w (seat :focus-prev)))]
-                  (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
-                    (or nav-ctx {:output o :windows tiled :focused w})))
+                (nav-fn (length tiled) (get-in o [:layout-params :main-count] 1) ti dir
+                  (or nav-ctx {:output o :windows tiled :focused w}))
                 (let [layout-fn (get layout/layout-fns lo (layout/layout-fns :master-stack))
                       results (layout-fn (output/usable-area o) tiled
                                 (o :layout-params) config w)]
                   (layout/navigate-by-geometry results ti dir))))
-            (when target-i (get tiled target-i))))
+            # Use the nav context's window list for lookup when available,
+            # since layout navigators return indices into their own window subset
+            # (e.g. scroll returns indices into active-row windows, not all tiled).
+            (def nav-windows (if nav-ctx (nav-ctx :windows) tiled))
+            (when target-i (get nav-windows target-i))))
         (or tiled-result
             # Fall back to geometry nav over all visible (includes floats)
             (let [candidates (filter |(not (or ($ :fullscreen) ($ :layout-hidden))) visible)
