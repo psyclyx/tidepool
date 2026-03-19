@@ -209,8 +209,12 @@
     (while true
       (ev/take wake-ch)
       (when (> (length buf) 0)
-        (send (string "\xFF" buf))
-        (buffer/clear buf)))))
+        # Snapshot and clear buffer BEFORE sending — send yields for async I/O,
+        # during which emit-events can append new data to buf. Clearing after
+        # send would discard those writes.
+        (def snapshot (string "\xFF" buf))
+        (buffer/clear buf)
+        (send snapshot)))))
 
 # --- Introspection ---
 
