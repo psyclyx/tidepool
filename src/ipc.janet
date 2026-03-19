@@ -66,7 +66,8 @@
     @{:title "" :app-id ""}))
 
 (defn- compute-windows
-  "Compute full window state for IPC."
+  "Compute window state for IPC. Excludes volatile geometry (x/y/w/h) that
+  changes every animation frame — consumers use column/row metadata instead."
   [windows seats outputs]
   (def focused (when-let [s (first seats)] (s :focused)))
   (def tag-map @{})
@@ -77,8 +78,6 @@
       :app-id (or (w :app-id) "")
       :title (or (w :title) "")
       :tag (w :tag)
-      :x (or (w :x) 0) :y (or (w :y) 0)
-      :w (or (w :w) 0) :h (or (w :h) 0)
       :focused (= w focused)
       :float (if (w :float) true false)
       :fullscreen (if (w :fullscreen) true false)
