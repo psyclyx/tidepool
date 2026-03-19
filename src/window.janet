@@ -1,4 +1,5 @@
 (import ./animation)
+(import ./persist)
 
 (var next-wid 0)
 
@@ -30,15 +31,20 @@
   (let [max-w (window :max-w) max-h (window :max-h)]
     (and max-w (> max-w 0) max-h (> max-h 0))))
 
-(defn set-float
-  "Set floating state and clear column layout attributes."
-  [window float]
-  (put window :float float)
-  (put window :float-changed true)
+(defn clear-layout-placement
+  "Clear layout placement state (column, width, weight, row)."
+  [window]
   (put window :column nil)
   (put window :col-width nil)
   (put window :col-weight nil)
   (put window :row nil))
+
+(defn set-float
+  "Set floating state and clear layout placement."
+  [window float]
+  (put window :float float)
+  (put window :float-changed true)
+  (clear-layout-placement window))
 
 (defn set-fullscreen
   "Enter or exit fullscreen (pure data mutation)."
@@ -147,7 +153,8 @@
         (when-let [seat (first seats)
                    o (seat :focused-output)]
           (put window :tag (or (min-of (keys (o :tags))) 1)))
-        (match-rule window (config :rules)))))
+        (match-rule window (config :rules))
+        (persist/restore-window window))))
 
   (match (window :fullscreen-requested)
     [:enter] (if-let [seat (first seats)

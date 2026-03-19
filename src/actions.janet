@@ -273,10 +273,7 @@
               (when-let [current (window/tag-output w outputs)
                          adjacent (find-adjacent-output current outputs resolver)]
                 (put w :tag (or (min-of (keys (adjacent :tags))) 1))
-                (put w :column nil)
-                (put w :col-width nil)
-                (put w :col-weight nil)
-                (put w :row nil)
+                (window/clear-layout-placement w)
                 (seat/focus-output seat adjacent))))))))))
 
 (defn focus-output
@@ -319,10 +316,7 @@
                  i (index-of current outputs)
                  t (or (get outputs (+ i 1)) (first outputs))]
         (put w :tag (or (min-of (keys (t :tags))) 1))
-        (put w :column nil)
-        (put w :col-width nil)
-        (put w :col-weight nil)
-        (put w :row nil))))))
+        (window/clear-layout-placement w)))))
 
 (defn float
   "Action: toggle floating on the focused window."
@@ -658,10 +652,7 @@
         (unless (= (t :tag) target-tag)
           (nav-trail/push seat)
           (put t :tag target-tag)
-          (put t :column nil)
-          (put t :col-width nil)
-          (put t :col-weight nil)
-          (put t :row nil))
+          (window/clear-layout-placement t))
         (seat/focus seat t outputs render-order config))))))
 
 (defn send-to
@@ -677,10 +668,7 @@
                  wi (index-of w windows)
                  ti (index-of t windows)]
         (put w :tag (t :tag))
-        (put w :column nil)
-        (put w :col-width nil)
-        (put w :col-weight nil)
-        (put w :row nil)
+        (window/clear-layout-placement w)
         # Remove w from current position and insert after t
         (array/remove windows wi)
         (def new-ti (index-of t windows))
