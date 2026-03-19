@@ -566,15 +566,15 @@
 (defn- save-row-state
   "Save current scroll state for the active row before switching."
   [params row]
-  (def row-state (or (params :row-state) @{}))
-  (put row-state row @{:scroll-offset (params :scroll-offset)})
-  (put params :row-state row-state))
+  (def row-states (or (params :row-states) @{}))
+  (put row-states row @{:scroll-offset (params :scroll-offset)})
+  (put params :row-states row-states))
 
 (defn- restore-row-state
   "Restore scroll state for a row after switching to it."
   [params row]
-  (when-let [row-state (params :row-state)
-             saved (get row-state row)]
+  (when-let [row-states (params :row-states)
+             saved (get row-states row)]
     (put params :scroll-offset (or (saved :scroll-offset) 0))))
 
 (defn focus-row

@@ -66,15 +66,19 @@
 (def output-state-cache "Cached output state for reconnecting monitors." @{})
 (def registry "Wayland protocol object registry." @{})
 
+(def- persistent-layout-keys
+  "Layout param keys that survive cloning (config + scroll state).
+  Everything else (animation targets, derived data, transient refs) is excluded."
+  @{:main-ratio true :main-count true
+    :column-width true :scroll-offset true :active-row true :row-states true
+    :dwindle-ratio true :dwindle-ratios true})
+
 (defn clone-layout-params
-  "Clone layout params, filtering transient animation state."
+  "Clone layout params, keeping only persistent keys."
   [params]
   (def out @{})
   (eachp [k v] params
-    (def s (string k))
-    (unless (or (string/has-suffix? "-anim" s)
-                (= k :scroll-animating)
-                (= k :scroll-home-win))
+    (when (persistent-layout-keys k)
       (put out k v)))
   out)
 
