@@ -290,8 +290,14 @@
   (each w windows
     (def vis (w :visible))
     (unless (= vis (w :vis-applied))
-      (put w :vis-applied vis)
-      (if vis (:show (w :obj)) (:hide (w :obj))))))
+      (if vis
+        (do (put w :vis-applied vis) (:show (w :obj)))
+        # Don't hide windows that haven't received their initial configure —
+        # hiding prevents the compositor from sending dimensions, which
+        # permanently blocks needs-open-anim.
+        (when (w :w)
+          (put w :vis-applied vis)
+          (:hide (w :obj)))))))
 
 # --- Main cycles ---
 
