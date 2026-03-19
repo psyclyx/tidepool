@@ -224,46 +224,19 @@
   (assert= (get ws 2) 300 "win 2 default 0.5 of remaining"))
 
 
-# Minimum size / overflow tests
+# Overflow tests — dwindle produces raw geometry;
+# layout/apply tabs overflow when cells can't fit window minimums.
 
-(test "layout: many windows — no negative dimensions"
+(test "layout: many windows — all results accounted for"
   (def params @{:dwindle-ratio 0.5})
   (def results (dwindle/layout usable (make-windows 20) params config nil))
-  (each r results
-    (when (not (r :hidden))
-      (assert (> (r :w) 0) (string "w > 0 for visible window"))
-      (assert (> (r :h) 0) (string "h > 0 for visible window")))))
+  (assert= (length results) 20 "one result per window"))
 
-(test "layout: many windows — overflow windows hidden"
+(test "layout: many windows — eventually produces unfit dimensions"
   (def params @{:dwindle-ratio 0.5})
   (def results (dwindle/layout usable (make-windows 20) params config nil))
-  (def hidden (filter |($ :hidden) results))
-  (assert (> (length hidden) 0) "some windows should be hidden"))
-
-(test "layout: small area — graceful degradation"
-  (def small-usable {:x 0 :y 0 :w 50 :h 50})
-  (def params @{:dwindle-ratio 0.5})
-  (def results (dwindle/layout small-usable (make-windows 5) params config nil))
-  (assert= (length results) 5 "all windows accounted for")
-  (each r results
-    (when (not (r :hidden))
-      (assert (> (r :w) 0) "visible window w > 0")
-      (assert (> (r :h) 0) "visible window h > 0"))))
-
-
-(test "layout: overflow tabs — focused overflow window is visible"
-  (def params @{:dwindle-ratio 0.5})
-  (def wins (make-windows 20))
-  (def focused (get wins 18))
-  (def results (dwindle/layout usable wins params config focused))
-  (def focused-result (find |(= ($ :window) focused) results))
-  (assert (not (focused-result :hidden)) "focused overflow window should be visible"))
-
-(test "layout: overflow tabs — tab metadata present"
-  (def params @{:dwindle-ratio 0.5})
-  (def results (dwindle/layout usable (make-windows 20) params config nil))
-  (def tabbed (filter |(get-in $ [:window :layout-meta :tab-total]) results))
-  (assert (> (length tabbed) 0) "overflow windows should have tab metadata"))
+  (def unfit (filter |(or (<= ($ :w) 0) (<= ($ :h) 0)) results))
+  (assert (> (length unfit) 0) "deep splits produce unfit dimensions"))
 
 
 (printf "\n%d tests, %d failures" test-count fail-count)
