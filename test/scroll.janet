@@ -5,14 +5,15 @@
 (defn compute-scroll-target
   "Compute the target scroll offset given layout parameters.
   Clamps current scroll into the valid range [min-s, max-s] for minimum pan.
-  Peek amount is derived from inner padding (gap = 2*inner)."
-  [&named total-w total-content-w inner
+  Peek amounts compensate for border offset so equal window content is visible
+  on both sides: peek-l = 2*inner + bw, peek-r = 2*inner - bw."
+  [&named total-w total-content-w inner bw
           focused-x focused-col-w focused-col-idx num-cols current-scroll]
   (def peek (* 2 inner))
   (def max-scroll (max 0 (- total-content-w total-w)))
   (def col-right (+ focused-x focused-col-w))
-  (def peek-l (if (> focused-col-idx 0) peek 0))
-  (def peek-r (if (< focused-col-idx (- num-cols 1)) peek 0))
+  (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
+  (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
   (def min-s (max 0 (- col-right (- total-w peek-r))))
   (def max-s (min max-scroll (- focused-x peek-l)))
   (min max-s (max min-s current-scroll)))
@@ -169,7 +170,7 @@
   (assert= tcw total-w "total-content-w should equal total-w")
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x inner :focused-col-w (col-width (first cols) content-w 0.5)
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
@@ -182,7 +183,7 @@
   (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
@@ -196,7 +197,7 @@
   (def focused-x (+ inner (get col-xs 2)))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x focused-x :focused-col-w cw
     :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
@@ -211,11 +212,11 @@
   (def peek (* 2 inner))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x (+ inner (get col-xs 1)) :focused-col-w cw
     :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
-  (assert= scroll inner "scroll shows edge gap of col 0"))
+  (assert= scroll (- inner bw) "scroll accounts for border offset"))
 
 (test "scroll: zero inner — no peek, clamps to [0, max-scroll]"
   (def cols (make-cols 3))
@@ -224,7 +225,7 @@
   (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner 0
+    :inner 0 :bw bw
     :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
@@ -237,7 +238,7 @@
   (def cw (col-width (first cols) content-w 0.5))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
@@ -250,7 +251,7 @@
   (def cw (col-width (first cols) content-w 0.6))
   (def scroll (compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner
+    :inner inner :bw bw
     :focused-x inner :focused-col-w cw
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
@@ -457,7 +458,7 @@
   (for focus-ci 0 3
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :inner inner
+      :inner inner :bw bw
       :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 3
       :current-scroll 0))
@@ -485,7 +486,7 @@
     (def cw (col-width (get cols focus-ci) content-w 0.5))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :inner inner
+      :inner inner :bw bw
       :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
       :focused-col-idx focus-ci :num-cols 4
       :current-scroll 0))
@@ -506,12 +507,12 @@
     (def focused-x (+ inner (get col-xs focus-ci)))
     (def scroll (compute-scroll-target
       :total-w total-w :total-content-w tcw
-      :inner inner
+      :inner inner :bw bw
       :focused-x focused-x :focused-col-w cw
       :focused-col-idx focus-ci :num-cols num-cols
       :current-scroll 0))
-    (def peek-l (if (> focus-ci 0) peek 0))
-    (def peek-r (if (< focus-ci (- num-cols 1)) peek 0))
+    (def peek-l (if (> focus-ci 0) (+ peek bw) 0))
+    (def peek-r (if (< focus-ci (- num-cols 1)) (- peek bw) 0))
     (def zone-left (+ scroll peek-l))
     (def zone-right (- (+ scroll total-w) peek-r))
     (assert (>= focused-x zone-left)
