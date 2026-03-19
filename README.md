@@ -144,7 +144,7 @@ All actions return tagged tables (`@{:fn <closure> :name :desc :args}`) for use 
 
 **Session**: `restart`, `exit`
 
-`consume` absorbs a neighbor into a group, `expel` moves a window out. `cycle-mode`/`set-mode` change the focused group's mode (stack-v, stack-h, tabbed, scroll). `resize` is context-sensitive (ratio, weight, or scroll column width). Swapping past the edge of a scroll row auto-creates/prunes rows.
+`consume` absorbs a neighbor into a group, `expel` moves a window out. `cycle-mode`/`set-mode` change the focused group's mode (stack-v, stack-h, tabbed, scroll). `resize` is context-sensitive (ratio, weight, or scroll column width). In scroll layout, focusing up/down past column edges crosses between rows; swapping past the last row creates a new one, and empty rows are automatically pruned.
 
 ## State persistence
 
