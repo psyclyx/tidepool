@@ -88,4 +88,36 @@
   (def focus-prev
     (when-let [seat (first seats)]
       (seat :focus-prev)))
-  (apply-geometry (layout-fn usable visible params config focused now focus-prev) config))
+  (def results (layout-fn usable visible params config focused now focus-prev))
+  # Tab overflow: if any result has non-positive dimensions, collapse it and
+  # all subsequent results into tabs sharing the last viable cell's geometry.
+  (var overflow-idx nil)
+  (for i 0 (length results)
+    (def r (get results i))
+    (when (and (not (r :hidden)) (or (<= (r :w) 0) (<= (r :h) 0)))
+      (set overflow-idx i)
+      (break)))
+  (when overflow-idx
+    # Tab into the cell just before the first overflow (or the usable area if idx 0)
+    (def tab-start (max 0 (- overflow-idx 1)))
+    (def anchor (get results tab-start))
+    (def tab-n (- (length results) tab-start))
+    (var tab-focused-idx nil)
+    (for i tab-start (length results)
+      (when (= ((get results i) :window) focused)
+        (set tab-focused-idx (- i tab-start))
+        (break)))
+    (for i tab-start (length results)
+      (def r (get results i))
+      (def win (r :window))
+      (def ti (- i tab-start))
+      (put win :layout-meta
+        (merge (or (win :layout-meta) @{})
+               @{:tab-index ti :tab-total tab-n}))
+      (def is-visible (if tab-focused-idx (= ti tab-focused-idx) (= ti 0)))
+      (put results i
+        @{:window win
+          :x (anchor :x) :y (anchor :y)
+          :w (anchor :w) :h (anchor :h)
+          :hidden (not is-visible)})))
+  (apply-geometry results config))
