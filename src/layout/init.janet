@@ -129,5 +129,6 @@
     (when-let [seat (first seats)]
       (seat :focus-prev)))
   (def results (layout-fn usable visible params config focused now focus-prev))
-  (handle-tab-overflow results focused config)
+  (unless (= (o :layout) :scroll)
+    (handle-tab-overflow results focused config))
   (apply-geometry results config))
