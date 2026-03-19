@@ -97,8 +97,8 @@
   (def inner (config :inner-padding))
   (def bw (config :border-width))
   (def peek (* 2 inner))
-  (def total-w (max 0 (- (usable :w) (* 2 outer))))
-  (def total-h (max 0 (- (usable :h) (* 2 outer))))
+  (def total-w (max 1 (- (usable :w) (* 2 outer))))
+  (def total-h (max 1 (- (usable :h) (* 2 outer))))
   (def default-ratio (params :column-width))
   (def row-h-ratio (or (config :column-row-height) 0))
 
@@ -141,7 +141,7 @@
         (set focused-row-idx ri))))
 
 
-  (def content-w (- total-w (* 2 inner)))
+  (def content-w (max 1 (- total-w (* 2 inner))))
   (def col-xs (x-positions cols content-w default-ratio))
   (def total-content-w
     (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
@@ -153,15 +153,20 @@
   (def focused-x (+ inner (get col-xs focused-col-idx)))
   (def focused-col-w (col-width (get cols focused-col-idx) content-w default-ratio))
 
-  (when focused-win
-    (def max-scroll (max 0 (- total-content-w total-w)))
-    (def col-right (+ focused-x focused-col-w))
-    (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
-    (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
-    (def min-s (max 0 (- col-right (- total-w peek-r))))
-    (def max-s (min max-scroll (- focused-x peek-l)))
-    (def target-scroll (min max-s (max min-s (params :scroll-offset))))
-    (animation/scroll-toward params :scroll-offset target-scroll now config))
+  (if focused-win
+    (do
+      (def max-scroll (max 0 (- total-content-w total-w)))
+      (def col-right (+ focused-x focused-col-w))
+      (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
+      (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
+      (def min-s (max 0 (- col-right (- total-w peek-r))))
+      (def max-s (min max-scroll (- focused-x peek-l)))
+      (def target-scroll (min max-s (max min-s (params :scroll-offset))))
+      (animation/scroll-toward params :scroll-offset target-scroll now config))
+    # No focused window — clamp scroll so first column stays visible
+    (let [max-scroll (max 0 (- total-content-w total-w))
+          clamped (min max-scroll (max 0 (params :scroll-offset)))]
+      (put params :scroll-offset clamped)))
   (animation/scroll-update params :scroll-offset now)
   (def scroll (params :scroll-offset))
 
