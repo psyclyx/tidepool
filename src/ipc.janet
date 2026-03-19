@@ -123,33 +123,36 @@
   [outputs windows seats]
   (def focused-output (when-let [s (first seats)] (s :focused-output)))
 
-  (def tags (compute-tags outputs windows focused-output))
+  # freeze before comparing — Janet's deep= considers mutable tables/arrays
+  # and frozen structs/tuples as different types, so comparing a fresh mutable
+  # result against a frozen last-* always returns false.
+  (def tags (freeze (compute-tags outputs windows focused-output)))
   (unless (deep= tags last-tags)
-    (set last-tags (freeze tags))
+    (set last-tags tags)
     (each w watchers
       (when ((w :topics) :tags)
         (write-json (w :buf) :tags last-tags)
         (notify-watcher w))))
 
-  (def layout (compute-layout outputs focused-output))
+  (def layout (freeze (compute-layout outputs focused-output)))
   (unless (deep= layout last-layout)
-    (set last-layout (freeze layout))
+    (set last-layout layout)
     (each w watchers
       (when ((w :topics) :layout)
         (write-json (w :buf) :layout last-layout)
         (notify-watcher w))))
 
-  (def title (compute-title seats))
+  (def title (freeze (compute-title seats)))
   (unless (deep= title last-title)
-    (set last-title (freeze title))
+    (set last-title title)
     (each w watchers
       (when ((w :topics) :title)
         (write-json (w :buf) :title last-title)
         (notify-watcher w))))
 
-  (def win-state (compute-windows windows seats outputs))
+  (def win-state (freeze (compute-windows windows seats outputs)))
   (unless (deep= win-state last-windows)
-    (set last-windows (freeze win-state))
+    (set last-windows win-state)
     (each w watchers
       (when ((w :topics) :windows)
         (write-json (w :buf) :windows @{:windows last-windows})
