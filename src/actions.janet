@@ -842,6 +842,7 @@
   "Action: emit a named signal to IPC watchers."
   [parsed]
   (def [name args] parsed)
+  (def args (or args @[]))
   (act "signal" "Emit signal" [name ;args]
     (fn [] (fn [ctx]
       (when emit-signal-fn
