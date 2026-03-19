@@ -6,9 +6,6 @@
   (def total-w (max 0 (- (usable :w) (* 2 outer))))
   (def total-h (max 0 (- (usable :h) (* 2 outer))))
   (def n (length windows))
-  (def shown (or focused
-                 (and focus-prev (find |(= $ focus-prev) windows))
-                 (first windows)))
   (def results @[])
   (for i 0 n
     (def window (get windows i))
@@ -19,7 +16,7 @@
        :y (+ (usable :y) outer inner)
        :w (- total-w (* 2 inner))
        :h (- total-h (* 2 inner))
-       :hidden (not= window shown)}))
+       :hidden (not= window focused)}))
   results)
 
 (defn navigate
