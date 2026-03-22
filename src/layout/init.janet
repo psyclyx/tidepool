@@ -5,7 +5,6 @@
 (import ./dwindle)
 (import ./scroll)
 (import ./tabbed)
-
 (def layout-fns
   "Layout function dispatch table."
   @{:master-stack master-stack/layout

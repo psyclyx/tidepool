@@ -1,30 +1,6 @@
-# Tests for tag reconciliation (see pipeline.janet:reconcile-tags).
+# Tests for tag reconciliation (see state.janet:reconcile-tags).
 
-(defn reconcile-tags [outputs focused tag-layouts]
-  (when focused
-    (for tag 1 10
-      (when ((focused :tags) tag)
-        (each o outputs
-          (when (not= o focused)
-            (put (o :tags) tag nil))))))
-
-  (for tag 1 10
-    (unless (find |(($ :tags) tag) outputs)
-      (when-let [o (find |(empty? ($ :tags)) outputs)]
-        (put (o :tags) tag true))))
-
-  (each o outputs
-    (def prev (o :primary-tag))
-    (def curr (min-of (keys (o :tags))))
-    (when (not= prev curr)
-      (when prev
-        (put tag-layouts prev
-             @{:layout (o :layout)
-               :params (table/clone (o :layout-params))}))
-      (when-let [saved (get tag-layouts curr)]
-        (put o :layout (saved :layout))
-        (merge-into (o :layout-params) (saved :params)))
-      (put o :primary-tag curr))))
+(import ../src/state)
 
 (var test-count 0)
 (var fail-count 0)
@@ -58,14 +34,14 @@
   (def o2 (make-output [3 4] :master-stack @{:main-ratio 0.55 :main-count 1} 3))
   (put o1 :tags @{3 true})
   (put o1 :primary-tag nil)
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert ((o1 :tags) 3) "focused output has tag 3")
   (assert (nil? ((o2 :tags) 3)) "other output lost tag 3"))
 
 (test "uniqueness: non-focused output keeps non-conflicting tags"
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def o2 (make-output [2 3] :master-stack @{:main-ratio 0.55 :main-count 1} 2))
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert ((o2 :tags) 2) "o2 keeps tag 2")
   (assert ((o2 :tags) 3) "o2 keeps tag 3"))
 
@@ -75,7 +51,7 @@
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def o2 (make-output [2] :master-stack @{:main-ratio 0.55 :main-count 1} 2))
   (put (o1 :tags) 2 true)
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert (not (empty? (o2 :tags))) "o2 has a fallback tag")
   (assert (nil? ((o2 :tags) 1)) "fallback is not tag 1 (owned by o1)")
   (assert (nil? ((o2 :tags) 2)) "fallback is not tag 2 (owned by o1)"))
@@ -86,7 +62,7 @@
   (put o2 :tags @{})
   (put o2 :layout :master-stack)
   (put o2 :layout-params @{:main-ratio 0.55 :main-count 1})
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert ((o2 :tags) 4) "empty output gets lowest orphan tag (4)"))
 
 # Layout save/restore
@@ -95,7 +71,7 @@
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def tag-layouts @{2 @{:layout :tabbed :params @{:main-ratio 0.6 :main-count 2}}})
   (put o1 :tags @{2 true})
-  (reconcile-tags [o1] o1 tag-layouts)
+  (state/reconcile-tags [o1] o1 tag-layouts @{} nil)
   (assert (get tag-layouts 1) "tag 1 layout saved")
   (assert= ((tag-layouts 1) :layout) :master-stack "saved layout is master-stack")
   (assert= (get-in tag-layouts [1 :params :main-ratio]) 0.55 "saved main-ratio")
@@ -108,7 +84,7 @@
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def tag-layouts @{})
   (put o1 :tags @{3 true})
-  (reconcile-tags [o1] o1 tag-layouts)
+  (state/reconcile-tags [o1] o1 tag-layouts @{} nil)
   (assert (get tag-layouts 1) "tag 1 layout saved")
   (assert= (o1 :layout) :master-stack "layout unchanged")
   (assert= (o1 :primary-tag) 3 "primary-tag updated"))
@@ -120,7 +96,7 @@
   (def o2 (make-output [2] :master-stack @{:main-ratio 0.55 :main-count 1} 2))
   (put (o1 :tags) 0 true)
   (put (o2 :tags) 0 true)
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert ((o1 :tags) 0) "o1 keeps scratchpad")
   (assert ((o2 :tags) 0) "o2 keeps scratchpad"))
 
@@ -130,14 +106,14 @@
   (def o1 (make-output [1 2] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def o2 (make-output [3 4] :tabbed @{:main-ratio 0.6 :main-count 2} 3))
   (def tag-layouts @{})
-  (reconcile-tags [o1 o2] o1 tag-layouts)
+  (state/reconcile-tags [o1 o2] o1 tag-layouts @{} nil)
   (def o1-tags (table/clone (o1 :tags)))
   (def o2-tags (table/clone (o2 :tags)))
   (def o1-layout (o1 :layout))
   (def o2-layout (o2 :layout))
   (def o1-primary (o1 :primary-tag))
   (def o2-primary (o2 :primary-tag))
-  (reconcile-tags [o1 o2] o1 tag-layouts)
+  (state/reconcile-tags [o1 o2] o1 tag-layouts @{} nil)
   (assert (deep= (o1 :tags) o1-tags) "o1 tags unchanged")
   (assert (deep= (o2 :tags) o2-tags) "o2 tags unchanged")
   (assert= (o1 :layout) o1-layout "o1 layout unchanged")
@@ -152,18 +128,18 @@
   (def tag-layouts @{1 @{:layout :master-stack :params @{:main-ratio 0.55 :main-count 1}}
                      2 @{:layout :tabbed :params @{:main-ratio 0.6 :main-count 2}}})
   (put o1 :tags @{2 true})
-  (reconcile-tags [o1] o1 tag-layouts)
+  (state/reconcile-tags [o1] o1 tag-layouts @{} nil)
   (assert= (o1 :layout) :tabbed "layout restored for tag 2")
   (assert= (o1 :primary-tag) 2 "primary-tag is 2")
   (put o1 :tags @{1 true})
-  (reconcile-tags [o1] o1 tag-layouts)
+  (state/reconcile-tags [o1] o1 tag-layouts @{} nil)
   (assert= (o1 :layout) :master-stack "layout restored for tag 1")
   (assert= (o1 :primary-tag) 1 "primary-tag is 1"))
 
 (test "single monitor: focus-all-tags sets primary-tag to lowest"
   (def o1 (make-output [3] :tabbed @{:main-ratio 0.6 :main-count 2} 3))
   (put o1 :tags (table ;(mapcat |[$ true] (range 1 10))))
-  (reconcile-tags [o1] o1 @{})
+  (state/reconcile-tags [o1] o1 @{} @{} nil)
   (assert= (o1 :primary-tag) 1 "primary-tag is lowest (1)"))
 
 # Multi monitor
@@ -172,7 +148,7 @@
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def o2 (make-output [2] :tabbed @{:main-ratio 0.6 :main-count 2} 2))
   (put o1 :tags @{2 true})
-  (reconcile-tags [o1 o2] o1 @{})
+  (state/reconcile-tags [o1 o2] o1 @{} @{} nil)
   (assert ((o1 :tags) 2) "o1 has tag 2")
   (assert (nil? ((o2 :tags) 2)) "o2 lost tag 2")
   (assert (not (empty? (o2 :tags))) "o2 has fallback tag")
@@ -185,7 +161,7 @@
   (def o2 (make-output [2] :master-stack @{:main-ratio 0.55 :main-count 1} 2))
   (def o3 (make-output [3] :master-stack @{:main-ratio 0.55 :main-count 1} 3))
   (put o1 :tags @{2 true 3 true})
-  (reconcile-tags [o1 o2 o3] o1 @{})
+  (state/reconcile-tags [o1 o2 o3] o1 @{} @{} nil)
   (assert ((o1 :tags) 2) "o1 has tag 2")
   (assert ((o1 :tags) 3) "o1 has tag 3")
   (assert (not (empty? (o2 :tags))) "o2 has fallback")

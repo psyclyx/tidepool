@@ -1,5 +1,7 @@
 # Regression tests for pipeline bugs.
 
+(import ../src/state)
+
 (var test-count 0)
 (var fail-count 0)
 
@@ -21,14 +23,7 @@
 
 # --- remove-destroyed regression ---
 
-(defn remove-destroyed
-  "Remove elements with :pending-destroy from an array in place."
-  [arr]
-  (var i 0)
-  (while (< i (length arr))
-    (if ((arr i) :pending-destroy)
-      (array/remove arr i)
-      (++ i))))
+(def remove-destroyed state/remove-destroyed)
 
 (test "remove-destroyed: removes flagged elements in place"
   (def arr @[@{:name "a"} @{:name "b" :pending-destroy true} @{:name "c"}])

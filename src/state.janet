@@ -98,3 +98,57 @@
     :outputs (wm :outputs) :windows (wm :windows)
     :render-order (wm :render-order) :config config
     :tag-layouts tag-layouts :registry registry})
+
+# --- Pure operations on WM state ---
+
+(defn remove-destroyed
+  "Remove elements with :pending-destroy from an array in place."
+  [arr]
+  (var i 0)
+  (while (< i (length arr))
+    (if ((arr i) :pending-destroy)
+      (array/remove arr i)
+      (++ i))))
+
+(defn reconcile-tags
+  ``Enforce tag invariants: each tag 1-9 on at most one output (focused wins),
+  tag 0 (scratchpad) exempt, every output has at least one tag,
+  primary-tag changes trigger layout save/restore and focus memory.``
+  [outputs focused tag-layouts tag-focus focused-window]
+
+  # Tags 1-9: focused output wins conflicts
+  (when focused
+    (for tag 1 10
+      (when ((focused :tags) tag)
+        (each o outputs
+          (when (not= o focused)
+            (put (o :tags) tag nil))))))
+
+  # Assign orphaned tags to empty outputs
+  (for tag 1 10
+    (unless (find |(($ :tags) tag) outputs)
+      (when-let [o (find |(empty? ($ :tags)) outputs)]
+        (put (o :tags) tag true))))
+
+  # Save/restore per-tag layouts and focus on primary-tag change
+  (each o outputs
+    (def prev (o :primary-tag))
+    (def curr (min-of (keys (o :tags))))
+    (when (not= prev curr)
+      (when prev
+        (put tag-layouts prev
+             @{:layout (o :layout)
+               :params (clone-layout-params (o :layout-params))})
+        (when focused-window
+          (put tag-focus prev focused-window)))
+      # Reset params to defaults before restoring saved state.
+      # Without this, stale keys (active-row, scroll-offset, animation
+      # keys) from the previous tag leak into the new one.
+      (def params (o :layout-params))
+      (table/clear params)
+      (merge-into params (default-layout-params))
+      (when-let [saved (get tag-layouts curr)]
+        (put o :layout (saved :layout))
+        (merge-into params (saved :params)))
+      (put o :tag-focus-hint (get tag-focus curr))
+      (put o :primary-tag curr))))

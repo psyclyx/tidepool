@@ -1,6 +1,7 @@
 # Tests for dwindle layout and geometry-based navigation (see layout/dwindle, layout/init).
 
 (import ../src/layout/dwindle)
+(import ../src/layout/init :as layout)
 
 (var test-count 0)
 (var fail-count 0)
@@ -21,30 +22,7 @@
        (error (string (or ,msg "") " expected " (string/format "%q" vb)
                        " got " (string/format "%q" va))))))
 
-# Geometry-based navigation (mirrors layout/init navigate-by-geometry).
-(defn nav [results focused-idx dir]
-  (def current (get results focused-idx))
-  (def cx (+ (current :x) (/ (current :w) 2)))
-  (def cy (+ (current :y) (/ (current :h) 2)))
-  (var best nil)
-  (var best-dist math/inf)
-  (for i 0 (length results)
-    (def other (get results i))
-    (when (and (not= i focused-idx) (not (other :hidden)))
-      (def valid
-        (case dir
-          :right (>= (other :x) (+ (current :x) (current :w)))
-          :left (<= (+ (other :x) (other :w)) (current :x))
-          :down (>= (other :y) (+ (current :y) (current :h)))
-          :up (<= (+ (other :y) (other :h)) (current :y))))
-      (when valid
-        (def dx (- (+ (other :x) (/ (other :w) 2)) cx))
-        (def dy (- (+ (other :y) (/ (other :h) 2)) cy))
-        (def dist (+ (* dx dx) (* dy dy)))
-        (when (< dist best-dist)
-          (set best i)
-          (set best-dist dist)))))
-  best)
+(def nav layout/navigate-by-geometry)
 
 # Test helpers
 (def usable {:x 0 :y 0 :w 1000 :h 1000})

@@ -232,6 +232,27 @@
                     (+ (o :y) (div (- (o :h) (window :h)) 2)))
       (set-position window 0 0))))
 
+(defn clear-layout-state
+  "Clear per-frame transient layout state on windows."
+  [windows]
+  (each w windows
+    (put w :layout-hidden nil)
+    (put w :scroll-placed nil)
+    (put w :layout-meta nil)))
+
+(defn compute-visibility
+  "Set :visible on each window based on active tags and layout-hidden state."
+  [outputs windows]
+  (def all-tags @{})
+  (each o outputs
+    (merge-into all-tags (o :tags)))
+  (each w windows
+    (put w :visible
+      (if (or (w :closing)
+              (and (all-tags (w :tag))
+                   (or (not (w :layout-hidden)) (w :anim))))
+        true false))))
+
 (defn clip-to-output
   "Compute clip rect and store on window table."
   [window tag-map config]
@@ -249,14 +270,20 @@
       (def oy (+ (o :y) inset))
       (def ow (- (o :w) (* 2 inset)))
       (def oh (- (o :h) (* 2 inset)))
+      # For scroll-placed windows, the position is the visual footprint's
+      # top-left (including borders), but w/h are content-only. Expand to
+      # the full visual footprint so the clip covers borders correctly.
+      (def bw2 (if (window :scroll-placed) (* 2 bw) 0))
+      (def vw (+ cw bw2))
+      (def vh (+ ch bw2))
       (if (or (< cx ox) (< cy oy)
-              (> (+ cx cw) (+ ox ow))
-              (> (+ cy ch) (+ oy oh)))
+              (> (+ cx vw) (+ ox ow))
+              (> (+ cy vh) (+ oy oh)))
         (do
           (def clip-x (max 0 (- ox cx)))
           (def clip-y (max 0 (- oy cy)))
-          (def clip-w (max 1 (- (min (+ cx cw) (+ ox ow)) (max cx ox))))
-          (def clip-h (max 1 (- (min (+ cy ch) (+ oy oh)) (max cy oy))))
+          (def clip-w (max 1 (- (min (+ cx vw) (+ ox ow)) (max cx ox))))
+          (def clip-h (max 1 (- (min (+ cy vh) (+ oy oh)) (max cy oy))))
           (put window :clip-rect
             [(math/round clip-x) (math/round clip-y)
              (math/round clip-w) (math/round clip-h)]))

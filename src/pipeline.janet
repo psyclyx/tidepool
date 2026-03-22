@@ -1,5 +1,6 @@
 (import ./state)
 (import ./output)
+(import ./output-bg)
 (import ./window)
 (import ./seat)
 (import ./animation)
@@ -27,20 +28,13 @@
   (each w (state/wm :windows) (window/manage-start w now config))
   (each s (state/wm :seats) (seat/manage-start s)))
 
-(defn- remove-destroyed
-  "Remove elements with :pending-destroy from an array in place."
-  [arr]
-  (var i 0)
-  (while (< i (length arr))
-    (if ((arr i) :pending-destroy)
-      (array/remove arr i)
-      (++ i))))
+(def- remove-destroyed state/remove-destroyed)
 
 (defn- apply-destroys []
   (each o (state/wm :outputs)
     (when (o :pending-destroy)
       (:destroy (o :obj))
-      (output/bg/destroy (o :bg))))
+      (output-bg/destroy (o :bg))))
   (each w (state/wm :windows)
     (when (w :pending-destroy)
       # Clean up marks referencing this window
@@ -90,10 +84,7 @@
                 (if (= ax bx) (< ay by) (< ax bx))))))
 
 (defn- clear-layout-state []
-  (each w (state/wm :windows)
-    (put w :layout-hidden nil)
-    (put w :scroll-placed nil)
-    (put w :layout-meta nil))
+  (window/clear-layout-state (state/wm :windows))
   (put state/wm :anim-active false))
 
 (defn- sanitize []
@@ -113,12 +104,7 @@
     (when-let [resize (w :pointer-resize-requested)]
       (seat/pointer-resize (resize :seat) w (resize :edges) outputs render-order config))))
 
-(defn- build-tag-map
-  "Build tag→output lookup table."
-  [outputs]
-  (def m @{})
-  (each o outputs (eachk tag (o :tags) (put m tag o)))
-  m)
+(def- build-tag-map output/build-tag-map)
 
 (defn- compute-borders [seats config tag-map]
   (def focused (when-let [s (first seats)] (s :focused)))
@@ -181,59 +167,9 @@
                   (animation/start w :move props now config)))
               (animation/start w :move props now config))))))))
 
-(defn- compute-visibility [outputs windows]
-  (def all-tags @{})
-  (each o outputs
-    (merge-into all-tags (o :tags)))
-  (each w windows
-    (put w :visible
-      (if (or (w :closing)
-              (and (all-tags (w :tag))
-                   (or (not (w :layout-hidden)) (w :anim))))
-        true false))))
+(def- compute-visibility window/compute-visibility)
 
-(defn reconcile-tags
-  ``Enforce tag invariants: each tag 1-9 on at most one output (focused wins),
-  tag 0 (scratchpad) exempt, every output has at least one tag,
-  primary-tag changes trigger layout save/restore and focus memory.``
-  [outputs focused tag-layouts tag-focus focused-window]
-
-  # Tags 1-9: focused output wins conflicts
-  (when focused
-    (for tag 1 10
-      (when ((focused :tags) tag)
-        (each o outputs
-          (when (not= o focused)
-            (put (o :tags) tag nil))))))
-
-  # Assign orphaned tags to empty outputs
-  (for tag 1 10
-    (unless (find |(($ :tags) tag) outputs)
-      (when-let [o (find |(empty? ($ :tags)) outputs)]
-        (put (o :tags) tag true))))
-
-  # Save/restore per-tag layouts and focus on primary-tag change
-  (each o outputs
-    (def prev (o :primary-tag))
-    (def curr (min-of (keys (o :tags))))
-    (when (not= prev curr)
-      (when prev
-        (put tag-layouts prev
-             @{:layout (o :layout)
-               :params (state/clone-layout-params (o :layout-params))})
-        (when focused-window
-          (put tag-focus prev focused-window)))
-      # Reset params to defaults before restoring saved state.
-      # Without this, stale keys (active-row, scroll-offset, animation
-      # keys) from the previous tag leak into the new one.
-      (def params (o :layout-params))
-      (table/clear params)
-      (merge-into params (state/default-layout-params))
-      (when-let [saved (get tag-layouts curr)]
-        (put o :layout (saved :layout))
-        (merge-into params (saved :params)))
-      (put o :tag-focus-hint (get tag-focus curr))
-      (put o :primary-tag curr))))
+(def reconcile-tags state/reconcile-tags)
 
 # --- Effect application passes ---
 
@@ -372,7 +308,7 @@
   (apply-borders-effects windows)
   (apply-fullscreen-effects windows outputs)
   (apply-visibility windows)
-  (each o outputs (output/bg/manage (o :bg) o config state/registry))
+  (each o outputs (output-bg/manage (o :bg) o config state/registry))
 
   (ipc/emit-events outputs windows seats)
 
