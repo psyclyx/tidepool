@@ -148,7 +148,7 @@
           (put window :proposed-h (parent :h))))
       (do
         (set-float window false)
-        (when (or (fixed-size? window) (constrained-size? window))
+        (when (fixed-size? window)
           (set-float window true))
         (when-let [seat (first seats)
                    o (seat :focused-output)]

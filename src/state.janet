@@ -73,6 +73,15 @@
     :column-width true :scroll-offset true :active-row true :row-states true
     :dwindle-ratio true :dwindle-ratios true})
 
+(defn default-layout-params
+  "Return a fresh table of default layout params."
+  []
+  @{:main-ratio (config :main-ratio)
+    :main-count (config :main-count)
+    :scroll-offset 0
+    :column-width (config :column-width)
+    :dwindle-ratio (config :dwindle-ratio)})
+
 (defn clone-layout-params
   "Clone layout params, keeping only persistent keys."
   [params]

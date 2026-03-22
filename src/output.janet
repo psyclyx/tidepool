@@ -133,11 +133,7 @@
                 :new true
                 :tags @{}
                 :layout (config :default-layout)
-                :layout-params @{:main-ratio (config :main-ratio)
-                                 :main-count (config :main-count)
-                                 :scroll-offset 0
-                                 :column-width (config :column-width)
-                                 :dwindle-ratio (config :dwindle-ratio)}})
+                :layout-params (state/default-layout-params)})
   (defn handle-event [event]
     (match event
       [:removed] (put output :removed true)

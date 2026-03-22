@@ -17,7 +17,10 @@ stdenv.mkDerivation (finalAttrs: {
   pname = "tidepool";
   version = "0.1.0";
 
-  src = ./.;
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.difference ./. (lib.fileset.fileFilter (f: f.hasExt "jimage") ./.);
+  };
 
   deps = callPackage ./build.zig.zon.nix {};
 

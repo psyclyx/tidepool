@@ -223,9 +223,15 @@
                :params (state/clone-layout-params (o :layout-params))})
         (when focused-window
           (put tag-focus prev focused-window)))
+      # Reset params to defaults before restoring saved state.
+      # Without this, stale keys (active-row, scroll-offset, animation
+      # keys) from the previous tag leak into the new one.
+      (def params (o :layout-params))
+      (table/clear params)
+      (merge-into params (state/default-layout-params))
       (when-let [saved (get tag-layouts curr)]
         (put o :layout (saved :layout))
-        (merge-into (o :layout-params) (saved :params)))
+        (merge-into params (saved :params)))
       (put o :tag-focus-hint (get tag-focus curr))
       (put o :primary-tag curr))))
 
@@ -347,11 +353,17 @@
   (start-animations prev-geometry now config)
   (compute-visibility outputs windows)
 
-  # Safety: if focused window ended up hidden, re-pick from visible
+  # Safety: if focused window ended up hidden, re-pick from visible.
+  # Prefer a window on the focused output to avoid unexpected output jumps.
   (each s seats
     (when-let [w (s :focused)]
       (when (and (not (w :visible)) (not (w :closing)) (not (w :new)))
-        (def best (last (filter |(and ($ :visible) (not ($ :closing))) render-order)))
+        (def best
+          (or (when-let [o (s :focused-output)]
+                (last (filter |(and ($ :visible) (not ($ :closing))
+                                   ((o :tags) ($ :tag)))
+                              render-order)))
+              (last (filter |(and ($ :visible) (not ($ :closing))) render-order))))
         (seat/focus s best outputs render-order config))))
 
   # --- Effect application ---
