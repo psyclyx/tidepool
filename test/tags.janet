@@ -93,13 +93,13 @@
 
 (test "layout: primary-tag change saves old layout, restores new"
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
-  (def tag-layouts @{2 @{:layout :monocle :params @{:main-ratio 0.6 :main-count 2}}})
+  (def tag-layouts @{2 @{:layout :tabbed :params @{:main-ratio 0.6 :main-count 2}}})
   (put o1 :tags @{2 true})
   (reconcile-tags [o1] o1 tag-layouts)
   (assert (get tag-layouts 1) "tag 1 layout saved")
   (assert= ((tag-layouts 1) :layout) :master-stack "saved layout is master-stack")
   (assert= (get-in tag-layouts [1 :params :main-ratio]) 0.55 "saved main-ratio")
-  (assert= (o1 :layout) :monocle "restored layout is monocle")
+  (assert= (o1 :layout) :tabbed "restored layout is monocle")
   (assert= (get-in o1 [:layout-params :main-ratio]) 0.6 "restored main-ratio")
   (assert= (get-in o1 [:layout-params :main-count]) 2 "restored main-count")
   (assert= (o1 :primary-tag) 2 "primary-tag updated"))
@@ -128,7 +128,7 @@
 
 (test "idempotence: second reconcile is a no-op"
   (def o1 (make-output [1 2] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
-  (def o2 (make-output [3 4] :monocle @{:main-ratio 0.6 :main-count 2} 3))
+  (def o2 (make-output [3 4] :tabbed @{:main-ratio 0.6 :main-count 2} 3))
   (def tag-layouts @{})
   (reconcile-tags [o1 o2] o1 tag-layouts)
   (def o1-tags (table/clone (o1 :tags)))
@@ -150,10 +150,10 @@
 (test "single monitor: tag switch restores per-tag layout"
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
   (def tag-layouts @{1 @{:layout :master-stack :params @{:main-ratio 0.55 :main-count 1}}
-                     2 @{:layout :monocle :params @{:main-ratio 0.6 :main-count 2}}})
+                     2 @{:layout :tabbed :params @{:main-ratio 0.6 :main-count 2}}})
   (put o1 :tags @{2 true})
   (reconcile-tags [o1] o1 tag-layouts)
-  (assert= (o1 :layout) :monocle "layout restored for tag 2")
+  (assert= (o1 :layout) :tabbed "layout restored for tag 2")
   (assert= (o1 :primary-tag) 2 "primary-tag is 2")
   (put o1 :tags @{1 true})
   (reconcile-tags [o1] o1 tag-layouts)
@@ -161,7 +161,7 @@
   (assert= (o1 :primary-tag) 1 "primary-tag is 1"))
 
 (test "single monitor: focus-all-tags sets primary-tag to lowest"
-  (def o1 (make-output [3] :monocle @{:main-ratio 0.6 :main-count 2} 3))
+  (def o1 (make-output [3] :tabbed @{:main-ratio 0.6 :main-count 2} 3))
   (put o1 :tags (table ;(mapcat |[$ true] (range 1 10))))
   (reconcile-tags [o1] o1 @{})
   (assert= (o1 :primary-tag) 1 "primary-tag is lowest (1)"))
@@ -170,7 +170,7 @@
 
 (test "multi monitor: focused steals tag, other gets fallback"
   (def o1 (make-output [1] :master-stack @{:main-ratio 0.55 :main-count 1} 1))
-  (def o2 (make-output [2] :monocle @{:main-ratio 0.6 :main-count 2} 2))
+  (def o2 (make-output [2] :tabbed @{:main-ratio 0.6 :main-count 2} 2))
   (put o1 :tags @{2 true})
   (reconcile-tags [o1 o2] o1 @{})
   (assert ((o1 :tags) 2) "o1 has tag 2")

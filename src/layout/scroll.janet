@@ -45,12 +45,10 @@
   (map |(get groups $) col-indices))
 
 (defn place
-  "Compute placement rect, returning :hidden if fully outside clip bounds."
+  "Compute placement rect, returning :hidden if content is fully outside clip bounds."
   [x y w h clip-left clip-right clip-top clip-bottom inner]
-  (def cell-w (+ w (* 2 inner)))
-  (def cell-h (+ h (* 2 inner)))
-  (if (or (<= (+ x cell-w) clip-left) (>= x clip-right)
-          (<= (+ y cell-h) clip-top) (>= y clip-bottom))
+  (if (or (<= (+ x inner w) clip-left) (>= (+ x inner) clip-right)
+          (<= (+ y inner h) clip-top) (>= (+ y inner) clip-bottom))
     :hidden
     {:x (+ x inner) :y (+ y inner) :w w :h h}))
 
@@ -58,6 +56,26 @@
   "Compute a column's pixel width from its ratio."
   [col total-w default-ratio]
   (math/round (* total-w (or ((first col) :col-width) default-ratio))))
+
+(defn total-content-width
+  "Compute the total width of all column content including margins."
+  [cols col-xs content-w default-ratio inner]
+  (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
+
+(defn compute-scroll-target
+  "Compute the target scroll offset given focus and geometry.
+  Clamps current scroll into the valid range for minimum pan.
+  Peek amounts compensate for border offset."
+  [&named total-w total-content-w inner bw
+          focused-x focused-col-w focused-col-idx num-cols current-scroll]
+  (def peek (* 2 inner))
+  (def max-scroll (max 0 (- total-content-w total-w)))
+  (def col-right (+ focused-x focused-col-w))
+  (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
+  (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
+  (def min-s (max 0 (- col-right (- total-w peek-r))))
+  (def max-s (min max-scroll (- focused-x peek-l)))
+  (min max-s (max min-s current-scroll)))
 
 (defn x-positions
   "Compute cumulative x offsets for each column."
@@ -97,8 +115,16 @@
   (def inner (config :inner-padding))
   (def bw (config :border-width))
   (def peek (* 2 inner))
-  (def total-w (max 1 (- (usable :w) (* 2 outer))))
-  (def total-h (max 1 (- (usable :h) (* 2 outer))))
+  (def min-usable (* 2 (+ outer inner 1)))
+  # Fall back to output bounds when usable area is too small to fit
+  # content (e.g. during layer shell reconfigures).
+  (def [ux uy uw uh]
+    (if (and (params :output-bounds)
+             (or (< (usable :w) min-usable) (< (usable :h) min-usable)))
+      (params :output-bounds)
+      [(usable :x) (usable :y) (usable :w) (usable :h)]))
+  (def total-w (max 1 (- uw (* 2 outer))))
+  (def total-h (max 1 (- uh (* 2 outer))))
   (def default-ratio (params :column-width))
   (def row-h-ratio (or (config :column-row-height) 0))
 
@@ -143,8 +169,7 @@
 
   (def content-w (max 1 (- total-w (* 2 inner))))
   (def col-xs (x-positions cols content-w default-ratio))
-  (def total-content-w
-    (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
+  (def total-content-w (total-content-width cols col-xs content-w default-ratio inner))
 
   # Expose layout geometry to IPC via params
   (put params :total-content-w total-content-w)
@@ -155,13 +180,12 @@
 
   (if focused-win
     (do
-      (def max-scroll (max 0 (- total-content-w total-w)))
-      (def col-right (+ focused-x focused-col-w))
-      (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
-      (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
-      (def min-s (max 0 (- col-right (- total-w peek-r))))
-      (def max-s (min max-scroll (- focused-x peek-l)))
-      (def target-scroll (min max-s (max min-s (params :scroll-offset))))
+      (def target-scroll (compute-scroll-target
+        :total-w total-w :total-content-w total-content-w
+        :inner inner :bw bw
+        :focused-x focused-x :focused-col-w focused-col-w
+        :focused-col-idx focused-col-idx :num-cols num-cols
+        :current-scroll (params :scroll-offset)))
       (animation/scroll-toward params :scroll-offset target-scroll now config))
     # No focused window — clamp scroll so first column stays visible,
     # and kill any stale animation that would override the clamp.
@@ -255,8 +279,8 @@
       (def h (get heights ri))
       (def y-off (if overflows (- y-acc v-scroll) y-acc))
       (def placement (place
-        (+ (usable :x) outer x-off)
-        (+ (usable :y) outer y-off)
+        (+ ux outer x-off)
+        (+ uy outer y-off)
         (- cw (* 2 inner))
         (- h (* 2 inner))
         clip-left clip-right clip-top clip-bottom inner))

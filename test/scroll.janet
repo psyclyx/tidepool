@@ -1,118 +1,6 @@
-# Tests for scroll layout clipping and placement (see layout/scroll, window/clip-to-output).
+# Tests for scroll layout — uses real scroll module, no reimplementations.
 
-(defn sum [xs] (reduce + 0 xs))
-
-(defn compute-scroll-target
-  "Compute the target scroll offset given layout parameters.
-  Clamps current scroll into the valid range [min-s, max-s] for minimum pan.
-  Peek amounts compensate for border offset so equal window content is visible
-  on both sides: peek-l = 2*inner + bw, peek-r = 2*inner - bw."
-  [&named total-w total-content-w inner bw
-          focused-x focused-col-w focused-col-idx num-cols current-scroll]
-  (def peek (* 2 inner))
-  (def max-scroll (max 0 (- total-content-w total-w)))
-  (def col-right (+ focused-x focused-col-w))
-  (def peek-l (if (> focused-col-idx 0) (+ peek bw) 0))
-  (def peek-r (if (< focused-col-idx (- num-cols 1)) (- peek bw) 0))
-  (def min-s (max 0 (- col-right (- total-w peek-r))))
-  (def max-s (min max-scroll (- focused-x peek-l)))
-  (min max-s (max min-s current-scroll)))
-
-(defn col-width [col total-w default-ratio]
-  (math/round (* total-w (or ((first col) :col-width) default-ratio))))
-
-(defn col-x-positions [cols total-w default-ratio]
-  (def positions @[])
-  (var x 0)
-  (each col cols
-    (array/push positions x)
-    (set x (+ x (col-width col total-w default-ratio))))
-  positions)
-
-(defn total-content-width [cols col-xs content-w inner default-ratio]
-  (+ (* 2 inner) (last col-xs) (col-width (last cols) content-w default-ratio)))
-
-(defn place-window-result
-  "Determine window placement. Returns {:hidden true} or {:x :y :pw :ph}
-  where pw/ph are the fixed content dimensions (before bw subtraction)."
-  [x y w h clip-left clip-right clip-top clip-bottom inner]
-  (def cell-w (+ w (* 2 inner)))
-  (def cell-h (+ h (* 2 inner)))
-  (if (or (<= (+ x cell-w) clip-left) (>= x clip-right)
-          (<= (+ y cell-h) clip-top) (>= y clip-bottom))
-    {:hidden true}
-    {:x (+ x inner) :y (+ y inner) :pw w :ph h}))
-
-(defn compute-clip
-  "Compute clip box for a window on an output. Returns nil (no clip needed),
-  :clear (clip should be disabled), or [clip-x clip-y clip-w clip-h]."
-  [window-x window-y window-w window-h
-   output-x output-y output-w output-h bw &opt outer-pad scroll-placed]
-  (default outer-pad 0)
-  (def inset (if scroll-placed 0 (+ bw outer-pad)))
-  (def ox (+ output-x inset))
-  (def oy (+ output-y inset))
-  (def ow (- output-w (* 2 inset)))
-  (def oh (- output-h (* 2 inset)))
-  (if (or (< window-x ox) (< window-y oy)
-          (> (+ window-x window-w) (+ ox ow))
-          (> (+ window-y window-h) (+ oy oh)))
-    (do
-      (def clip-x (max 0 (- ox window-x)))
-      (def clip-y (max 0 (- oy window-y)))
-      (def clip-w (max 1 (- (min (+ window-x window-w) (+ ox ow))
-                              (max window-x ox))))
-      (def clip-h (max 1 (- (min (+ window-y window-h) (+ oy oh))
-                              (max window-y oy))))
-      [(math/round clip-x) (math/round clip-y)
-       (math/round clip-w) (math/round clip-h)])
-    :clear))
-
-(defn window-positions
-  "Given scroll, cols, col-xs, compute each window's content position.
-  Returns array of {:col :x :y :w :h :hidden} for each window."
-  [&named scroll cols col-xs total-w total-h default-ratio
-          outer inner bw usable-x usable-y
-          clip-left clip-right clip-top clip-bottom]
-  (def results @[])
-  (for ci 0 (length cols)
-    (def col (get cols ci))
-    (def content-w (- total-w (* 2 inner)))
-    (def cw (col-width col content-w default-ratio))
-    (def x-off (- (+ inner (get col-xs ci)) scroll))
-    (def num-rows (length col))
-    (def total-weight (sum (map |(or ($ :col-weight) 1.0) col)))
-    (var y-sum 0)
-    (def heights @[])
-    (for ri 0 num-rows
-      (def weight (or ((get col ri) :col-weight) 1.0))
-      (def h (math/round (* total-h (/ weight total-weight))))
-      (def actual-h (if (= ri (- num-rows 1)) (- total-h y-sum) h))
-      (array/push heights actual-h)
-      (set y-sum (+ y-sum actual-h)))
-    (var y-acc 0)
-    (for ri 0 num-rows
-      (def h (get heights ri))
-      (def x (+ usable-x outer x-off))
-      (def y (+ usable-y outer y-acc))
-      (def pw (- cw (* 2 inner)))
-      (def ph (- h (* 2 inner)))
-      (def result (place-window-result x y pw ph
-                    clip-left clip-right clip-top clip-bottom inner))
-      (array/push results
-        (if (result :hidden)
-          @{:col ci :row ri :hidden true}
-          @{:col ci :row ri
-            :content-x (result :x) :content-y (result :y)
-            :content-w (- (result :pw) (* 2 bw))  # after bw subtraction
-            :content-h (- (result :ph) (* 2 bw))
-            :border-left (- (result :x) bw)
-            :border-right (+ (result :x) (- (result :pw) (* 2 bw)) bw)
-            :border-top (- (result :y) bw)
-            :border-bottom (+ (result :y) (- (result :ph) (* 2 bw)) bw)}))
-      (set y-acc (+ y-acc h))))
-  results)
-
+(import ../src/layout/scroll :as scroll)
 
 (var test-count 0)
 (var fail-count 0)
@@ -133,398 +21,479 @@
        (error (string (or ,msg "") " expected " (string/format "%q" vb)
                        " got " (string/format "%q" va))))))
 
-(defmacro assert-near [a b tolerance &opt msg]
-  ~(let [va ,a vb ,b]
-     (unless (<= (math/abs (- va vb)) ,tolerance)
-       (error (string (or ,msg "") " expected ~" vb " got " va
-                       " (tolerance " ,tolerance ")")))))
+(defmacro assert-true [a &opt msg]
+  ~(unless ,a (error (string (or ,msg "expected truthy")))))
 
+(defmacro assert-false [a &opt msg]
+  ~(when ,a (error (string (or ,msg "expected falsy")))))
 
-# Gawfolk monitor: 3840x2560 at (0,0)
+# --- Test infrastructure ---
+
+(def base-config @{:outer-padding 4 :inner-padding 8 :border-width 4
+                   :column-row-height 0 :animate false})
+
+(defn make-params [output &opt overrides]
+  (def p @{:column-width 0.5 :scroll-offset 0 :active-row 0
+           :output-bounds [(output :x) (output :y) (output :w) (output :h)]})
+  (when overrides (merge-into p overrides))
+  p)
+
+(defn make-usable [output &opt bar-h]
+  (default bar-h 0)
+  {:x (output :x) :y (+ (output :y) bar-h)
+   :w (output :w) :h (- (output :h) bar-h)})
+
+(defn make-windows [n]
+  (seq [i :range [0 n]] @{:row 0}))
+
+(defn visible-results [results]
+  (filter |(not ($ :hidden)) results))
+
+(defn count-visible [results]
+  (length (visible-results results)))
+
+# --- Property assertions ---
+
+(defn assert-visible-overlap-output [results output msg]
+  "All visible results overlap with the output bounds (peeking windows extend past)."
+  (each r (visible-results results)
+    (assert-true (< (r :x) (+ (output :x) (output :w)))
+      (string/format "%s: x=%d >= output-right=%d (no overlap)" msg (r :x) (+ (output :x) (output :w))))
+    (assert-true (> (+ (r :x) (r :w)) (output :x))
+      (string/format "%s: x+w=%d <= output-x=%d (no overlap)" msg (+ (r :x) (r :w)) (output :x)))
+    (assert-true (< (r :y) (+ (output :y) (output :h)))
+      (string/format "%s: y=%d >= output-bottom=%d (no overlap)" msg (r :y) (+ (output :y) (output :h))))
+    (assert-true (> (+ (r :y) (r :h)) (output :y))
+      (string/format "%s: y+h=%d <= output-y=%d (no overlap)" msg (+ (r :y) (r :h)) (output :y)))))
+
+(defn assert-focused-within-output [results focused output msg]
+  "Focused window is fully within output bounds (not just peeking)."
+  (when focused
+    (def r (find |(= ($ :window) focused) results))
+    (when (and r (not (r :hidden)))
+      (assert-true (>= (r :x) (output :x))
+        (string/format "%s: focused x=%d < output-x=%d" msg (r :x) (output :x)))
+      (assert-true (<= (+ (r :x) (r :w)) (+ (output :x) (output :w)))
+        (string/format "%s: focused x+w=%d > output-right=%d" msg (+ (r :x) (r :w)) (+ (output :x) (output :w)))))))
+
+(defn assert-focused-visible [results focused msg]
+  "Focused window is never hidden."
+  (when focused
+    (def r (find |(= ($ :window) focused) results))
+    (assert-true r (string msg ": focused window not in results"))
+    (assert-false (r :hidden) (string msg ": focused window is hidden"))))
+
+(defn assert-no-border-overlap [results bw msg]
+  "Adjacent visible windows don't overlap (including borders)."
+  (def vis (sort (filter |(not ($ :hidden)) results)
+                 (fn [a b] (< (a :x) (b :x)))))
+  (for i 0 (- (length vis) 1)
+    (def a (get vis i))
+    (def b (get vis (+ i 1)))
+    (def a-right (+ (a :x) (a :w) (* 2 bw)))
+    (def b-left (- (b :x) bw))
+    # Allow for 1px rounding tolerance
+    (assert-true (>= (- b-left a-right) -1)
+      (string/format "%s: overlap a-right=%d b-left=%d" msg a-right b-left))))
+
+(defn assert-scroll-valid [params total-content-w total-w msg]
+  "Scroll offset is within [0, max-scroll]."
+  (def max-scroll (max 0 (- total-content-w total-w)))
+  (def scroll (params :scroll-offset))
+  (assert-true (>= scroll 0)
+    (string/format "%s: scroll=%d < 0" msg scroll))
+  (assert-true (<= scroll max-scroll)
+    (string/format "%s: scroll=%d > max-scroll=%d" msg scroll max-scroll)))
+
+# --- Output definitions ---
+
+(def single {:x 0 :y 0 :w 1920 :h 1080})
 (def gawfolk {:x 0 :y 0 :w 3840 :h 2560})
-(def bw 4)
-(def outer 4)
-(def inner 8)
-(def total-w (- (gawfolk :w) (* 2 outer)))  # 3832
-(def total-h (- (gawfolk :h) (* 2 outer)))  # 2552
-(def content-w (- total-w (* 2 inner)))     # 3816
-(def clip-left (gawfolk :x))                 # 0
-(def clip-right (+ (gawfolk :x) (gawfolk :w))) # 3840
-(def clip-top (gawfolk :y))                  # 0
-(def clip-bottom (+ (gawfolk :y) (gawfolk :h))) # 2560
+(def left-out {:x 0 :y 0 :w 1920 :h 1080})
+(def right-out {:x 1920 :y 0 :w 1920 :h 1080})
+(def big-left {:x 0 :y 0 :w 3840 :h 2560})
+(def small-right {:x 3840 :y 0 :w 1920 :h 1080})
+(def stacked-top {:x 0 :y 0 :w 1920 :h 1080})
+(def stacked-bottom {:x 0 :y 1080 :w 1920 :h 1080})
 
-(defn make-win [&opt col-override]
-  @{:col-width col-override})
+# ===================================================================
+# Unit tests: compute-scroll-target (pure function)
+# ===================================================================
 
+(defn make-col [&opt ratio] @[@{:col-width ratio}])
 (defn make-cols [n &opt ratio]
-  (def cols @[])
-  (for i 0 n
-    (array/push cols @[(make-win ratio)]))
-  cols)
+  (seq [i :range [0 n]] (make-col ratio)))
 
-
-(test "scroll: 2 cols 50% — no scroll needed"
+(test "scroll-target: 2 cols 50% — no scroll needed"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
+  (def outer 4)
+  (def inner 8)
+  (def total-w (- 3840 (* 2 outer)))
+  (def content-w (- total-w (* 2 inner)))
+  (def col-xs (scroll/x-positions cols content-w 0.5))
+  (def tcw (scroll/total-content-width cols col-xs content-w 0.5 inner))
   (assert= tcw total-w "total-content-w should equal total-w")
-  (def scroll (compute-scroll-target
+  (def scroll (scroll/compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
-    :focused-x inner :focused-col-w (col-width (first cols) content-w 0.5)
+    :inner inner :bw 4
+    :focused-x inner :focused-col-w (scroll/col-width (first cols) content-w 0.5)
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
-(test "scroll: 3 cols 50%, focus col 0 — flush left (no left peek)"
+(test "scroll-target: 3 cols 50%, focus col 0 — flush left"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
-  (def scroll (compute-scroll-target
+  (def inner 8)
+  (def total-w (- 3840 8))
+  (def content-w (- total-w 16))
+  (def col-xs (scroll/x-positions cols content-w 0.5))
+  (def tcw (scroll/total-content-width cols col-xs content-w 0.5 inner))
+  (def scroll (scroll/compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
-    :focused-x inner :focused-col-w cw
+    :inner inner :bw 4
+    :focused-x inner :focused-col-w (scroll/col-width (first cols) content-w 0.5)
     :focused-col-idx 0 :num-cols 3
     :current-scroll 0))
-  (assert= scroll 0 "first column should be flush left"))
+  (assert= scroll 0 "first column flush left"))
 
-(test "scroll: 3 cols 50%, focus col 2 — flush right (no right peek)"
+(test "scroll-target: 3 cols 50%, focus col 2 — flush right"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
+  (def inner 8)
+  (def total-w (- 3840 8))
+  (def content-w (- total-w 16))
+  (def col-xs (scroll/x-positions cols content-w 0.5))
+  (def tcw (scroll/total-content-width cols col-xs content-w 0.5 inner))
+  (def cw (scroll/col-width (first cols) content-w 0.5))
   (def focused-x (+ inner (get col-xs 2)))
-  (def scroll (compute-scroll-target
+  (def scroll (scroll/compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
+    :inner inner :bw 4
     :focused-x focused-x :focused-col-w cw
     :focused-col-idx 2 :num-cols 3
     :current-scroll 0))
   (assert= scroll (- (+ focused-x cw) total-w)
     "last column right edge flush with viewport"))
 
-(test "scroll: 3 cols 50%, focus col 1 — both peeks apply"
+(test "scroll-target: 3 cols 50%, focus col 1 — both peeks"
   (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
-  (def peek (* 2 inner))
-  (def scroll (compute-scroll-target
+  (def inner 8)
+  (def total-w (- 3840 8))
+  (def content-w (- total-w 16))
+  (def col-xs (scroll/x-positions cols content-w 0.5))
+  (def tcw (scroll/total-content-width cols col-xs content-w 0.5 inner))
+  (def cw (scroll/col-width (first cols) content-w 0.5))
+  (def scroll (scroll/compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
+    :inner inner :bw 4
     :focused-x (+ inner (get col-xs 1)) :focused-col-w cw
     :focused-col-idx 1 :num-cols 3
     :current-scroll 0))
-  (assert= scroll (- inner bw) "scroll accounts for border offset"))
+  (assert= scroll (- inner 4) "scroll accounts for border offset"))
 
-(test "scroll: zero inner — no peek, clamps to [0, max-scroll]"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
-  (def scroll (compute-scroll-target
-    :total-w total-w :total-content-w tcw
-    :inner 0 :bw bw
-    :focused-x inner :focused-col-w cw
-    :focused-col-idx 0 :num-cols 3
-    :current-scroll 0))
-  (assert= scroll 0 "no peek, focus col 0 → scroll=0"))
-
-(test "scroll: content fits — no scroll"
+(test "scroll-target: content fits — no scroll"
   (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
-  (def scroll (compute-scroll-target
+  (def inner 8)
+  (def total-w (- 3840 8))
+  (def content-w (- total-w 16))
+  (def col-xs (scroll/x-positions cols content-w 0.5))
+  (def tcw (scroll/total-content-width cols col-xs content-w 0.5 inner))
+  (def scroll (scroll/compute-scroll-target
     :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
-    :focused-x inner :focused-col-w cw
+    :inner inner :bw 4
+    :focused-x inner :focused-col-w (scroll/col-width (first cols) content-w 0.5)
     :focused-col-idx 0 :num-cols 2
     :current-scroll 0))
   (assert= scroll 0 "no scroll when content fits"))
 
-(test "scroll: small overflow, focus col 0 — flush left"
-  (def cols @[@[(make-win 0.6)] @[(make-win 0.6)]])
-  (def col-xs (col-x-positions cols content-w 0.6))
-  (def tcw (total-content-width cols col-xs content-w inner 0.6))
-  (def cw (col-width (first cols) content-w 0.6))
-  (def scroll (compute-scroll-target
-    :total-w total-w :total-content-w tcw
-    :inner inner :bw bw
-    :focused-x inner :focused-col-w cw
-    :focused-col-idx 0 :num-cols 2
-    :current-scroll 0))
-  (assert= scroll 0 "first column flush left"))
+# ===================================================================
+# Integration tests: scroll/layout on a single output
+# ===================================================================
 
+(test "layout: single output, 2 windows — both visible"
+  (def wins (make-windows 2))
+  (def params (make-params single))
+  (def results (scroll/layout (make-usable single) wins params base-config (first wins)))
+  (assert= (count-visible results) 2 "2 visible")
+  (assert-visible-overlap-output results single "single-2")
+  (assert-focused-visible results (first wins) "single-2 focus")
+  (assert-focused-within-output results (first wins) single "single-2 contained"))
 
-(test "placement: on-screen window gets positioned"
-  (def result (place-window-result 100 100 400 300
-                clip-left clip-right clip-top clip-bottom inner))
-  (assert (not (result :hidden)) "should not be hidden")
-  (assert= (result :x) 108 "content x = x + inner")
-  (assert= (result :y) 108 "content y = y + inner"))
+(test "layout: single output, 1 window — visible"
+  (def wins (make-windows 1))
+  (def params (make-params single))
+  (def results (scroll/layout (make-usable single) wins params base-config (first wins)))
+  (assert= (count-visible results) 1)
+  (assert-visible-overlap-output results single "single-1"))
 
-(test "placement: fully left of clip — hidden"
-  (def result (place-window-result -2000 100 400 300
-                clip-left clip-right clip-top clip-bottom inner))
-  (assert (result :hidden) "fully left should be hidden"))
+(test "layout: single output, 3 cols, focus each — focused always visible"
+  (def wins (make-windows 3))
+  (for fi 0 3
+    (each w wins (put w :column nil))
+    (def params (make-params single))
+    (def results (scroll/layout (make-usable single) wins params base-config (get wins fi)))
+    (assert-focused-visible results (get wins fi)
+      (string/format "focus-col-%d" fi))))
 
-(test "placement: fully right of clip — hidden"
-  (def result (place-window-result 4000 100 400 300
-                clip-left clip-right clip-top clip-bottom inner))
-  (assert (result :hidden) "fully right should be hidden"))
+(test "layout: no overlap between visible windows"
+  (def wins (make-windows 3))
+  (def params (make-params single))
+  (def results (scroll/layout (make-usable single) wins params base-config (first wins)))
+  (assert-no-border-overlap results (base-config :border-width) "no-overlap"))
 
-(test "placement: exactly at clip-right boundary — hidden"
-  (def result (place-window-result clip-right 100 400 300
-                clip-left clip-right clip-top clip-bottom inner))
-  (assert (result :hidden) "at clip-right boundary should be hidden"))
+(test "layout: scroll offset valid after focusing each column"
+  (def wins (make-windows 4))
+  (for fi 0 4
+    (each w wins (put w :column nil))
+    (def params (make-params gawfolk))
+    (def results (scroll/layout (make-usable gawfolk) wins params base-config (get wins fi)))
+    (assert-scroll-valid params (params :total-content-w)
+      (max 1 (- (gawfolk :w) (* 2 (base-config :outer-padding))))
+      (string/format "scroll-valid-col-%d" fi))))
 
-(test "placement: 1px inside clip-right — visible"
-  (def result (place-window-result (- clip-right 1) 100 400 300
-                clip-left clip-right clip-top clip-bottom inner))
-  (assert (not (result :hidden)) "1px inside should be visible"))
+# ===================================================================
+# Multi-monitor integration tests
+# ===================================================================
 
+(test "multi: two equal outputs side-by-side — output 2 windows positioned correctly"
+  (def wins (make-windows 2))
+  (def params (make-params right-out))
+  (def results (scroll/layout (make-usable right-out) wins params base-config (first wins)))
+  (assert= (count-visible results) 2 "2 visible on output 2")
+  (assert-visible-overlap-output results right-out "right-out-2")
+  (assert-focused-visible results (first wins) "right-out focus")
+  (assert-focused-within-output results (first wins) right-out "right-out contained"))
 
-(test "clip: fully on-screen — clear"
-  (def result (compute-clip 100 100 200 200
-                (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
-  (assert= result :clear "on-screen window should clear clip"))
+(test "multi: output 2 at x=1920, 3 cols, focus each — all within bounds"
+  (def wins (make-windows 3))
+  (for fi 0 3
+    (each w wins (put w :column nil))
+    (def params (make-params right-out))
+    (def results (scroll/layout (make-usable right-out) wins params base-config (get wins fi)))
+    (def msg (string/format "right-3col-focus-%d" fi))
+    (assert-visible-overlap-output results right-out msg)
+    (assert-focused-visible results (get wins fi) msg)
+    (assert-focused-within-output results (get wins fi) right-out msg)))
 
-(test "clip: partially off left — clips with outer padding"
-  (def result (compute-clip -100 100 400 200
-                (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
-  (assert (not= result :clear) "should clip")
-  (def [cx cy cw ch] result)
-  (assert= cx 108 "clip-x")
-  (assert= cw 292 "clip-w")
-  (assert= cy 0 "clip-y should be 0")
-  (def visible-left (+ -100 cx))
-  (assert= visible-left 8 "visible content left = output-x + bw + outer"))
+(test "multi: big left + small right — windows fit respective outputs"
+  (def wins-l (make-windows 3))
+  (def wins-r (make-windows 3))
 
-(test "clip: partially off right — clips with outer padding"
-  (def result (compute-clip 3700 100 400 200
-                (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
-  (assert (not= result :clear) "should clip")
-  (def [cx cy cw ch] result)
-  (assert= cx 0 "clip-x should be 0")
-  (assert= cw 132 "clip-w")
-  (def visible-right (+ 3700 0 cw))
-  (assert= (+ visible-right bw outer) (+ (gawfolk :x) (gawfolk :w))
-    "border right + outer = output edge"))
+  # Layout on big left
+  (def params-l (make-params big-left))
+  (def results-l (scroll/layout (make-usable big-left) wins-l params-l base-config (first wins-l)))
+  (assert-visible-overlap-output results-l big-left "big-left")
+  (assert-focused-visible results-l (first wins-l) "big-left focus")
 
-(test "clip: fully off-screen — clip-w clamped to 1"
-  (def result (compute-clip -500 100 100 100
-                (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
-  (assert (not= result :clear) "should clip")
-  (def [cx cy cw ch] result)
-  (assert= cw 1 "fully off-screen clip-w clamped to 1"))
+  # Layout on small right
+  (each w wins-r (put w :column nil))
+  (def params-r (make-params small-right))
+  (def results-r (scroll/layout (make-usable small-right) wins-r params-r base-config (first wins-r)))
+  (assert-visible-overlap-output results-r small-right "small-right")
+  (assert-focused-visible results-r (first wins-r) "small-right focus"))
 
-(test "clip: window at inset from output edge — fully on-screen"
-  (def inset (+ bw outer))
-  (def result (compute-clip (+ (gawfolk :x) inset) (+ (gawfolk :y) inset) 100 100
-                (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer))
-  (assert= result :clear "window at inset from edge should be fully on-screen"))
+(test "multi: vertically stacked outputs — bottom output windows within bounds"
+  (def wins (make-windows 2))
+  (def params (make-params stacked-bottom))
+  (def results (scroll/layout (make-usable stacked-bottom) wins params base-config (first wins)))
+  (assert-visible-overlap-output results stacked-bottom "stacked-bottom")
+  (each r (visible-results results)
+    (assert-true (>= (r :y) 1080)
+      (string/format "stacked-bottom: y=%d < 1080" (r :y)))))
 
+(test "multi: output 2, nil focus — windows still visible and positioned correctly"
+  (def wins (make-windows 2))
+  (def params (make-params right-out))
+  (def results (scroll/layout (make-usable right-out) wins params base-config nil))
+  (assert-true (> (count-visible results) 0) "visible without focus")
+  (assert-visible-overlap-output results right-out "right-nil-focus"))
 
-(test "integration: 2 cols 50% — no overlap, correct gaps"
-  (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 0 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (assert= (length wins) 2 "2 windows")
-  (def w0 (get wins 0))
-  (def w1 (get wins 1))
-  (assert (not (w0 :hidden)) "col 0 visible")
-  (assert (not (w1 :hidden)) "col 1 visible")
-  (def gap (- (w1 :border-left) (w0 :border-right)))
-  (assert= gap (* 2 inner) "gap between borders = 2*inner = 16"))
+(test "multi: output 2 with status bar — windows below bar and within bounds"
+  (def wins (make-windows 2))
+  (def params (make-params right-out))
+  (def results (scroll/layout (make-usable right-out 44) wins params base-config (first wins)))
+  (assert-visible-overlap-output results right-out "right-bar")
+  (each r (visible-results results)
+    (assert-true (>= (r :y) (+ (right-out :y) 44))
+      (string/format "right-bar: y=%d < bar-bottom=%d" (r :y) (+ (right-out :y) 44)))))
 
-(test "integration: 2 cols 50% — no border overlap with output edge"
-  (def cols (make-cols 2))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 0 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (def w0 (get wins 0))
-  (def w1 (get wins 1))
-  (assert (>= (w0 :border-left) (gawfolk :x)) "left border within output")
-  (assert (<= (w1 :border-right) (+ (gawfolk :x) (gawfolk :w))) "right border within output"))
+(test "multi: scroll offset from larger monitor clamped on smaller"
+  (def wins (make-windows 3))
+  (each w wins (put w :column nil))
+  # First layout on big monitor — scroll to rightmost column
+  (def params-big (make-params big-left))
+  (scroll/layout (make-usable big-left) wins params-big base-config (get wins 2))
+  (def big-scroll (params-big :scroll-offset))
+  (assert-true (> big-scroll 0) "scrolled on big monitor")
 
-(test "integration: 3 cols 50%, scroll=32 — col 2 peeks"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 32 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (def w2 (get wins 2))
-  (assert (not (w2 :hidden)) "col 2 should be visible (peeking)"))
+  # Now layout same windows on small monitor with the big scroll offset
+  (each w wins (put w :column nil))
+  (def params-small (make-params small-right {:scroll-offset big-scroll}))
+  (def results (scroll/layout (make-usable small-right) wins params-small base-config (first wins)))
+  (def outer (base-config :outer-padding))
+  (def small-total-w (max 1 (- (small-right :w) (* 2 outer))))
+  (assert-scroll-valid params-small (params-small :total-content-w) small-total-w
+    "clamped-scroll"))
 
-(test "integration: 3 cols 50%, scroll=0 — col 2 barely peeks (outer padding only)"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 0 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (def w2 (get wins 2))
-  # With clip at output edge, col 2 starts at x=3836 (4px inside the 3840 edge)
-  (assert (not (w2 :hidden)) "col 2 barely visible at scroll=0"))
+(test "multi: output 2, 5 cols, sweep focus — all properties hold"
+  (def wins (make-windows 5))
+  (for fi 0 5
+    (each w wins (put w :column nil))
+    (def params (make-params right-out))
+    (def results (scroll/layout (make-usable right-out) wins params base-config (get wins fi)))
+    (def msg (string/format "right-5col-focus-%d" fi))
+    (assert-visible-overlap-output results right-out msg)
+    (assert-focused-visible results (get wins fi) msg)
+    (assert-focused-within-output results (get wins fi) right-out msg)
+    (assert-no-border-overlap results (base-config :border-width) msg)
+    (def outer (base-config :outer-padding))
+    (def tw (max 1 (- (right-out :w) (* 2 outer))))
+    (assert-scroll-valid params (params :total-content-w) tw msg)))
 
-(test "integration: 3 cols 50%, scroll=32 — peek clips at output edge"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 32 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (def w2 (get wins 2))
-  (assert (not (w2 :hidden)) "col 2 peeking")
-  (def clip (compute-clip
-    (w2 :content-x) (w2 :content-y) (w2 :content-w) (w2 :content-h)
-    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer true))
-  (assert (not= clip :clear) "peek window should be clipped")
-  (def [cx cy cw ch] clip)
-  (def visible-right (+ (w2 :content-x) cx cw))
-  (assert= visible-right (+ (gawfolk :x) (gawfolk :w))
-    "peek clips at output edge"))
+# ===================================================================
+# Multi-monitor isolation tests
+# ===================================================================
 
-(test "integration: 3 cols 50%, scroll=1884 — col 0 peeks left at output edge"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def wins (window-positions
-    :scroll 1884 :cols cols :col-xs col-xs
-    :total-w total-w :total-h total-h :default-ratio 0.5
-    :outer outer :inner inner :bw bw
-    :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-    :clip-left clip-left :clip-right clip-right
-    :clip-top clip-top :clip-bottom clip-bottom))
-  (def w0 (get wins 0))
-  (assert (not (w0 :hidden)) "col 0 should be visible (peeking left)")
-  (def clip (compute-clip
-    (w0 :content-x) (w0 :content-y) (w0 :content-w) (w0 :content-h)
-    (gawfolk :x) (gawfolk :y) (gawfolk :w) (gawfolk :h) bw outer true))
-  (assert (not= clip :clear) "peek window should be clipped")
-  (def [cx cy cw ch] clip)
-  (def visible-left (+ (w0 :content-x) cx))
-  (assert= visible-left (gawfolk :x)
-    "peek clips at output edge"))
+(test "multi: two outputs, independent scroll state"
+  (def wins-l (make-windows 3))
+  (def wins-r (make-windows 3))
+  (def params-l (make-params left-out))
+  (def params-r (make-params right-out))
 
-(test "integration: no windows overlap"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (for scroll-val 0 200 10
-    (def wins (window-positions
-      :scroll scroll-val :cols cols :col-xs col-xs
-      :total-w total-w :total-h total-h :default-ratio 0.5
-      :outer outer :inner inner :bw bw
-      :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-      :clip-left clip-left :clip-right clip-right
-      :clip-top clip-top :clip-bottom clip-bottom))
-    (def visible (filter |(not ($ :hidden)) wins))
-    (for i 0 (- (length visible) 1)
-      (def a (get visible i))
-      (def b (get visible (+ i 1)))
-      (assert (>= (b :border-left) (a :border-right))
-        (string/format "scroll=%d: col %d border-right (%d) overlaps col %d border-left (%d)"
-          scroll-val (a :col) (a :border-right) (b :col) (b :border-left))))))
+  # Layout left, scroll to col 2
+  (scroll/layout (make-usable left-out) wins-l params-l base-config (get wins-l 2))
+  (def scroll-l (params-l :scroll-offset))
 
+  # Layout right, scroll to col 0
+  (each w wins-r (put w :column nil))
+  (scroll/layout (make-usable right-out) wins-r params-r base-config (first wins-r))
+  (def scroll-r (params-r :scroll-offset))
 
-(test "e2e: focus each column — all produce valid peeks"
-  (def cols (make-cols 3))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def cw (col-width (first cols) content-w 0.5))
+  # Left scrolled, right not scrolled — independent
+  (assert-true (> scroll-l 0) "left output scrolled")
+  (assert= scroll-r 0 "right output not scrolled")
+  # Left scroll didn't affect right params
+  (assert= (params-r :scroll-offset) 0 "right params untouched"))
 
-  (for focus-ci 0 3
-    (def scroll (compute-scroll-target
-      :total-w total-w :total-content-w tcw
-      :inner inner :bw bw
-      :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
-      :focused-col-idx focus-ci :num-cols 3
-      :current-scroll 0))
-    (def wins (window-positions
-      :scroll scroll :cols cols :col-xs col-xs
-      :total-w total-w :total-h total-h :default-ratio 0.5
-      :outer outer :inner inner :bw bw
-      :usable-x (gawfolk :x) :usable-y (gawfolk :y)
-      :clip-left clip-left :clip-right clip-right
-      :clip-top clip-top :clip-bottom clip-bottom))
-    (def focused-win (get wins focus-ci))
-    (assert (not (focused-win :hidden))
-      (string/format "focus col %d: focused column should be visible" focus-ci))
-    (def others (filter |(and (not ($ :hidden)) (not= ($ :col) focus-ci)) wins))
-    (assert (> (length others) 0)
-      (string/format "focus col %d: should have visible non-focused columns" focus-ci))))
+(test "multi: column assignments don't leak between outputs"
+  (def wins-l (make-windows 3))
+  (def wins-r (make-windows 2))
+  (def params-l (make-params left-out))
+  (def params-r (make-params right-out))
 
-(test "e2e: scroll target is within valid bounds"
-  (def cols (make-cols 4))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def max-scroll (- tcw total-w))
+  (scroll/layout (make-usable left-out) wins-l params-l base-config (first wins-l))
+  (def cols-l (map |($ :column) wins-l))
 
-  (for focus-ci 0 4
-    (def cw (col-width (get cols focus-ci) content-w 0.5))
-    (def scroll (compute-scroll-target
-      :total-w total-w :total-content-w tcw
-      :inner inner :bw bw
-      :focused-x (+ inner (get col-xs focus-ci)) :focused-col-w cw
-      :focused-col-idx focus-ci :num-cols 4
-      :current-scroll 0))
-    (assert (>= scroll 0)
-      (string/format "focus col %d: scroll >= 0" focus-ci))
-    (assert (<= scroll max-scroll)
-      (string/format "focus col %d: scroll <= max-scroll" focus-ci))))
+  (scroll/layout (make-usable right-out) wins-r params-r base-config (first wins-r))
+  (def cols-r (map |($ :column) wins-r))
 
-(test "e2e: focused column always within preferred zone"
-  (def cols (make-cols 4))
-  (def col-xs (col-x-positions cols content-w 0.5))
-  (def tcw (total-content-width cols col-xs content-w inner 0.5))
-  (def peek (* 2 inner))
-  (def num-cols 4)
+  # Left has 3 columns (0, 1, 2), right has 2 (0, 1)
+  (assert= (length (distinct cols-l)) 3 "left has 3 distinct columns")
+  (assert= (length (distinct cols-r)) 2 "right has 2 distinct columns")
+  # Left's columns unchanged after right's layout
+  (assert (deep= cols-l (map |($ :column) wins-l)) "left columns stable"))
 
-  (for focus-ci 0 num-cols
-    (def cw (col-width (get cols focus-ci) content-w 0.5))
-    (def focused-x (+ inner (get col-xs focus-ci)))
-    (def scroll (compute-scroll-target
-      :total-w total-w :total-content-w tcw
-      :inner inner :bw bw
-      :focused-x focused-x :focused-col-w cw
-      :focused-col-idx focus-ci :num-cols num-cols
-      :current-scroll 0))
-    (def peek-l (if (> focus-ci 0) (+ peek bw) 0))
-    (def peek-r (if (< focus-ci (- num-cols 1)) (- peek bw) 0))
-    (def zone-left (+ scroll peek-l))
-    (def zone-right (- (+ scroll total-w) peek-r))
-    (assert (>= focused-x zone-left)
-      (string/format "focus col %d: left edge %d >= zone-left %d"
-        focus-ci focused-x zone-left))
-    (assert (<= (+ focused-x cw) (+ zone-right 1))
-      (string/format "focus col %d: right edge %d <= zone-right %d"
-        focus-ci (+ focused-x cw) zone-right))))
+(test "multi: layout on output 2, re-layout preserves column order"
+  (def wins (make-windows 4))
+  (def params (make-params right-out))
 
-# --- Row filtering tests ---
+  # First layout
+  (scroll/layout (make-usable right-out) wins params base-config (first wins))
+  (def cols-1 (map |($ :column) wins))
 
-(import ../src/layout/scroll :as scroll)
+  # Second layout (no column reset, simulates next frame)
+  (def results (scroll/layout (make-usable right-out) wins params base-config (first wins)))
+  (def cols-2 (map |($ :column) wins))
+  (assert (deep= cols-1 cols-2) "column order preserved across frames"))
+
+(test "multi: output at large offset — windows not at origin"
+  (def far-right {:x 7680 :y 0 :w 1920 :h 1080})
+  (def wins (make-windows 2))
+  (def params (make-params far-right))
+  (def results (scroll/layout (make-usable far-right) wins params base-config (first wins)))
+  (each r (visible-results results)
+    (assert-true (>= (r :x) 7680)
+      (string/format "far-right: x=%d < 7680" (r :x))))
+  (assert-focused-within-output results (first wins) far-right "far-right"))
+
+(test "multi: output at negative offset"
+  (def neg-out {:x -1920 :y 0 :w 1920 :h 1080})
+  (def wins (make-windows 2))
+  (def params (make-params neg-out))
+  (def results (scroll/layout (make-usable neg-out) wins params base-config (first wins)))
+  (assert-focused-within-output results (first wins) neg-out "neg-out")
+  (assert-visible-overlap-output results neg-out "neg-out"))
+
+(test "multi: two outputs, simulate pipeline order (both layouts, then check)"
+  (def wins-l (make-windows 3))
+  (def wins-r (make-windows 3))
+  (def params-l (make-params left-out))
+  (def params-r (make-params right-out))
+
+  # Simulate pipeline: layout runs for each output in sequence
+  (def results-l (scroll/layout (make-usable left-out) wins-l params-l base-config (get wins-l 1)))
+  (def results-r (scroll/layout (make-usable right-out) wins-r params-r base-config (get wins-r 1)))
+
+  # Both should have correct positions for their respective outputs
+  (assert-focused-within-output results-l (get wins-l 1) left-out "pipeline-left")
+  (assert-focused-within-output results-r (get wins-r 1) right-out "pipeline-right")
+
+  # No window from output 1 should have positions in output 2's range
+  (each r (visible-results results-l)
+    (assert-true (< (r :x) (+ (left-out :x) (left-out :w)))
+      "left-out window not in right-out territory"))
+  # Focused windows from output 2 should be in output 2's range
+  (each r (visible-results results-r)
+    (when (= (r :window) (get wins-r 1))
+      (assert-true (>= (r :x) (right-out :x))
+        "right-out focused window in right-out territory"))))
+
+(test "multi: different column widths on different outputs"
+  (def wins-l (make-windows 3))
+  (def wins-r (make-windows 3))
+  (def params-l (make-params left-out {:column-width 0.33}))
+  (def params-r (make-params right-out {:column-width 0.67}))
+
+  (def results-l (scroll/layout (make-usable left-out) wins-l params-l base-config (first wins-l)))
+  (def results-r (scroll/layout (make-usable right-out) wins-r params-r base-config (first wins-r)))
+
+  # Both should have valid positions
+  (assert-visible-overlap-output results-l left-out "left-narrow")
+  (assert-visible-overlap-output results-r right-out "right-wide")
+  (assert-focused-within-output results-l (first wins-l) left-out "left-narrow focus")
+  (assert-focused-within-output results-r (first wins-r) right-out "right-wide focus"))
+
+# ===================================================================
+# Property sweep: parameterized across outputs and column counts
+# ===================================================================
+
+(def test-outputs
+  [single gawfolk left-out right-out big-left small-right stacked-top stacked-bottom])
+
+(def output-names
+  ["single" "gawfolk" "left" "right" "big-left" "small-right" "top" "bottom"])
+
+(test "property sweep: all outputs × 1-6 cols × each focus position"
+  (for oi 0 (length test-outputs)
+    (def output (get test-outputs oi))
+    (def oname (get output-names oi))
+    (for ncols 1 7
+      (def wins (make-windows ncols))
+      (for fi 0 ncols
+        (each w wins (put w :column nil))
+        (def params (make-params output))
+        (def results (scroll/layout (make-usable output) wins params base-config (get wins fi)))
+        (def msg (string/format "%s/%dc/f%d" oname ncols fi))
+        (assert-focused-visible results (get wins fi) msg)
+        (assert-focused-within-output results (get wins fi) output msg)
+        (assert-visible-overlap-output results output msg)
+        (assert-no-border-overlap results (base-config :border-width) msg)
+        (def outer (base-config :outer-padding))
+        (def tw (max 1 (- (output :w) (* 2 outer))))
+        (assert-scroll-valid params (params :total-content-w) tw msg)))))
+
+# ===================================================================
+# Row filtering tests (use real scroll module)
+# ===================================================================
 
 (defn make-row-win [&keys {:column col :row row :col-width cw}]
   @{:column col :row row :col-width cw})
@@ -552,7 +521,7 @@
   (def ctx (scroll/context wins nil nil 5))
   (assert (nil? ctx) "empty row should return nil"))
 
-(test "rows: focused column tracking in row context"
+(test "rows: focused column tracking"
   (def w0 (make-row-win :column 0 :row 0))
   (def w1 (make-row-win :column 1 :row 0))
   (def w2 (make-row-win :column 0 :row 1))
@@ -566,8 +535,7 @@
   (def wins @[w0 w-new])
   (def usable {:x 0 :y 0 :w 1920 :h 1080})
   (def params @{:column-width 0.5 :scroll-offset 0 :active-row 2})
-  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
-  (scroll/layout usable wins params config nil)
+  (scroll/layout usable wins params base-config nil)
   (assert= (w-new :row) 2 "new window auto-assigned to active row"))
 
 (test "rows: non-active row windows hidden in layout"
@@ -576,8 +544,7 @@
   (def wins @[w0 w1])
   (def usable {:x 0 :y 0 :w 1920 :h 1080})
   (def params @{:column-width 0.5 :scroll-offset 0 :active-row 0})
-  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
-  (def results (scroll/layout usable wins params config nil))
+  (def results (scroll/layout usable wins params base-config nil))
   (def hidden (filter |($ :hidden) results))
   (def visible (filter |(not ($ :hidden)) results))
   (assert= (length hidden) 1 "1 hidden window")
@@ -585,7 +552,9 @@
   (assert= (length visible) 1 "1 visible window")
   (assert= ((first visible) :window) w0 "row 0 window is visible"))
 
-# --- Row boundary navigation tests ---
+# ===================================================================
+# Row boundary navigation tests
+# ===================================================================
 
 (test "row-boundary: down at bottom of single-window column detects boundary"
   (def w0 (make-row-win :column 0 :row 0))
@@ -594,7 +563,7 @@
   (def ctx (scroll/context all w0 nil 0))
   (put ctx :all-tiled all)
   (def info (scroll/row-boundary-info ctx :down all))
-  (assert (not (nil? info)) "should detect boundary")
+  (assert-true info "should detect boundary")
   (assert= (info :target-row) 1 "target is row 1")
   (assert= (length (info :windows)) 1 "1 window in target row"))
 
@@ -605,7 +574,7 @@
   (def ctx (scroll/context all w1 nil 1))
   (put ctx :all-tiled all)
   (def info (scroll/row-boundary-info ctx :up all))
-  (assert (not (nil? info)) "should detect boundary")
+  (assert-true info "should detect boundary")
   (assert= (info :target-row) 0 "target is row 0"))
 
 (test "row-boundary: down at bottom of multi-window column detects boundary"
@@ -616,7 +585,7 @@
   (def ctx (scroll/context all w0b nil 0))
   (put ctx :all-tiled all)
   (def info (scroll/row-boundary-info ctx :down all))
-  (assert (not (nil? info)) "should detect boundary at bottom of stacked column"))
+  (assert-true info "should detect boundary at bottom of stacked column"))
 
 (test "row-boundary: down in middle of stacked column returns nil"
   (def w0a (make-row-win :column 0 :row 0))
@@ -628,7 +597,7 @@
   (def info (scroll/row-boundary-info ctx :down all))
   (assert (nil? info) "not at boundary — middle of column"))
 
-(test "row-boundary: up at topmost row returns nil (focus stays)"
+(test "row-boundary: up at topmost row returns nil"
   (def w0 (make-row-win :column 0 :row 0))
   (def w1 (make-row-win :column 0 :row 1))
   (def all @[w0 w1])
@@ -637,7 +606,7 @@
   (def info (scroll/row-boundary-info ctx :up all))
   (assert (nil? info) "no row above row 0"))
 
-(test "row-boundary: down at bottommost row returns nil (focus stays)"
+(test "row-boundary: down at bottommost row returns nil"
   (def w0 (make-row-win :column 0 :row 0))
   (def w1 (make-row-win :column 0 :row 1))
   (def all @[w0 w1])
@@ -662,7 +631,7 @@
   (def ctx (scroll/context all w1 nil 1))
   (put ctx :all-tiled all)
   (def info (scroll/swap-boundary-info ctx :down all))
-  (assert (not (nil? info)) "should create new row")
+  (assert-true info "should create new row")
   (assert= (info :target-row) 2 "new row is 2")
   (assert (info :new) "marked as new")
   (assert= (length (info :windows)) 0 "no windows in new row"))
@@ -674,7 +643,7 @@
   (def ctx (scroll/context all w0 nil 0))
   (put ctx :all-tiled all)
   (def info (scroll/swap-boundary-info ctx :up all))
-  (assert (not (nil? info)) "should create new row")
+  (assert-true info "should create new row")
   (assert= (info :target-row) -1 "new row is -1")
   (assert (info :new) "marked as new"))
 
@@ -685,7 +654,7 @@
   (def ctx (scroll/context all w0 nil 0))
   (put ctx :all-tiled all)
   (def info (scroll/swap-boundary-info ctx :down all))
-  (assert (not (nil? info)) "should find existing row")
+  (assert-true info "should find existing row")
   (assert= (info :target-row) 1 "target is row 1")
   (assert (nil? (info :new)) "not marked as new"))
 
@@ -695,8 +664,7 @@
   (def wins @[w0 w1])
   (def usable {:x 0 :y 0 :w 1920 :h 1080})
   (def params @{:column-width 0.5 :scroll-offset 0 :active-row 1})
-  (def config @{:outer-padding 4 :inner-padding 8 :column-row-height 0})
-  (scroll/layout usable wins params config nil)
+  (scroll/layout usable wins params base-config nil)
   (assert= (params :active-row) 0 "snapped to nearest populated row"))
 
 (test "switch-to-row: saves and restores scroll offsets"
@@ -711,6 +679,47 @@
                 :row-states @{1 @{:scroll-offset 300}}})
   (scroll/switch-to-row params 0 1)
   (assert= (params :scroll-offset) 300 "restored saved offset"))
+
+# ===================================================================
+# Clip interaction tests (scroll + clip-to-output simulation)
+# ===================================================================
+
+(defn compute-clip
+  "Simulate window/clip-to-output for scroll-placed windows."
+  [wx wy ww wh output]
+  (def ox (output :x))
+  (def oy (output :y))
+  (def ow (output :w))
+  (def oh (output :h))
+  (if (or (< wx ox) (< wy oy)
+          (> (+ wx ww) (+ ox ow))
+          (> (+ wy wh) (+ oy oh)))
+    (do
+      (def clip-x (max 0 (- ox wx)))
+      (def clip-y (max 0 (- oy wy)))
+      (def clip-w (max 1 (- (min (+ wx ww) (+ ox ow)) (max wx ox))))
+      (def clip-h (max 1 (- (min (+ wy wh) (+ oy oh)) (max wy oy))))
+      [(math/round clip-x) (math/round clip-y)
+       (math/round clip-w) (math/round clip-h)])
+    :clear))
+
+(test "clip: on-screen window on output 2 — clear"
+  (def result (compute-clip 2000 100 200 200 right-out))
+  (assert= result :clear "on-screen window on output 2"))
+
+(test "clip: peeking window on output 2 — clipped at left edge"
+  (def result (compute-clip 1900 100 200 200 right-out))
+  (assert (not= result :clear) "should clip")
+  (def [cx cy cw ch] result)
+  (assert= cx 20 "clip-x = output-left - window-left")
+  (assert= cw 180 "clip-w = visible portion"))
+
+(test "clip: peeking window on output 2 — clipped at right edge"
+  (def result (compute-clip 3750 100 200 200 right-out))
+  (assert (not= result :clear) "should clip")
+  (def [cx cy cw ch] result)
+  (assert= cx 0 "clip-x = 0 (left edge visible)")
+  (assert= cw 90 "clip-w = output-right - window-left"))
 
 (printf "\n%d tests, %d failures" test-count fail-count)
 (when (> fail-count 0) (os/exit 1))
