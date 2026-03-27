@@ -64,27 +64,6 @@
   (assert= ((windows 0) :name) "w1")
   (assert= ((windows 1) :name) "w3"))
 
-# --- bg/manage caching regression ---
-
-(test "bg-cache: identical state skips render"
-  (def bg @{:last-render nil})
-  (def output @{:w 3840 :h 2560})
-  (def config @{:wallpaper "/path/to/wallpaper.png" :background 0x000000})
-  (def cache-key [(output :w) (output :h) (config :wallpaper) (config :background)])
-  (assert (not (deep= cache-key (bg :last-render))) "cache miss on first render")
-  (put bg :last-render cache-key)
-  (def cache-key2 [(output :w) (output :h) (config :wallpaper) (config :background)])
-  (assert (deep= cache-key2 (bg :last-render)) "cache hit on same state"))
-
-(test "bg-cache: dimension change invalidates cache"
-  (def bg @{:last-render [3840 2560 "/wallpaper.png" 0x000000]})
-  (def new-key [1920 1080 "/wallpaper.png" 0x000000])
-  (assert (not (deep= new-key (bg :last-render))) "dimension change invalidates"))
-
-(test "bg-cache: wallpaper change invalidates cache"
-  (def bg @{:last-render [3840 2560 "/old.png" 0x000000]})
-  (def new-key [3840 2560 "/new.png" 0x000000])
-  (assert (not (deep= new-key (bg :last-render))) "wallpaper change invalidates"))
 
 (printf "\n%d tests, %d failures" test-count fail-count)
 (when (> fail-count 0) (os/exit 1))

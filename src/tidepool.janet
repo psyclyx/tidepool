@@ -5,7 +5,6 @@
 (import ./state)
 (import ./animation)
 (import ./output)
-(import ./output-bg)
 (import ./output-config)
 (import ./window)
 (import ./seat)
@@ -57,8 +56,7 @@
     [:manage-start] (pipeline/manage)
     [:render-start] (pipeline/render)
     [:output obj] (array/push (state/wm :outputs)
-                    (output/create obj state/config state/registry
-                                   (output-bg/create state/registry)))
+                    (output/create obj state/config state/registry))
     [:seat obj] (array/push (state/wm :seats) (seat/create obj state/registry state/config))
     [:window obj]
     (let [windows (state/wm :windows)

@@ -14,38 +14,6 @@
 (defn- output/primary-tag [o]
   (min-of (keys (o :tags))))
 
-# --- Navigation trail ---
-
-(defn- nav-trail/push
-  "Push current focus state onto the nav trail.
-  Truncates forward history if cursor is mid-trail."
-  [seat]
-  (def trail state/nav-trail)
-  (def entries (trail :entries))
-  (def cursor (trail :cursor))
-  (when-let [w (seat :focused)]
-    (def entry @{:window w :tag (w :tag)})
-    # If mid-trail, truncate forward entries
-    (when (and cursor (< cursor (- (length entries) 1)))
-      (array/remove entries (+ cursor 1) (- (length entries) cursor 1)))
-    # Push and cap
-    (array/push entries entry)
-    (when (> (length entries) (trail :capacity))
-      (array/remove entries 0))
-    (put trail :cursor nil)))
-
-(defn- nav-trail/try-push
-  "Push to trail if the navigation crosses a tag or output boundary."
-  [ctx target]
-  (def {:seat seat :outputs outputs} ctx)
-  (when-let [current (seat :focused)]
-    (when (not= current target)
-      (def cur-output (window/tag-output current outputs))
-      (def tgt-output (window/tag-output target outputs))
-      (when (or (not= (current :tag) (target :tag))
-                (not= cur-output tgt-output))
-        (nav-trail/push seat)))))
-
 (defn tag-layout/save
   "Persist the current layout for the output's primary tag."
   [o tag-layouts]
@@ -208,7 +176,6 @@
       (if-let [t (resolve-target ctx resolver)]
         # Target found -- ensure its tag is visible, switch output if needed
         (do
-          (nav-trail/try-push ctx t)
           (def to (window/tag-output t outputs))
           (if to
             (do
@@ -313,7 +280,6 @@
   (act "focus-output" "Focus output" [(or dir :next)]
     (fn [] (fn [ctx]
       (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
-      (nav-trail/push seat)
       (if dir
         (when-let [current (or (seat :focused-output) (first outputs))
                    adjacent (find-adjacent-output current outputs dir)]
@@ -392,13 +358,10 @@
         (if other
           # Tag is visible elsewhere — just move focus to that output
           (do
-            (nav-trail/push (ctx :seat))
             (seat/focus-output (ctx :seat) other))
           # Tag not visible — switch this output to it
           (do
             (def current-tag (output/primary-tag o))
-            (unless (= current-tag tag)
-              (nav-trail/push (ctx :seat)))
             (put o :tags @{tag true}))))))))
 
 (defn toggle-tag
@@ -600,7 +563,6 @@
                  o (seat :focused-output)]
         (def target-tag (or (output/primary-tag o) 1))
         (unless (= (t :tag) target-tag)
-          (nav-trail/push seat)
           (put t :tag target-tag)
           (window/clear-layout-placement t))
         (seat/focus seat t outputs render-order config))))))
@@ -650,73 +612,6 @@
         (put w :mark nil))
       (put state/marks name nil)))))
 
-# --- Navigation trail actions ---
-
-(defn nav-back
-  "Action: navigate backward through the nav trail."
-  []
-  (act "nav-back" "Nav back" []
-    (fn [] (fn [ctx]
-      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
-      (def trail state/nav-trail)
-      (def entries (trail :entries))
-      (when (> (length entries) 0)
-        (def cursor (or (trail :cursor) (length entries)))
-        # Walk backward, skipping closed windows
-        (var i (- cursor 1))
-        (while (>= i 0)
-          (def entry (entries i))
-          (def w (entry :window))
-          (if (or (w :closed) (w :closing))
-            (-- i)
-            (do
-              # Push current position if this is the first back step
-              (when (nil? (trail :cursor))
-                (nav-trail/push seat))
-              (put trail :cursor i)
-              (def to (window/tag-output w outputs))
-              (if to
-                (do
-                  (when (not= to (seat :focused-output))
-                    (seat/focus-output seat to))
-                  (unless ((to :tags) (w :tag))
-                    (put to :tags @{(w :tag) true})))
-                (when-let [fo (seat :focused-output)]
-                  (put fo :tags @{(w :tag) true})))
-              (seat/focus seat w outputs render-order config)
-              (when emit-signal-fn (emit-signal-fn "nav-back"))
-              (break)))))))))
-
-(defn nav-forward
-  "Action: navigate forward through the nav trail."
-  []
-  (act "nav-forward" "Nav forward" []
-    (fn [] (fn [ctx]
-      (def {:seat seat :outputs outputs :render-order render-order :config config} ctx)
-      (def trail state/nav-trail)
-      (def entries (trail :entries))
-      (when-let [cursor (trail :cursor)]
-        # Walk forward, skipping closed windows
-        (var i (+ cursor 1))
-        (while (< i (length entries))
-          (def entry (entries i))
-          (def w (entry :window))
-          (if (or (w :closed) (w :closing))
-            (++ i)
-            (do
-              (put trail :cursor (if (= i (- (length entries) 1)) nil i))
-              (def to (window/tag-output w outputs))
-              (if to
-                (do
-                  (when (not= to (seat :focused-output))
-                    (seat/focus-output seat to))
-                  (unless ((to :tags) (w :tag))
-                    (put to :tags @{(w :tag) true})))
-                (when-let [fo (seat :focused-output)]
-                  (put fo :tags @{(w :tag) true})))
-              (seat/focus seat w outputs render-order config)
-              (when emit-signal-fn (emit-signal-fn "nav-forward"))
-              (break)))))))))
 
 # --- Scroll home ---
 
@@ -926,10 +821,6 @@
     "float-resize" @{:create float-resize :parse |(do [(keyword ($ 0)) (scan-number ($ 1))])
                      :desc "Resize floating window" :spec [["choice" "width" "height"] ["number" "Delta (px)"]]}
     "float-center" @{:create float-center :desc "Center floating window"}
-    "nav-back" @{:create nav-back :desc "Navigate back"}
-    "nav-forward" @{:create nav-forward :desc "Navigate forward"}
-    "scroll-home-set" @{:create scroll-home-set :desc "Set scroll home"}
-    "scroll-home" @{:create scroll-home :desc "Jump to scroll home"}
     "pointer-move" @{:create pointer-move :desc "Pointer move"}
     "pointer-resize" @{:create pointer-resize :desc "Pointer resize"}
     "passthrough" @{:create passthrough :desc "Toggle passthrough"}

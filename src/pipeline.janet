@@ -1,6 +1,5 @@
 (import ./state)
 (import ./output)
-(import ./output-bg)
 (import ./window)
 (import ./seat)
 (import ./animation)
@@ -33,24 +32,12 @@
 (defn- apply-destroys []
   (each o (state/wm :outputs)
     (when (o :pending-destroy)
-      (:destroy (o :obj))
-      (output-bg/destroy (o :bg))))
+      (:destroy (o :obj))))
   (each w (state/wm :windows)
     (when (w :pending-destroy)
       # Clean up marks referencing this window
       (when (w :mark)
         (put state/marks (w :mark) nil))
-      # Prune from nav trail
-      (def trail-entries (state/nav-trail :entries))
-      (var ti 0)
-      (while (< ti (length trail-entries))
-        (if (= ((trail-entries ti) :window) w)
-          (do
-            (when-let [cursor (state/nav-trail :cursor)]
-              (when (>= cursor ti)
-                (put state/nav-trail :cursor (max 0 (- cursor 1)))))
-            (array/remove trail-entries ti))
-          (++ ti)))
       (:destroy (w :obj))
       (:destroy (w :node))))
   (each s (state/wm :seats)
@@ -308,7 +295,6 @@
   (apply-borders-effects windows)
   (apply-fullscreen-effects windows outputs)
   (apply-visibility windows)
-  (each o outputs (output-bg/manage (o :bg) o config state/registry))
 
   (ipc/emit-events outputs windows seats)
 

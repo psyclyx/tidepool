@@ -193,12 +193,8 @@
 (test "no-output-bounds: zero usable area hides windows (expected — no output info)"
   (def wins (make-windows 2))
   (def params @{:column-width 0.5 :scroll-offset 0 :active-row 0})
-  # No :output-bounds — this is the OLD behavior, windows will be hidden
   (def results (scroll/layout {:x 0 :y 0 :w 0 :h 0} wins params base-config (first wins)))
-  # Without output-bounds, zero usable area WILL hide everything — this is
-  # the bug case that output-bounds fixes
-  (def vis (count-visible results))
-  (printf "  [info] without output-bounds + zero usable: %d visible (expected 0)" vis))
+  (assert= 0 (count-visible results)))
 
 # --- Offset second output ---
 

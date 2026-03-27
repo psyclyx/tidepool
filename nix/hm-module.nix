@@ -1,6 +1,9 @@
-{ config, lib, pkgs, ... }:
-
-let
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
   cfg = config.services.tidepool;
 in {
   options.services.tidepool = {
@@ -12,16 +15,10 @@ in {
       defaultText = lib.literalExpression "pkgs.tidepool";
       description = "The tidepool package to use.";
     };
-
-    wallpaper = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = "Path to wallpaper image. Tidepool renders it directly on the background surface.";
-    };
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+    home.packages = [cfg.package];
 
     systemd.user.services.tidepool = {
       Unit = {

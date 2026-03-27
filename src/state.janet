@@ -15,7 +15,6 @@
     :main-count 1
     :indicator-notify true
     :indicator-file true
-    :background 0x000000
     :border-focused 0xffffff
     :border-normal 0x646464
     :border-urgent 0xff0000
@@ -58,10 +57,6 @@
 (def tag-layouts "Per-tag layout persistence cache." @{})
 (def tag-focus "Per-tag focused window memory." @{})
 (def marks "User-assigned window marks (name -> window)." @{})
-
-# Navigation trail: bounded deque with browser-style back/forward.
-# Entries are {:window w :tag t}. Auto-pushed on cross-tag/output navigation.
-(def nav-trail "Navigation history trail." @{:entries @[] :cursor nil :capacity 20})
 
 (def output-state-cache "Cached output state for reconnecting monitors." @{})
 (def registry "Wayland protocol object registry." @{})
