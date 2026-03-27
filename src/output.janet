@@ -64,9 +64,8 @@
 
 (defn create
   "Create an output from a Wayland output object."
-  [obj config registry bg]
+  [obj config registry]
   (def output @{:obj obj
-                :bg bg
                 :layer-shell (:get-output (registry "river_layer_shell_v1") obj)
                 :new true
                 :tags @{}

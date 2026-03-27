@@ -12,14 +12,13 @@
   wayland,
   zig_0_15,
 }:
-
 stdenv.mkDerivation (finalAttrs: {
   pname = "tidepool";
   version = "0.1.0";
 
   src = lib.fileset.toSource {
     root = ./.;
-    fileset = lib.fileset.difference ./. (lib.fileset.fileFilter (f: f.hasExt "jimage") ./.);
+    fileset = lib.fileset.fileFilter (f: (f.hasExt "janet" || f.hasExt "zig" || f.hasExt "zon" || f.hasExt "xml")) ./.;
   };
 
   deps = callPackage ./build.zig.zon.nix {};
