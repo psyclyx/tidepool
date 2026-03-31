@@ -55,6 +55,14 @@
   (:set-user-data obj w)
   w)
 
+(defn swap [ctx a b]
+  (def wins (ctx :windows))
+  (def ai (find-index |(= $ a) wins))
+  (def bi (find-index |(= $ b) wins))
+  (when (and ai bi)
+    (put wins ai b)
+    (put wins bi a)))
+
 # --- Fx ---
 
 (dispatch/reg-fx :window/create
@@ -63,20 +71,3 @@
     (array/push (ctx :windows) w)
     (array/push (ctx :render-order) w)
     (log/debugf "window created wid=%d" (w :wid))))
-
-(dispatch/reg-fx :window/close
-  (fn [_ctx w]
-    (:close (w :obj))))
-
-(dispatch/reg-fx :window/swap
-  (fn [ctx [a b]]
-    (def wins (ctx :windows))
-    (def ai (find-index |(= $ a) wins))
-    (def bi (find-index |(= $ b) wins))
-    (when (and ai bi)
-      (put wins ai b)
-      (put wins bi a))))
-
-(dispatch/reg-fx :window/set-tag
-  (fn [_ctx [w tag]]
-    (put w :tag tag)))

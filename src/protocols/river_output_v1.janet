@@ -4,15 +4,15 @@
 
 (dispatch/reg-proto interface :removed
   (fn [ctx output]
-    {:put [output :removed true]}))
+    (put output :removed true) nil))
 
 (dispatch/reg-proto interface :position
   (fn [ctx x y output]
-    {:put-all [output :x x :y y]}))
+    (put output :x x) (put output :y y) nil))
 
 (dispatch/reg-proto interface :dimensions
   (fn [ctx w h output]
-    {:put-all [output :w w :h h]}))
+    (put output :w w) (put output :h h) nil))
 
 (dispatch/reg-proto interface :wl-output
   (fn [ctx global-name output]

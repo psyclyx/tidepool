@@ -4,4 +4,4 @@
 
 (dispatch/reg-proto interface :name
   (fn [ctx n output]
-    {:put [output :name n]}))
+    (put output :name n) nil))

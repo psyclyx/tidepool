@@ -4,4 +4,4 @@
 
 (dispatch/reg-proto interface :non-exclusive-area
   (fn [ctx x y w h output]
-    {:put [output :non-exclusive-area [x y w h]]}))
+    (put output :non-exclusive-area [x y w h]) nil))

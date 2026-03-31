@@ -52,7 +52,3 @@
     (def s (create obj ctx))
     (array/push (ctx :seats) s)
     (log/debugf "seat created")))
-
-(dispatch/reg-fx :seat/focus
-  (fn [_ctx [seat win]]
-    (focus seat win)))

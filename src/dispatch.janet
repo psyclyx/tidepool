@@ -32,7 +32,7 @@
     (handler ctx v)
     (log/warnf "no fx handler for %s" k)))
 
-(defn apply-fx
+(defn- apply-fx
   "Apply effects. Accepts a table {k v ...} or an array of [k v] tuples."
   [ctx effects]
   (if (indexed? effects)
@@ -73,21 +73,6 @@
     (each [name & args] events
       (dispatch ctx name ;args))))
 
-(reg-fx :put
-  (fn [_ctx [tbl k v]]
-    (put tbl k v)))
-
-(reg-fx :put-all
-  (fn [_ctx args]
-    (let [tbl (first args)]
-      (var i 1)
-      (while (< i (length args))
-        (put tbl (args i) (args (+ i 1)))
-        (+= i 2)))))
-
-(reg-fx :spawn
-  (fn [_ctx cmd]
-    (os/spawn [;cmd] :p)))
 
 (defn handler
   "Return a handler factory for client specs. Closes over ctx."

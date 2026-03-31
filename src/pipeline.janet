@@ -104,8 +104,7 @@
     # Pending keybinding action
     (when-let [action-fn (s :pending-action)]
       (try
-        (when-let [effects (action-fn ctx s)]
-          (dispatch/apply-fx ctx effects))
+        (action-fn ctx s)
         ([err fib]
           (log/errorf "action failed: %s" err)
           (debug/stacktrace fib err ""))))))

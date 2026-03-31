@@ -54,13 +54,12 @@
     (array/push (ctx :outputs) output)
     (log/debugf "output created")))
 
+(defn set-tags [output tags]
+  (table/clear (output :tags))
+  (merge-into (output :tags) tags))
+
 (dispatch/reg-fx :wl-output/bind
   (fn [ctx {:output output :global-name global-name}]
     (def registry (ctx :registry))
     (def wl-out (:bind (registry :obj) global-name "wl_output" 4))
     (:set-handler wl-out (dispatch/proxy-handler ctx "wl_output" output))))
-
-(dispatch/reg-fx :output/set-tags
-  (fn [_ctx [output tags]]
-    (table/clear (output :tags))
-    (merge-into (output :tags) tags)))
