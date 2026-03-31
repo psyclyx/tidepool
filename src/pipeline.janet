@@ -1,167 +1,152 @@
+(import ./dispatch)
 (import ./state)
-(import ./output)
 (import ./window)
 (import ./seat)
-(import ./animation)
-(import ./ipc)
 (import ./layout)
+(import ./output)
+(import ./log)
 
-(var profile-last-manage 0)
-(var profile-count 0)
-(var profile-manage-total 0)
-(var profile-render-total 0)
-(var profile-cycle-total 0)
+# --- Chain runner ---
 
-# --- Lifecycle helpers ---
+(defn run-chain [ctx chain]
+  (each step chain (step ctx)))
 
-(defn- prune-closed []
-  (def arr (state/wm :render-order))
+# ============================================================
+# Manage steps — data computation
+# ============================================================
+
+(defn- prune-closed [ctx]
+  (def arr (ctx :render-order))
   (var i 0)
   (while (< i (length arr))
     (if (let [w (arr i)] (and (w :closed) (not (w :closing))))
       (array/remove arr i)
       (++ i))))
 
-(defn- lifecycle-start [now config]
-  (each o (state/wm :outputs) (output/manage-start o))
-  (each w (state/wm :windows) (window/manage-start w now config))
-  (each s (state/wm :seats) (seat/manage-start s)))
+(defn- flag-destroyed [ctx]
+  (each o (ctx :outputs)
+    (when (o :removed) (put o :pending-destroy true)))
+  (each w (ctx :windows)
+    (when (w :closed) (put w :pending-destroy true)))
+  (each s (ctx :seats)
+    (when (s :removed) (put s :pending-destroy true))))
 
-(def- remove-destroyed state/remove-destroyed)
-
-(defn- apply-destroys []
-  (each o (state/wm :outputs)
-    (when (o :pending-destroy)
-      (:destroy (o :obj))))
-  (each w (state/wm :windows)
+(defn- apply-destroys [ctx]
+  (each o (ctx :outputs)
+    (when (o :pending-destroy) (:destroy (o :obj))))
+  (each w (ctx :windows)
     (when (w :pending-destroy)
-      # Clean up marks referencing this window
-      (when (w :mark)
-        (put state/marks (w :mark) nil))
       (:destroy (w :obj))
       (:destroy (w :node))))
-  (each s (state/wm :seats)
+  (each s (ctx :seats)
     (when (s :pending-destroy)
-      (:destroy (s :layer-shell))
+      (when (s :layer-shell) (:destroy (s :layer-shell)))
       (:destroy (s :obj))))
-  (remove-destroyed (state/wm :outputs))
-  (remove-destroyed (state/wm :windows))
-  (remove-destroyed (state/wm :seats))
-  (remove-destroyed (state/wm :render-order)))
+  (state/remove-destroyed (ctx :outputs))
+  (state/remove-destroyed (ctx :windows))
+  (state/remove-destroyed (ctx :seats))
+  (state/remove-destroyed (ctx :render-order)))
 
-(defn- lifecycle-finish []
-  (each o (state/wm :outputs) (output/manage-finish o))
-  (each w (state/wm :windows) (window/manage-finish w))
-  (each s (state/wm :seats) (seat/manage-finish s)))
+(defn- sort-outputs [ctx]
+  (sort (ctx :outputs)
+    (fn [a b]
+      (let [ax (or (a :x) 0) bx (or (b :x) 0)
+            ay (or (a :y) 0) by (or (b :y) 0)]
+        (if (= ax bx) (< ay by) (< ax bx))))))
 
-# --- Pure data computation helpers ---
+(defn- init-new-outputs [ctx]
+  (each o (ctx :outputs)
+    (when (and (o :new) (empty? (o :tags)))
+      (put (o :tags) 1 true))))
 
-(defn- save-geometry [config]
-  (def prev @{})
-  (when (config :animate)
-    (each w (state/wm :windows)
-      (when (and (w :x) (w :y) (not (w :new)) (not (w :closing)))
-        (put prev w [(w :x) (w :y) (w :w) (w :h)]))))
-  prev)
+(defn- init-new-windows [ctx]
+  (def config (ctx :config))
+  (each w (ctx :windows)
+    (when (w :new)
+      (put w :needs-ssd true)
+      (if (w :wl-parent)
+        (do
+          (window/set-float w true)
+          (put w :tag ((w :wl-parent) :tag)))
+        (do
+          (window/set-float w false)
+          (when (window/fixed-size? w)
+            (window/set-float w true))
+          (when-let [s (first (ctx :seats))
+                     o (s :focused-output)]
+            (put w :tag (or (min-of (keys (o :tags))) 1))))))))
 
-(defn- sort-outputs []
-  (sort (state/wm :outputs)
-    (fn [a b] (let [ax (or (a :x) 0) ay (or (a :y) 0)
-                    bx (or (b :x) 0) by (or (b :y) 0)]
-                (if (= ax bx) (< ay by) (< ax bx))))))
+(defn- init-new-seats [ctx]
+  (each s (ctx :seats)
+    (when (s :new)
+      (each [keysym mods action-fn] ((ctx :config) :xkb-bindings)
+        (seat/bind-key s keysym mods action-fn (ctx :registry))))))
 
-(defn- clear-layout-state []
-  (window/clear-layout-state (state/wm :windows))
-  (put state/wm :anim-active false))
+(defn- process-focus [ctx]
+  (each s (ctx :seats)
+    # Clear stale focus
+    (when-let [w (s :focused)]
+      (when (or (w :closed) (w :pending-destroy))
+        (put s :focused nil)))
+    # Ensure focused output
+    (when (or (not (s :focused-output))
+              (and (s :focused-output) ((s :focused-output) :removed)))
+      (seat/focus-output s (first (ctx :outputs))))
+    # Focus new windows on active tag
+    (each w (ctx :windows)
+      (when (and (w :new)
+                 (when-let [o (s :focused-output)]
+                   ((o :tags) (w :tag))))
+        (seat/focus s w)))
+    # Clicked window gets focus
+    (when-let [w (s :window-interaction)]
+      (seat/focus s w))
+    # Pending keybinding action
+    (when-let [action-fn (s :pending-action)]
+      (try
+        (action-fn ctx s)
+        ([err fib]
+          (log/errorf "action failed: %s" err)
+          (debug/stacktrace fib err ""))))))
 
-(defn- sanitize []
-  (each w (state/wm :windows)
-    (when (and (not (w :closing)) (not (w :closed)))
-      (when-let [cw (w :col-width)]
-        (when (or (< cw 0.1) (> cw 1.0))
-          (put w :col-width nil)))
-      (when-let [cw (w :col-weight)]
-        (when (<= cw 0)
-          (put w :col-weight nil))))))
+(defn- run-layout [ctx]
+  (def config (ctx :config))
+  (each w (ctx :windows) (put w :layout-hidden nil))
+  (each o (ctx :outputs)
+    (def tiled (filter |(and (not ($ :float))
+                             (not ($ :fullscreen))
+                             (not ($ :closed)))
+                       (output/visible o (ctx :windows))))
+    (when (not (empty? tiled))
+      (def usable (output/usable-area o))
+      (def results (layout/master-stack usable tiled
+                                        (o :layout-params) config))
+      (each r results
+        (if (r :hidden)
+          (put (r :window) :layout-hidden true)
+          (do
+            (window/set-position (r :window) (r :x) (r :y))
+            (window/propose-dimensions (r :window)
+                                       (r :w) (r :h) config)))))))
 
-(defn- dispatch-pointer-ops [outputs render-order config]
-  (each w (state/wm :windows)
-    (when-let [move (w :pointer-move-requested)]
-      (seat/pointer-move (move :seat) w outputs render-order config))
-    (when-let [resize (w :pointer-resize-requested)]
-      (seat/pointer-resize (resize :seat) w (resize :edges) outputs render-order config))))
+(defn- compute-borders [ctx]
+  (def config (ctx :config))
+  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (each w (ctx :windows)
+    (when (not (or (w :closed) (w :pending-destroy)))
+      (window/set-borders w
+        (if (= w focused) :focused :normal)
+        config))))
 
-(def- build-tag-map output/build-tag-map)
+(defn- compute-visibility [ctx]
+  (window/compute-visibility (ctx :outputs) (ctx :windows)))
 
-(defn- compute-borders [seats config tag-map]
-  (def focused (when-let [s (first seats)] (s :focused)))
-  (each w (state/wm :windows)
-    (when (not (w :closing))
-      (if (= w focused)
-        (window/set-borders w :focused config)
-        (if (and focused (w :tag) (= (w :tag) (focused :tag))
-                 (not (w :float)) (not (focused :float)))
-          # Tabbed layout: non-focused windows in same tag are "tabbed"
-          (if-let [o (get tag-map (w :tag))]
-            (if (= (o :layout) :tabbed)
-              (window/set-borders w :tabbed config)
-              (window/set-borders w :normal config))
-            (window/set-borders w :normal config))
-          (window/set-borders w :normal config))))))
+# ============================================================
+# Manage steps — effect application
+# ============================================================
 
-(defn- start-animations [prev-geometry now config]
-  (when (config :animate)
-    (each w (state/wm :windows)
-      (when (and (w :new) (not (w :float)) (not (w :closing)))
-        (put w :needs-open-anim true))
-      (when (and (w :needs-open-anim) (w :x) (w :y)
-                 (w :w) (> (w :w) 0) (w :h) (> (w :h) 0)
-                 (not (w :closing)))
-        (put w :needs-open-anim nil)
-        (def cw (w :w))
-        (def ch (w :h))
-        (def cx (math/round (/ cw 2)))
-        (def cy (math/round (/ ch 2)))
-        (animation/start w :open
-          @{:clip-from @[cx cy 0 0]
-            :clip-to @[0 0 cw ch]}
-          now config))
-      (when (and (not (w :new)) (not (w :closing))
-                 (not (w :layout-hidden))
-                 (not (w :scroll-placed)))
-        (when-let [prev (get prev-geometry w)]
-          (def [px py pw ph] prev)
-          (def tx (w :x))
-          (def ty (w :y))
-          (def moved (or (not= px tx) (not= py ty)))
-          (def nw (w :proposed-w))
-          (def nh (w :proposed-h))
-          (def resized (and pw ph nw nh
-                            (or (not= pw nw) (not= ph nh))))
-          (when (or moved resized)
-            (def props @{})
-            (when moved
-              (put props :from-x px) (put props :from-y py)
-              (put props :to-x tx) (put props :to-y ty))
-            (when resized
-              (put props :clip-from @[0 0 pw ph])
-              (put props :clip-to @[0 0 nw nh]))
-            (if-let [existing (w :anim)]
-              (when (= (existing :type) :move)
-                (def retarget (or (not= (existing :to-x) (props :to-x))
-                                  (not= (existing :to-y) (props :to-y))))
-                (when retarget
-                  (animation/start w :move props now config)))
-              (animation/start w :move props now config))))))))
-
-(def- compute-visibility window/compute-visibility)
-
-(def reconcile-tags state/reconcile-tags)
-
-# --- Effect application passes ---
-
-(defn- apply-lifecycle-effects [windows]
-  (each w windows
+(defn- apply-window-config [ctx]
+  (each w (ctx :windows)
     (when (w :needs-ssd)
       (:use-ssd (w :obj)))
     (when (w :float-changed)
@@ -171,29 +156,22 @@
     (when (and (w :proposed-w) (w :proposed-h))
       (:propose-dimensions (w :obj) (w :proposed-w) (w :proposed-h)))))
 
-(defn- apply-focus-effects [seats]
-  (each s seats
+(defn- apply-focus [ctx]
+  (each s (ctx :seats)
     (when (s :focus-changed)
       (if-let [w (s :focused)]
         (do (:focus-window (s :obj) (w :obj))
-            (:place-top (w :node))
-            (when-let [wt (s :warp-target)]
-              (:pointer-warp (s :obj)
-                             (+ (wt :x) (div (wt :w) 2))
-                             (+ (wt :y) (div (wt :h) 2)))))
+            (:place-top (w :node)))
         (:clear-focus (s :obj))))
     (when (s :focus-output-changed)
       (when-let [o (s :focused-output)]
-        (:set-default (o :layer-shell))))
-    (when (s :op-started)
-      (:op-start-pointer (s :obj)))
-    (when (s :op-ended)
-      (:op-end (s :obj)))))
+        (when (o :layer-shell)
+          (:set-default (o :layer-shell)))))))
 
 (def- all-edges {:left true :bottom true :top true :right true})
 
-(defn- apply-borders-effects [windows]
-  (each w windows
+(defn- apply-borders [ctx]
+  (each w (ctx :windows)
     (when (and (w :border-rgb)
                (or (not= (w :border-rgb) (w :border-applied-rgb))
                    (not= (w :border-width) (w :border-applied-width))))
@@ -202,161 +180,94 @@
       (:set-borders (w :obj) all-edges (w :border-width)
                     ;(output/rgb-to-u32-rgba (w :border-rgb))))))
 
-(defn- apply-fullscreen-effects [windows outputs]
-  (each w windows
-    (when (w :fullscreen-changed)
-      (if (w :fullscreen)
-        (:inform-fullscreen (w :obj))
-        (do (:inform-not-fullscreen (w :obj))
-            (:exit-fullscreen (w :obj))))))
-  (each o outputs
-    (each w windows
-      (when (and (w :fullscreen) ((o :tags) (w :tag)))
-        (:fullscreen (w :obj) (o :obj))))))
-
-(defn- apply-visibility [windows]
-  (each w windows
+(defn- apply-visibility [ctx]
+  (each w (ctx :windows)
     (def vis (w :visible))
     (unless (= vis (w :vis-applied))
       (if vis
         (do (put w :vis-applied vis) (:show (w :obj)))
-        # Don't hide windows before their initial configure — the
-        # compositor won't send dimensions to a hidden surface.
         (when (w :w)
           (put w :vis-applied vis)
           (:hide (w :obj)))))))
 
-# --- Main cycles ---
+(defn- clear-transient [ctx]
+  (each o (ctx :outputs) (put o :new nil))
+  (each w (ctx :windows)
+    (put w :new nil)
+    (put w :needs-ssd nil)
+    (put w :float-changed nil)
+    (put w :proposed-w nil)
+    (put w :proposed-h nil))
+  (each s (ctx :seats)
+    (put s :new nil)
+    (put s :pending-action nil)
+    (put s :focus-changed nil)
+    (put s :focus-output-changed nil)
+    (put s :window-interaction nil)
+    (put s :pointer-moved nil)))
 
-(defn manage
-  "Run the management cycle: layout, borders, animations, persistence."
-  []
-  (def t0 (when (state/config :debug) (os/clock)))
-  (def cycle-dt (when t0 (if (> profile-last-manage 0) (- t0 profile-last-manage) 0)))
-  (when t0 (set profile-last-manage t0))
+(defn- signal-manage-done [ctx]
+  (:manage-finish
+    (get-in ctx [:registry :proxies "river_window_manager_v1"])))
 
-  (def now (os/clock))
-  (def config state/config)
-  (def outputs (state/wm :outputs))
-  (def windows (state/wm :windows))
-  (def seats (state/wm :seats))
-  (def render-order (state/wm :render-order))
+# ============================================================
+# Render steps
+# ============================================================
 
-  # --- Lifecycle (flag and destroy dead objects) ---
-  (prune-closed)
-  (lifecycle-start now config)
-  (apply-destroys)
+(defn- center-unplaced [ctx]
+  (each w (ctx :windows)
+    (when (and (not (w :x)) (w :w))
+      (if-let [o (window/tag-output w (ctx :outputs))]
+        (window/set-position w
+          (+ (o :x) (div (- (o :w) (w :w)) 2))
+          (+ (o :y) (div (- (o :h) (w :h)) 2)))
+        (window/set-position w 0 0)))))
 
-  # --- Pure data computation ---
-  (def prev-geometry (save-geometry config))
-  (sort-outputs)
-  (each o outputs (output/manage o outputs))
-  (each w windows (window/manage w config seats))
-  (dispatch-pointer-ops outputs render-order config)
-  (each s seats (seat/manage s outputs windows render-order config))
-  (reconcile-tags outputs
-                  (when-let [s (first seats)] (s :focused-output))
-                  state/tag-layouts state/tag-focus
-                  (when-let [s (first seats)] (s :focused)))
-  (each o outputs
-    (when-let [hint (o :tag-focus-hint)]
-      (put o :tag-focus-hint nil)
-      (when (and (not (hint :closed)) (not (hint :closing)))
-        (each s seats
-          (when (= (s :focused-output) o)
-            (seat/focus s hint outputs render-order config))))))
-  (sanitize)
-  (clear-layout-state)
-  (def tag-map (build-tag-map outputs))
-  (each o outputs (layout/apply o windows seats config now))
-  (each o outputs
-    (when (get-in o [:layout-params :scroll-animating])
-      (put state/wm :anim-active true)))
-  (compute-borders seats config tag-map)
-  (start-animations prev-geometry now config)
-  (compute-visibility outputs windows)
+(defn- apply-positions [ctx]
+  (each w (ctx :windows)
+    (when (and (w :x) (w :y) (w :visible))
+      (:set-position (w :node) (w :x) (w :y)))))
 
-  # Safety: if focused window ended up hidden, re-pick from visible.
-  # Prefer a window on the focused output to avoid unexpected output jumps.
-  (each s seats
-    (when-let [w (s :focused)]
-      (when (and (not (w :visible)) (not (w :closing)) (not (w :new)))
-        (def best
-          (or (when-let [o (s :focused-output)]
-                (last (filter |(and ($ :visible) (not ($ :closing))
-                                   ((o :tags) ($ :tag)))
-                              render-order)))
-              (last (filter |(and ($ :visible) (not ($ :closing))) render-order))))
-        (seat/focus s best outputs render-order config))))
+(defn- signal-render-done [ctx]
+  (:render-finish
+    (get-in ctx [:registry :proxies "river_window_manager_v1"])))
 
-  # --- Effect application ---
-  (apply-lifecycle-effects windows)
-  (apply-focus-effects seats)
-  (apply-borders-effects windows)
-  (apply-fullscreen-effects windows outputs)
-  (apply-visibility windows)
+# ============================================================
+# Chains — mutable arrays, modifiable at the REPL
+# ============================================================
 
-  (ipc/emit-events outputs windows seats)
+(def manage-chain
+  @[prune-closed
+    flag-destroyed
+    apply-destroys
+    sort-outputs
+    init-new-outputs
+    init-new-windows
+    init-new-seats
+    process-focus
+    state/reconcile-tags
+    run-layout
+    compute-borders
+    compute-visibility
+    # --- effects ---
+    apply-window-config
+    apply-focus
+    apply-borders
+    apply-visibility
+    clear-transient
+    signal-manage-done])
 
-  (lifecycle-finish)
-  (:manage-finish (state/registry "river_window_manager_v1"))
+(def render-chain
+  @[center-unplaced
+    apply-positions
+    signal-render-done])
 
-  (when (state/config :debug)
-    (def manage-dt (- (os/clock) t0))
-    (+= profile-manage-total manage-dt)
-    (when (> cycle-dt 0) (+= profile-cycle-total cycle-dt))
-    (++ profile-count)
-    (when (= (% profile-count 10) 0)
-      (def avg-manage (/ profile-manage-total profile-count))
-      (def avg-render (/ profile-render-total profile-count))
-      (def avg-cycle (if (> profile-count 1) (/ profile-cycle-total (- profile-count 1)) 0))
-      (eprintf "PROFILE [%d frames] manage=%.1fms render=%.1fms cycle=%.1fms (%.0ffps) anim=%s\n"
-        profile-count
-        (* avg-manage 1000) (* avg-render 1000) (* avg-cycle 1000)
-        (if (> avg-cycle 0) (/ 1 avg-cycle) 0)
-        (string (state/wm :anim-active)))
-      (set profile-count 0)
-      (set profile-manage-total 0)
-      (set profile-render-total 0)
-      (set profile-cycle-total 0))))
+# ============================================================
+# Event registration
+# ============================================================
 
-(defn render
-  "Run the render cycle: position windows, tick animations, clip."
-  []
-  (def t0 (when (state/config :debug) (os/clock)))
-  (def now (os/clock))
-  (def windows (state/wm :windows))
-  (def outputs (state/wm :outputs))
-  (def config state/config)
+(dispatch/reg-event :manage
+  (fn [ctx] (run-chain ctx manage-chain) nil))
 
-  # --- Pure data computation ---
-  (each w windows (window/render w outputs))
-  (each w windows
-    (when (animation/tick w now)
-      (put state/wm :anim-active true)))
-  (def tag-map (build-tag-map outputs))
-  (each w windows (window/clip-to-output w tag-map config))
-  (each s (state/wm :seats) (seat/render s))
-
-  # --- Effect application ---
-  (each w windows
-    (when (and (w :x) (w :y))
-      (:set-position (w :node) (w :x) (w :y))))
-  (each w windows
-    (cond
-      (w :anim-clip)
-      (if (= (w :anim-clip) :clear)
-        (:set-clip-box (w :obj) 0 0 0 0)
-        (let [[cx cy cw ch] (w :anim-clip)]
-          (:set-clip-box (w :obj) cx cy cw ch)))
-
-      (w :clip-rect)
-      (if (= (w :clip-rect) :clear)
-        (:set-clip-box (w :obj) 0 0 0 0)
-        (let [[cx cy cw ch] (w :clip-rect)]
-          (:set-clip-box (w :obj) cx cy cw ch)))))
-
-  (:render-finish (state/registry "river_window_manager_v1"))
-  (when t0 (+= profile-render-total (- (os/clock) t0)))
-  (when (state/wm :anim-active)
-    (:manage-dirty (state/registry "river_window_manager_v1"))))
+(dispatch/reg-event :render
+  (fn [ctx] (run-chain ctx render-chain) nil))

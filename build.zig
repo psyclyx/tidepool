@@ -231,4 +231,42 @@ pub fn build(b: *Build) !void {
     tidepoolmsg.linkLibrary(janet_static.artifact("janet"));
 
     b.installArtifact(tidepoolmsg);
+
+    // --- REPL development setup ---
+    // After `zig build repl-deps`, run: zig-out/bin/janet-repl from src/
+    // (or use the Emacs janet-repl command which does this automatically).
+    const repl_step = b.step("repl-deps", "Install Janet modules for REPL development");
+
+    // Install zig's janet binary + libjanet.so so native modules link correctly
+    const install_janet_bin = b.addInstallFile(janet.artifact("janet-bin").getEmittedBin(), "bin/janet-repl");
+    const install_janet_lib = b.addInstallFile(janet.artifact("janet").getEmittedBin(), "lib/libjanet.so");
+    repl_step.dependOn(&install_janet_bin.step);
+    repl_step.dependOn(&install_janet_lib.step);
+
+    const repl_deps: []const struct { artifact: *Build.Step.Compile, dest: []const u8 } = &.{
+        .{ .artifact = wayland_native, .dest = "lib/janet/wayland-native.so" },
+        .{ .artifact = xkbcommon_native, .dest = "lib/janet/xkbcommon-native.so" },
+        .{ .artifact = rawterm, .dest = "lib/janet/spork/rawterm.so" },
+        .{ .artifact = json, .dest = "lib/janet/spork/json.so" },
+    };
+    for (repl_deps) |dep| {
+        const step = b.addInstallFile(dep.artifact.getEmittedBin(), dep.dest);
+        repl_step.dependOn(&step.step);
+    }
+
+    const repl_sources: []const struct { src: Build.LazyPath, dest: []const u8 } = &.{
+        .{ .src = janet_wayland.path("src/wayland.janet"), .dest = "lib/janet/wayland.janet" },
+        .{ .src = lemongrass.path("init.janet"), .dest = "lib/janet/lemongrass/init.janet" },
+        .{ .src = lemongrass.path("lib/to-markup.janet"), .dest = "lib/janet/lemongrass/lib/to-markup.janet" },
+        .{ .src = lemongrass.path("lib/to-janet.janet"), .dest = "lib/janet/lemongrass/lib/to-janet.janet" },
+        .{ .src = lemongrass.path("lib/cli.janet"), .dest = "lib/janet/lemongrass/lib/cli.janet" },
+        .{ .src = spork.path("spork/netrepl.janet"), .dest = "lib/janet/spork/netrepl.janet" },
+        .{ .src = spork.path("spork/sh.janet"), .dest = "lib/janet/spork/sh.janet" },
+        .{ .src = spork.path("spork/path.janet"), .dest = "lib/janet/spork/path.janet" },
+        .{ .src = janet_xkbcommon.path("src/xkbcommon.janet"), .dest = "lib/janet/xkbcommon.janet" },
+    };
+    for (repl_sources) |src| {
+        const step = b.addInstallFile(src.src, src.dest);
+        repl_step.dependOn(&step.step);
+    }
 }

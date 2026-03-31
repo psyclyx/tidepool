@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="${PWD}/zig-out/lib"
+export JANET_PATH="${PWD}/zig-out/lib/janet"
+cd "src" || exit
+"${PWD}/../zig-out/bin/janet-repl" "$@"

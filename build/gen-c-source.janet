@@ -165,7 +165,7 @@ int main(int argc, const char **argv) {
 (def declarations @"#include <janet.h>\n")
 (def lookup-into-invocations @"")
 (each info mods
-  (when (= :native (info :kind))
+  (when (and (= :native (info :kind)) (info :prefix))
     (buffer/push-string declarations
                         "extern void "
                         (info :entry)
