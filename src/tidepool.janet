@@ -22,13 +22,6 @@
 (import ./protocols/river_xkb_binding_v1)
 (import ./protocols/wl_output)
 
-# Exit effects
-(dispatch/reg-fx :exit/error
-                 (fn [ctx msg] (log/error msg) (os/exit 1)))
-
-(dispatch/reg-fx :exit/success
-                 (fn [ctx _] (os/exit 0)))
-
 (def interfaces
   (wayland/scan
     :wayland-xml protocols/wayland-xml

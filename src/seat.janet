@@ -45,10 +45,7 @@
   (:set-xcursor-theme obj (config :xcursor-theme) (config :xcursor-size))
   seat)
 
-# --- Fx ---
-
-(dispatch/reg-fx :seat/create
-  (fn [ctx obj]
-    (def s (create obj ctx))
-    (array/push (ctx :seats) s)
-    (log/debugf "seat created")))
+(defn add [ctx obj]
+  (def s (create obj ctx))
+  (array/push (ctx :seats) s)
+  (log/debugf "seat created"))

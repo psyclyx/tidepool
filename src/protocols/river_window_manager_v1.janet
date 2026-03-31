@@ -1,31 +1,36 @@
 (import ../dispatch)
+(import ../window)
+(import ../seat)
+(import ../output)
+(import ../log)
 
 (def interface "river_window_manager_v1")
 
 (dispatch/reg-proto interface :unavailable
   (fn [_ctx]
-    {:exit/error "tidepool: another window manager is already running"}))
+    (log/error "tidepool: another window manager is already running")
+    (os/exit 1)))
 
 (dispatch/reg-proto interface :finished
   (fn [_ctx]
-    {:exit/success true}))
+    (os/exit 0)))
 
 (dispatch/reg-proto interface :manage-start
   (fn [ctx]
-    {:dispatch [:manage]}))
+    (dispatch/dispatch ctx :manage) nil))
 
 (dispatch/reg-proto interface :render-start
   (fn [ctx]
-    {:dispatch [:render]}))
+    (dispatch/dispatch ctx :render) nil))
 
 (dispatch/reg-proto interface :output
-  (fn [_ctx obj]
-    {:output/create obj}))
+  (fn [ctx obj]
+    (output/add ctx obj) nil))
 
 (dispatch/reg-proto interface :seat
-  (fn [_ctx obj]
-    {:seat/create obj}))
+  (fn [ctx obj]
+    (seat/add ctx obj) nil))
 
 (dispatch/reg-proto interface :window
-  (fn [_ctx obj]
-    {:window/create obj}))
+  (fn [ctx obj]
+    (window/add ctx obj) nil))

@@ -63,11 +63,8 @@
     (put wins ai b)
     (put wins bi a)))
 
-# --- Fx ---
-
-(dispatch/reg-fx :window/create
-  (fn [ctx obj]
-    (def w (create ctx obj))
-    (array/push (ctx :windows) w)
-    (array/push (ctx :render-order) w)
-    (log/debugf "window created wid=%d" (w :wid))))
+(defn add [ctx obj]
+  (def w (create ctx obj))
+  (array/push (ctx :windows) w)
+  (array/push (ctx :render-order) w)
+  (log/debugf "window created wid=%d" (w :wid)))
