@@ -57,29 +57,20 @@
 
 (defn main "Connect to Wayland, load config, and run the event loop."
   [& args]
-  (config/init)
   (let [opts (config/parse-opts args)
         display (wayland/connect interfaces)]
     (set ctx @{})
     (state/init ctx)
     (defer (:disconnect display)
       # Create registry and put in ctx before roundtrip, so that
-      # fx handlers for initial protocol events can access proxies.
+      # protocol handlers for initial events can access proxies.
       (def registry (wayland-client/create display (specs ctx)))
       (put ctx :registry registry)
       (wayland-client/connect display registry)
 
+      (def env (curenv))
       (when-let [path (opts :init-path)]
-        (config/exec-path path
-                          {'ctx ctx
-                           'actions @{:spawn actions/spawn
-                                      :close-focused actions/close-focused
-                                      :focus-next actions/focus-next
-                                      :focus-prev actions/focus-prev
-                                      :swap-next actions/swap-next
-                                      :swap-prev actions/swap-prev
-                                      :focus-tag actions/focus-tag
-                                      :send-to-tag actions/send-to-tag}}))
-      (def repl-server (config/repl-server-create))
+        (config/exec-path path env))
+      (def repl-server (config/repl-server-create env))
       (defer (:close repl-server)
         (forever (:dispatch display))))))
