@@ -27,19 +27,6 @@ in {
       };
       Service = {
         ExecStart = lib.getExe cfg.package;
-        ExecStop = pkgs.writeShellScript "tidepool-stop" ''
-          timeout 5 ${lib.getExe' cfg.package "tidepoolmsg"} save > "$XDG_RUNTIME_DIR/tidepool-state.jdn" || true
-          kill -TERM "$MAINPID"
-        '';
-        ExecStartPost = pkgs.writeShellScript "tidepool-load" ''
-          if [ -f "$XDG_RUNTIME_DIR/tidepool-state.jdn" ]; then
-            for i in $(seq 1 10); do
-              ${lib.getExe' cfg.package "tidepoolmsg"} load < "$XDG_RUNTIME_DIR/tidepool-state.jdn" && break
-              sleep 0.2
-            done
-            rm -f "$XDG_RUNTIME_DIR/tidepool-state.jdn"
-          fi
-        '';
         Restart = "on-failure";
         RestartSec = 2;
       };
