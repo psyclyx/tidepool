@@ -5,6 +5,7 @@
 (import ./layout)
 (import ./output)
 (import ./log)
+(import ./ipc)
 
 # --- Chain runner ---
 
@@ -63,7 +64,7 @@
   (def config (ctx :config))
   (each w (ctx :windows)
     (when (w :new)
-      (put w :needs-ssd true)
+      (put w :needs-ssd (not= (w :decoration-hint) 0))
       (if (w :wl-parent)
         (do
           (window/set-float w true)
@@ -239,6 +240,7 @@
 (def manage-chain
   @[prune-closed
     flag-destroyed
+    ipc/emit-close-events
     apply-destroys
     sort-outputs
     init-new-outputs
@@ -254,6 +256,7 @@
     apply-focus
     apply-borders
     apply-visibility
+    ipc/emit-state-events
     clear-transient
     signal-manage-done])
 

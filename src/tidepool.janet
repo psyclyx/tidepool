@@ -11,6 +11,7 @@
 (import ./actions)
 (import ./pipeline)
 (import ./log)
+(import ./ipc)
 
 # Load protocol event handlers (self-registering on import)
 (import ./protocols/river_window_manager_v1)
@@ -68,9 +69,11 @@
       (put ctx :registry registry)
       (wayland-client/connect display registry)
 
-      (def env (curenv))
-      (when-let [path (opts :init-path)]
-        (config/exec-path path env))
-      (def repl-server (config/repl-server-create env))
-      (defer (:close repl-server)
-        (forever (:dispatch display))))))
+      (def ipc-server (ipc/create ctx))
+      (defer (:close ipc-server)
+        (def env (curenv))
+        (when-let [path (opts :init-path)]
+          (config/exec-path path env))
+        (def repl-server (config/repl-server-create env))
+        (defer (:close repl-server)
+          (forever (:dispatch display)))))))
