@@ -46,16 +46,11 @@
                                    :scroll-offset 0
                                    :column-width (config :column-width)
                                    :dwindle-ratio (config :dwindle-ratio)}})
-    # Per-output events dispatch back through the system with output closed over
-    (:set-handler obj
-      (fn [event]
-        (dispatch/dispatch-proto ctx "river_output_v1" [;event output])))
+    (:set-handler obj (dispatch/proxy-handler ctx "river_output_v1" output))
     (when-let [ls (get-in registry [:proxies "river_layer_shell_v1"])]
       (def ls-output (:get-output ls obj))
       (put output :layer-shell ls-output)
-      (:set-handler ls-output
-        (fn [event]
-          (dispatch/dispatch-proto ctx "river_layer_shell_output_v1" [;event output]))))
+      (:set-handler ls-output (dispatch/proxy-handler ctx "river_layer_shell_output_v1" output)))
     (array/push (ctx :outputs) output)
     (log/debugf "output created")))
 
@@ -63,6 +58,9 @@
   (fn [ctx {:output output :global-name global-name}]
     (def registry (ctx :registry))
     (def wl-out (:bind (registry :obj) global-name "wl_output" 4))
-    (:set-handler wl-out
-      (fn [event]
-        (dispatch/dispatch-proto ctx "wl_output" [;event output])))))
+    (:set-handler wl-out (dispatch/proxy-handler ctx "wl_output" output))))
+
+(dispatch/reg-fx :output/set-tags
+  (fn [_ctx [output tags]]
+    (table/clear (output :tags))
+    (merge-into (output :tags) tags)))

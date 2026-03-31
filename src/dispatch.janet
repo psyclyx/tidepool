@@ -32,7 +32,7 @@
     (handler ctx v)
     (log/warnf "no fx handler for %s" k)))
 
-(defn- apply-fx
+(defn apply-fx
   "Apply effects. Accepts a table {k v ...} or an array of [k v] tuples."
   [ctx effects]
   (if (indexed? effects)
@@ -85,9 +85,20 @@
         (put tbl (args i) (args (+ i 1)))
         (+= i 2)))))
 
+(reg-fx :spawn
+  (fn [_ctx cmd]
+    (os/spawn [;cmd] :p)))
+
 (defn handler
   "Return a handler factory for client specs. Closes over ctx."
   [ctx interface]
   (fn [_global-name _global]
     (fn [event]
       (dispatch-proto ctx interface event))))
+
+(defn proxy-handler
+  "Return a handler fn for a proxy object that dispatches through reg-proto.
+   Extra args are appended to every event."
+  [ctx interface & extra]
+  (fn [event]
+    (dispatch-proto ctx interface [;event ;extra])))

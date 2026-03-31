@@ -80,7 +80,7 @@
   (each s (ctx :seats)
     (when (s :new)
       (each [keysym mods action-fn] ((ctx :config) :xkb-bindings)
-        (seat/bind-key s keysym mods action-fn (ctx :registry))))))
+        (seat/bind-key ctx s keysym mods action-fn)))))
 
 (defn- process-focus [ctx]
   (each s (ctx :seats)
@@ -104,7 +104,8 @@
     # Pending keybinding action
     (when-let [action-fn (s :pending-action)]
       (try
-        (action-fn ctx s)
+        (when-let [effects (action-fn ctx s)]
+          (dispatch/apply-fx ctx effects))
         ([err fib]
           (log/errorf "action failed: %s" err)
           (debug/stacktrace fib err ""))))))

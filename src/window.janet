@@ -48,30 +48,10 @@
 
 # --- Create ---
 
-(defn create [obj]
+(defn create [ctx obj]
   (def w @{:obj obj :node (:get-node obj)
            :new true :tag 1 :wid (++ next-wid)})
-  (:set-handler obj
-    (fn [event]
-      (match event
-        [:closed] (put w :closed true)
-        [:dimensions width height]
-          (do (put w :w width) (put w :h height))
-        [:dimensions-hint min-w min-h max-w max-h]
-          (do (put w :min-w min-w) (put w :min-h min-h)
-              (put w :max-w max-w) (put w :max-h max-h))
-        [:app-id id] (put w :app-id id)
-        [:title t] (put w :title t)
-        [:parent p] (put w :wl-parent (when p (:get-user-data p)))
-        [:decoration-hint _] nil
-        [:pointer-move-requested s]
-          (put w :pointer-move-requested (:get-user-data s))
-        [:pointer-resize-requested s edges]
-          (put w :pointer-resize-requested @{:seat (:get-user-data s) :edges edges})
-        [:fullscreen-requested output]
-          (put w :fullscreen-requested [:enter (when output (:get-user-data output))])
-        [:exit-fullscreen-requested]
-          (put w :fullscreen-requested [:exit]))))
+  (:set-handler obj (dispatch/proxy-handler ctx "river_window_v1" w))
   (:set-user-data obj w)
   w)
 
@@ -79,7 +59,24 @@
 
 (dispatch/reg-fx :window/create
   (fn [ctx obj]
-    (def w (create obj))
+    (def w (create ctx obj))
     (array/push (ctx :windows) w)
     (array/push (ctx :render-order) w)
     (log/debugf "window created wid=%d" (w :wid))))
+
+(dispatch/reg-fx :window/close
+  (fn [_ctx w]
+    (:close (w :obj))))
+
+(dispatch/reg-fx :window/swap
+  (fn [ctx [a b]]
+    (def wins (ctx :windows))
+    (def ai (find-index |(= $ a) wins))
+    (def bi (find-index |(= $ b) wins))
+    (when (and ai bi)
+      (put wins ai b)
+      (put wins bi a))))
+
+(dispatch/reg-fx :window/set-tag
+  (fn [_ctx [w tag]]
+    (put w :tag tag)))

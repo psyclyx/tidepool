@@ -14,16 +14,20 @@
 
 # Load protocol event handlers (self-registering on import)
 (import ./protocols/river_window_manager_v1)
+(import ./protocols/river_window_v1)
 (import ./protocols/river_output_v1)
 (import ./protocols/river_layer_shell_output_v1)
+(import ./protocols/river_seat_v1)
+(import ./protocols/river_layer_shell_seat_v1)
+(import ./protocols/river_xkb_binding_v1)
 (import ./protocols/wl_output)
 
 # Exit effects
 (dispatch/reg-fx :exit/error
-  (fn [ctx msg] (log/error msg) (os/exit 1)))
+                 (fn [ctx msg] (log/error msg) (os/exit 1)))
 
 (dispatch/reg-fx :exit/success
-  (fn [ctx _] (os/exit 0)))
+                 (fn [ctx _] (os/exit 0)))
 
 (def interfaces
   (wayland/scan
@@ -74,16 +78,15 @@
 
       (when-let [path (opts :init-path)]
         (config/exec-path path
-          {'ctx ctx
-           'actions @{:spawn actions/spawn
-                      :close-focused actions/close-focused
-                      :focus-next actions/focus-next
-                      :focus-prev actions/focus-prev
-                      :swap-next actions/swap-next
-                      :swap-prev actions/swap-prev
-                      :focus-tag actions/focus-tag
-                      :send-to-tag actions/send-to-tag}}))
-
+                          {'ctx ctx
+                           'actions @{:spawn actions/spawn
+                                      :close-focused actions/close-focused
+                                      :focus-next actions/focus-next
+                                      :focus-prev actions/focus-prev
+                                      :swap-next actions/swap-next
+                                      :swap-prev actions/swap-prev
+                                      :focus-tag actions/focus-tag
+                                      :send-to-tag actions/send-to-tag}}))
       (def repl-server (config/repl-server-create))
       (defer (:close repl-server)
         (forever (:dispatch display))))))
