@@ -29,7 +29,8 @@
     (put window :wl-parent (when p (:get-user-data p))) nil))
 
 (dispatch/reg-proto interface :decoration-hint
-  (fn [_ctx _ _window] nil))
+  (fn [_ctx hint window]
+    (put window :decoration-hint hint) nil))
 
 (dispatch/reg-proto interface :pointer-move-requested
   (fn [_ctx s window]
