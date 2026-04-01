@@ -317,11 +317,10 @@
 (t/assert-eq (length (result :placements)) 1)
 (def p (first (result :placements)))
 (t/assert-is (p :window) w1)
-(t/assert-eq (p :x) 4 "outer-gap from left")
+(t/assert-eq (p :vx) 4 "virtual x at outer-gap")
 (t/assert-eq (p :y) 4 "outer-gap from top")
 (t/assert-eq (p :w) 1872)
 (t/assert-eq (p :h) 1072)
-(t/assert-eq (p :clip) nil "fully visible")
 
 (t/test-start "scroll-layout: two small windows, no scroll")
 (tree/reset-ids)
@@ -343,18 +342,21 @@
 # Should have placements for visible columns
 (t/assert-truthy (> (length (result :placements)) 0))
 
-(t/test-start "scroll-layout: clipping on partially visible window")
+(t/test-start "scroll-layout: partially visible window has virtual x")
 (tree/reset-ids)
 (def windows (seq [i :range [0 3]] @{:wid i}))
 (def cols (seq [i :range [0 3]] (tree/leaf (windows i) 1.0)))
 # Focus col 1, cam should be 1860
 (def result (scroll/scroll-layout cols (tree/first-leaf (cols 1)) 0 output usable config))
-# Col 0: vx=4, screen_x = 0 + 4 - 1860 = -1856. visible? -1856+1872=16 > 0, yes
-# Its clip should have clip-x > 0
+# Col 0: vx=4, screen_x = 0 + 4 - 1860 = -1856. Still placed (partially visible).
 (def col0-placement (find |(= ($ :window) (windows 0)) (result :placements)))
 (when col0-placement
-  (t/assert-truthy (col0-placement :clip) "first column should be clipped")
-  (t/assert-truthy (> ((col0-placement :clip) :clip-x) 0) "clipped on left"))
+  (t/assert-eq (col0-placement :vx) 4 "virtual x is outer-gap")
+  # Clipping is now computed at render time via clip-rect, not in placements
+  (def screen-x (scroll/screen-x 4 1860 0))
+  (def clip (scroll/clip-rect screen-x 1872 4 1072 0 0 1920 1080))
+  (t/assert-truthy clip "partially visible needs clipping")
+  (t/assert-truthy (> (clip :clip-x) 0) "clipped on left"))
 
 (t/test-start "scroll-layout: with usable area offset (layer shell)")
 (tree/reset-ids)
@@ -404,6 +406,7 @@
 (def usable2 {:x 1920 :y 0 :w 1920 :h 1080})
 (def result (scroll/scroll-layout cols l1 0 output2 usable2 config))
 (def p (first (result :placements)))
-(t/assert-eq (p :x) 1924 "offset by second output position")
+# Virtual x is independent of output position — it's just the column's virtual pos
+(t/assert-eq (p :vx) 4 "virtual x is outer-gap, output offset applied at render")
 
 (t/report)

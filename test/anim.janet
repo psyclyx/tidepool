@@ -109,42 +109,39 @@
 # Window animation
 # ============================================================
 
-(t/test-start "set-targets: creates springs for position change")
-(def w @{:x 0 :y 0 :w 800 :h 600})
-(anim/set-targets w 100 50 800 600 200)
-(t/assert-truthy (get-in w [:anim :x]) "x spring created")
+(t/test-start "set-targets: creates springs for y/w/h changes")
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 50 800 600 200 0 800 600)
 (t/assert-truthy (get-in w [:anim :y]) "y spring created")
 (t/assert-eq (get-in w [:anim :w]) nil "w unchanged, no spring")
 (t/assert-eq (get-in w [:anim :h]) nil "h unchanged, no spring")
 
-(t/test-start "set-targets: no springs when position unchanged")
-(def w @{:x 100 :y 50 :w 800 :h 600})
-(anim/set-targets w 100 50 800 600 200)
-(t/assert-eq (get-in w [:anim :x]) nil)
+(t/test-start "set-targets: no springs when unchanged")
+(def w @{:y 50 :w 800 :h 600})
+(anim/set-targets w 50 800 600 200 50 800 600)
 (t/assert-eq (get-in w [:anim :y]) nil)
 
 (t/test-start "tick-window: advances springs")
-(def w @{:x 0 :y 0 :w 800 :h 600})
-(anim/set-targets w 100 0 800 600 200)
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 100 800 600 200 0 800 600)
 (def active (anim/tick-window w 100 anim/linear))
 (t/assert-truthy active "still animating")
-(t/assert-eq (get-in w [:anim :x :current]) 50 "halfway")
+(t/assert-eq (get-in w [:anim :y :current]) 50 "halfway")
 
 (t/test-start "tick-window: completes and clears")
-(def w @{:x 0 :y 0 :w 800 :h 600})
-(anim/set-targets w 100 0 800 600 200)
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 100 800 600 200 0 800 600)
 (anim/tick-window w 200 anim/linear)
-# Spring completed, cleared
-(t/assert-eq (get-in w [:anim :x]) nil "spring removed")
+(t/assert-eq (get-in w [:anim :y]) nil "spring removed")
 
 (t/test-start "animating?: true when springs active")
-(def w @{:x 0 :y 0 :w 800 :h 600})
-(anim/set-targets w 100 0 800 600 200)
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 100 800 600 200 0 800 600)
 (t/assert-truthy (anim/animating? w))
 
 (t/test-start "animating?: false when no springs")
-(def w @{:x 100 :y 50 :w 800 :h 600})
-(anim/set-targets w 100 50 800 600 200)
+(def w @{:y 50 :w 800 :h 600})
+(anim/set-targets w 50 800 600 200 50 800 600)
 (t/assert-falsey (anim/animating? w))
 
 # ============================================================
@@ -212,17 +209,13 @@
 # resolve helpers
 # ============================================================
 
-(t/test-start "resolve-position: reads from active spring")
-(def w @{:x 100 :y 50 :anim @{:x @{:current 75} :y @{:current 40}}})
-(def [rx ry] (anim/resolve-position w))
-(t/assert-eq rx 75)
-(t/assert-eq ry 40)
+(t/test-start "resolve-y: reads from active spring")
+(def w @{:y 50 :anim @{:y @{:current 40}}})
+(t/assert-eq (anim/resolve-y w) 40)
 
-(t/test-start "resolve-position: falls back to target when no spring")
-(def w @{:x 100 :y 50})
-(def [rx ry] (anim/resolve-position w))
-(t/assert-eq rx 100)
-(t/assert-eq ry 50)
+(t/test-start "resolve-y: falls back to target when no spring")
+(def w @{:y 50})
+(t/assert-eq (anim/resolve-y w) 50)
 
 (t/test-start "resolve-dimensions: reads from active spring")
 (def w @{:w 800 :h 600 :anim @{:w @{:current 750} :h @{:current 580}}})
@@ -245,8 +238,8 @@
 (t/assert-falsey (anim/any-animating? ctx))
 
 (t/test-start "any-animating?: true when window animating")
-(def w @{:x 0 :y 0 :w 800 :h 600})
-(anim/set-targets w 100 0 800 600 200)
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 100 800 600 200 0 800 600)
 (def ctx @{:windows @[w] :tags @{}})
 (t/assert-truthy (anim/any-animating? ctx))
 

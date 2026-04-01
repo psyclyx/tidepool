@@ -265,9 +265,8 @@
                         :border-width (config :border-width)
                         :inner-gap (config :inner-gap)
                         :outer-gap (config :outer-gap)})
-  # Save previous positions for animation
+  # Save previous positions for animation (y, w, h only — x is camera-driven)
   (each w (ctx :windows)
-    (put w :prev-x (w :x))
     (put w :prev-y (w :y))
     (put w :prev-w (w :proposed-w))
     (put w :prev-h (w :proposed-h)))
@@ -291,12 +290,13 @@
                                            scroll-config))
         # Update camera
         (put tag :camera (result :camera))
-        # Apply placements
+        # Apply placements — store virtual x and screen y
         (each p (result :placements)
           (def w (p :window))
-          (window/set-position w (p :x) (p :y))
-          (window/propose-dimensions w (p :w) (p :h) config)
-)))))
+          (put w :vx (p :vx))
+          (put w :y (p :y))
+          (put w :x true) # mark as placed (for layout-hidden check)
+          (window/propose-dimensions w (p :w) (p :h) config)))))
   # Mark windows not placed by scroll layout as hidden
   (each w (ctx :windows)
     (when (and (not (w :float)) (not (w :closed)) (not (w :x)))
@@ -309,31 +309,19 @@
   (def open-dur (config :anim-open-duration))
   (def close-dur (config :anim-close-duration))
   (each w (ctx :windows)
-    (when (and (w :x) (w :y) (not (w :closed)) (not (w :float)))
-      # Only animate if window had a previous position (not new)
-      (when (and (w :prev-x) (w :prev-y) (not (w :new)))
-        # Temporarily set w's position to prev so set-targets sees the delta
-        (def target-x (w :x))
-        (def target-y (w :y))
-        (def target-w (w :proposed-w))
-        (def target-h (w :proposed-h))
-        (put w :x (w :prev-x))
-        (put w :y (w :prev-y))
-        (put w :w (or (w :prev-w) (w :w)))
-        (put w :h (or (w :prev-h) (w :h)))
-        (anim/set-targets w target-x target-y
-                          (or target-w (w :w)) (or target-h (w :h))
-                          duration)
-        # Restore targets
-        (put w :x target-x)
-        (put w :y target-y)))
+    (when (and (w :vx) (w :y) (not (w :closed)) (not (w :float)))
+      # Animate y/w/h if window had a previous position (not new)
+      (when (and (w :prev-y) (not (w :new)))
+        (anim/set-targets w (w :y) (w :proposed-w) (w :proposed-h)
+                          duration
+                          (w :prev-y) (w :prev-w) (w :prev-h))))
     # Open animation for new windows
     (when (and (w :new) (not (w :float)))
       (anim/start-open w open-dur))
     # Close animation
     (when (and (w :closed) (not (w :closing)) (w :tree-leaf))
       (anim/start-close w close-dur)))
-  # Camera animations
+  # Camera animation — the primary driver for horizontal scrolling
   (eachp [_ tag] (ctx :tags)
     (anim/set-camera-target tag (tag :camera) duration)))
 
@@ -406,7 +394,6 @@
     (put w :float-changed nil)
     (put w :proposed-w nil)
     (put w :proposed-h nil)
-    (put w :prev-x nil)
     (put w :prev-y nil)
     (put w :prev-w nil)
     (put w :prev-h nil))
@@ -449,25 +436,36 @@
   (eachp [_ tag] (ctx :tags)
     (anim/tick-camera tag dt ease-fn)))
 
+(defn- window-screen-x
+  "Compute screen x from virtual x, animated camera, and output."
+  [w ctx]
+  (when-let [vx (w :vx)
+             tag (get-in ctx [:tags (w :tag)])
+             o (window/tag-output w (ctx :outputs))]
+    (def usable (output/usable-area o))
+    (def cam (or (tag :camera-visual) (tag :camera)))
+    (+ (usable :x) (- vx cam))))
+
 (defn- apply-positions [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :node))
-      (def [x y] (anim/resolve-position w))
-      (when (and x y)
-        (:set-position (w :node) (math/round x) (math/round y))))))
+      (def screen-x (window-screen-x w ctx))
+      (def screen-y (anim/resolve-y w))
+      (when (and screen-x screen-y)
+        (:set-position (w :node)
+                       (math/round screen-x) (math/round screen-y))))))
 
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj))
-      # Compute clip from animated position and output geometry
       (def clip
-        (when-let [o (window/tag-output w (ctx :outputs))]
-          (let [[ax ay] (anim/resolve-position w)
-                aw (or (w :w) 0)
-                ah (or (w :h) 0)]
-            (scroll/clip-rect ax aw ay ah
-                              (or (o :x) 0) (or (o :y) 0)
-                              (or (o :w) 1920) (or (o :h) 1080)))))
+        (when-let [screen-x (window-screen-x w ctx)
+                   o (window/tag-output w (ctx :outputs))]
+          (def screen-y (anim/resolve-y w))
+          (scroll/clip-rect screen-x (or (w :w) 0)
+                            screen-y (or (w :h) 0)
+                            (or (o :x) 0) (or (o :y) 0)
+                            (or (o :w) 1920) (or (o :h) 1080))))
       (if clip
         (:set-clip-box (w :obj)
                        (math/round (clip :clip-x)) (math/round (clip :clip-y))

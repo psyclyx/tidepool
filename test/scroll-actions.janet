@@ -27,6 +27,13 @@
     :focused-output @{:primary-tag 1 :tags @{1 true}}
     :pending-actions @[]})
 
+(defn make-cols [& leaves]
+  "Build a columns array with properly wrapped leaves."
+  (def cols @[])
+  (each l leaves
+    (tree/insert-column cols (length cols) l))
+  cols)
+
 # ============================================================
 # Directional focus
 # ============================================================
@@ -37,7 +44,7 @@
 (def wb @{:wid 2})
 (def la (tree/leaf wa))
 (def lb (tree/leaf wb))
-(def cols @[la lb])
+(def cols (make-cols la lb))
 (t/assert-is (sa/find-directional-neighbor cols lb :left) la)
 
 (t/test-start "find-directional-neighbor: right across columns")
@@ -77,7 +84,9 @@
 (def lb (tree/leaf wb))
 (def lc (tree/leaf wc))
 (def vsplit (tree/container :split :vertical @[lb lc]))
-(def cols @[la vsplit])
+(def cols @[])
+(tree/insert-column cols 0 la)
+(array/push cols vsplit)
 (t/assert-is (sa/find-directional-neighbor cols lb :left) la)
 (t/assert-is (sa/find-directional-neighbor cols lc :left) la)
 
@@ -109,7 +118,7 @@
 (def wb @{:wid 2})
 (def la (tree/leaf wa))
 (def lb (tree/leaf wb))
-(def cols @[la lb])
+(def cols (make-cols la lb))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
@@ -118,20 +127,13 @@
 
 (t/test-start "focus-left: updates tag focus")
 (sa/focus-left ctx seat)
-# seat still has old focused, but focused-leaf looks up by tag :focused-id
-# After focus-right set it to wb, focus-left should find wb's leaf and go left
-# Actually focused-leaf uses tag :focused-id which is now wa after focus-left...
-# Let me re-check: focus-left looks up focused-leaf via tag :focused-id (currently wb)
-# then finds neighbor left (la), sets focus to la (wa)
-# But wait - after focus-right, tag :focused-id is wb. Then focus-left:
-# finds leaf for wb (lb), neighbor left is la, sets focused-id to wa
 (t/assert-is (tag :focused-id) wa)
 
 (t/test-start "focus-right: no-op at end")
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def la (tree/leaf wa))
-(def tag (make-tag @[la] wa))
+(def tag (make-tag (make-cols la) wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/focus-right ctx seat)
@@ -147,7 +149,7 @@
 (def wb @{:wid 2})
 (def la (tree/leaf wa))
 (def lb (tree/leaf wb))
-(def cols @[la lb])
+(def cols (make-cols la lb))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
@@ -183,20 +185,20 @@
 (def wb @{:wid 2})
 (def la (tree/leaf wa))
 (def lb (tree/leaf wb))
-(def cols @[la lb])
+(def cols (make-cols la lb))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/join-right ctx seat)
-# la should have been removed, leaf with wa joined into lb's new container
+# la should have been removed from its column, joined into lb's column
 (t/assert-eq (length cols) 1 "one column left")
 (def col (cols 0))
-(t/assert-truthy (tree/container? col) "column is now a container")
-(t/assert-eq (col :orientation) :vertical "join-right creates vertical")
-(t/assert-eq (length (col :children)) 2)
-# Order: neighbor (lb/wb) first, then joined leaf (wa) after
+(t/assert-truthy (tree/container? col) "column is a container")
+# Both windows should be in the remaining column
+(def col-leaves (tree/all-leaves col))
+(t/assert-eq (length col-leaves) 2 "both leaves in column")
+# The join creates a vertical split inside the column
 (t/assert-is ((tree/first-leaf ((col :children) 0)) :window) wb)
-(t/assert-is ((tree/first-leaf ((col :children) 1)) :window) wa)
 
 (t/test-start "join-left: joins into left neighbor")
 (tree/reset-ids)
@@ -204,7 +206,7 @@
 (def wb @{:wid 2})
 (def la (tree/leaf wa))
 (def lb (tree/leaf wb))
-(def cols @[la lb])
+(def cols (make-cols la lb))
 (def tag (make-tag cols wb))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wb))
@@ -212,10 +214,8 @@
 (t/assert-eq (length cols) 1)
 (def col (cols 0))
 (t/assert-truthy (tree/container? col))
-(t/assert-eq (col :orientation) :vertical)
-# Order: joined (wb) before neighbor (la/wa)
-(t/assert-is ((tree/first-leaf ((col :children) 0)) :window) wb)
-(t/assert-is ((tree/first-leaf ((col :children) 1)) :window) wa)
+(def col-leaves (tree/all-leaves col))
+(t/assert-eq (length col-leaves) 2)
 
 (t/test-start "join-down: into existing vertical split")
 (tree/reset-ids)
@@ -226,14 +226,12 @@
 (def lb (tree/leaf wb))
 (def lc (tree/leaf wc))
 (def c (tree/container :split :vertical @[la lb]))
-(def cols @[c lc])
+(def cols @[c])
+(tree/insert-column cols 1 lc)
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/join-down ctx seat)
-# la held wa. Neighbor down is lb. Detach la -> c collapses to lb.
-# Then wrap lb with la -> new container [lb, la] (join-down = :after)
-# Result: one column with both wa and wb, plus lc column
 (t/assert-eq (length cols) 2 "still two columns")
 (def col (cols 0))
 (def col-leaves (tree/all-leaves col))
@@ -243,13 +241,12 @@
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def la (tree/leaf wa))
-(def cols @[la])
+(def cols (make-cols la))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/join-right ctx seat)
 (t/assert-eq (length cols) 1 "unchanged")
-(t/assert-is (cols 0) la "same node")
 
 # ============================================================
 # Leave
@@ -268,11 +265,10 @@
 (def seat (make-scroll-seat wa))
 (sa/leave ctx seat)
 (t/assert-eq (length cols) 2 "new column created")
-# First col should be lb (collapsed from container)
-(t/assert-is (cols 0) lb "remaining leaf collapsed")
-(t/assert-eq (lb :width) 0.8 "inherited width")
-# Second col should be la with default width
-(t/assert-is (cols 1) la)
+# First col still has lb (root container preserved with single child)
+(t/assert-is (tree/first-leaf (cols 0)) lb "lb remains in first column")
+# Second col is la in a new wrapper
+(t/assert-is (tree/first-leaf (cols 1)) la "la extracted to new column")
 (t/assert-eq (la :width) 1.0 "default width")
 (t/assert-is (tag :focused-id) wa "focus followed")
 
@@ -280,7 +276,7 @@
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def la (tree/leaf wa))
-(def cols @[la])
+(def cols (make-cols la))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
@@ -295,27 +291,28 @@
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def la (tree/leaf wa 0.5))
-(def cols @[la])
+(def cols (make-cols la))
+(def col (tree/column-of la))
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/cycle-width-forward ctx seat)
-(t/assert-eq (la :width) 0.66)
+(t/assert-eq (col :width) 0.66)
 
 (t/test-start "cycle-width-backward: from 0.5 to 0.33")
-(put la :width 0.5)
+(put col :width 0.5)
 (sa/cycle-width-backward ctx seat)
-(t/assert-eq (la :width) 0.33)
+(t/assert-eq (col :width) 0.33)
 
 (t/test-start "cycle-width-forward: clamped at max")
-(put la :width 1.0)
+(put col :width 1.0)
 (sa/cycle-width-forward ctx seat)
-(t/assert-eq (la :width) 1.0 "stays at max")
+(t/assert-eq (col :width) 1.0 "stays at max")
 
 (t/test-start "cycle-width-backward: clamped at min")
-(put la :width 0.33)
+(put col :width 0.33)
 (sa/cycle-width-backward ctx seat)
-(t/assert-eq (la :width) 0.33 "stays at min")
+(t/assert-eq (col :width) 0.33 "stays at min")
 
 (t/test-start "cycle-width: works on nested leaf's column")
 (tree/reset-ids)

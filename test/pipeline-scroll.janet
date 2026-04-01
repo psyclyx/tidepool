@@ -39,7 +39,8 @@
 (put tag :focused-id w1)
 (tree/update-active-path leaf1)
 (t/assert-eq (length (tag :columns)) 1)
-(t/assert-is ((tag :columns) 0) leaf1)
+(t/assert-truthy (tree/container? ((tag :columns) 0)) "column wraps leaf")
+(t/assert-is (tree/first-leaf ((tag :columns) 0)) leaf1)
 
 # Add second window in sibling mode
 (def w2 @{:wid 2 :tag 1})
@@ -51,7 +52,7 @@
 (put tag :focused-id w2)
 (tree/update-active-path leaf2)
 (t/assert-eq (length (tag :columns)) 2)
-(t/assert-is ((tag :columns) 1) leaf2)
+(t/assert-is (tree/first-leaf ((tag :columns) 1)) leaf2)
 
 (t/test-start "new window in child mode: wraps into container")
 (tree/reset-ids)
@@ -65,7 +66,7 @@
 (put tag :focused-id w1)
 (tree/update-active-path leaf1)
 
-# Add w2 in child mode — focused is a bare column, wraps into vsplit
+# Add w2 in child mode — wraps into vsplit
 (def w2 @{:wid 2 :tag 1})
 (def leaf2 (tree/leaf w2 1.0))
 (put w2 :tree-leaf leaf2)
@@ -75,7 +76,8 @@
 (t/assert-eq (length (tag :columns)) 1 "still one column")
 (def col ((tag :columns) 0))
 (t/assert-truthy (tree/container? col) "column is a container")
-(t/assert-eq (length (col :children)) 2)
+(def col-leaves (tree/all-leaves col))
+(t/assert-eq (length col-leaves) 2 "both leaves in column")
 
 # ============================================================
 # Window removal from tree
@@ -159,7 +161,7 @@
 (t/assert-eq (length (result :placements)) 1)
 (def p (first (result :placements)))
 (t/assert-is (p :window) w1)
-(t/assert-eq (p :clip) nil "single window, no clipping")
+(t/assert-truthy (p :vx) "has virtual x position")
 
 (t/test-start "scroll-layout: three columns, middle focused")
 (tree/reset-ids)
@@ -191,7 +193,7 @@
 # Middle window should be fully visible (no clip)
 (def mid-placement (find |(= ($ :window) (windows 1)) (result :placements)))
 (t/assert-truthy mid-placement "middle window placed")
-(t/assert-eq (mid-placement :clip) nil "middle not clipped")
+(t/assert-truthy (mid-placement :vx) "has virtual x")
 
 (t/test-start "scroll-layout: vertical split column")
 (tree/reset-ids)

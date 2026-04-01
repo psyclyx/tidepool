@@ -207,24 +207,22 @@
   # Update camera
   (def new-cam (camera-update cam-x (usable :w) vpositions focus-col-idx pt og ig))
 
-  # Compute placements
+  # Compute placements with virtual x (camera-independent)
   (def placements @[])
+  (def col-h (- (usable :h) (* 2 og)))
+  (def col-screen-y (+ (usable :y) og))
   (for i 0 (length columns)
     (def col (columns i))
     (def vp (vpositions i))
+    # Use target camera for visibility check (which columns to lay out)
     (def col-screen-x (screen-x (vp :vx) new-cam (usable :x)))
-    (def col-h (- (usable :h) (* 2 og)))
-    (def col-screen-y (+ (usable :y) og))
-
-    # Skip columns entirely off-screen
     (when (visible? col-screen-x (vp :vw) (output :x) (output :w))
-      (def rect {:x col-screen-x :y col-screen-y
+      # Layout with virtual x — render chain converts to screen x via camera
+      (def rect {:x (vp :vx) :y col-screen-y
                  :w (vp :vw) :h col-h})
       (def node-placements (layout-node col rect ig bw))
       (each p node-placements
-        (def clip (clip-rect (p :x) (p :w) (p :y) (p :h)
-                             (output :x) (output :y) (output :w) (output :h)))
         (array/push placements
-          (merge p {:clip clip})))))
+          (merge p {:vx (p :x) :x nil})))))
 
   {:placements placements :camera new-cam})

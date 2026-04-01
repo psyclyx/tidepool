@@ -65,7 +65,8 @@
 
 # --- Window animation state ---
 # Stored on each window as :anim table:
-#   @{:x <spring> :y <spring> :w <spring> :h <spring> :open <spring> :close <spring>}
+#   @{:y <spring> :w <spring> :h <spring> :open <spring> :close <spring>}
+# Note: x position is camera-driven, not per-window animated.
 
 (defn init-window-anim
   "Initialize animation state on a window if not present."
@@ -74,13 +75,13 @@
     (put w :anim @{})))
 
 (defn set-targets
-  "Set animation targets for a window from layout results.
-   Compares against current targets to detect changes."
-  [w x y width height duration]
+  "Set animation targets for a window's y/w/h from layout results.
+   prev-* are the previous values (start of animation).
+   x position is not animated per-window — it's driven by camera."
+  [w y width height duration prev-y prev-w prev-h]
   (init-window-anim w)
   (def a (w :anim))
 
-  # For each property, retarget if target changed
   (defn update-prop [key new-val rest-pos]
     (def existing (a key))
     (def current-target
@@ -88,10 +89,9 @@
     (when (or (nil? current-target) (not (close-enough? current-target new-val)))
       (put a key (retarget existing new-val duration rest-pos))))
 
-  (update-prop :x x (w :x))
-  (update-prop :y y (w :y))
-  (update-prop :w width (w :w))
-  (update-prop :h height (w :h)))
+  (update-prop :y y prev-y)
+  (update-prop :w width prev-w)
+  (update-prop :h height prev-h))
 
 (defn start-open
   "Start an open animation for a new window."
@@ -110,7 +110,7 @@
   "Is any animation active on this window?"
   [w]
   (when-let [a (w :anim)]
-    (or (a :x) (a :y) (a :w) (a :h) (a :open) (a :close))))
+    (or (a :y) (a :w) (a :h) (a :open) (a :close))))
 
 # --- Tick ---
 
@@ -120,7 +120,7 @@
   (when-let [a (w :anim)]
     (var active false)
 
-    (each key [:x :y :w :h]
+    (each key [:y :w :h]
       (when-let [spring (a key)]
         (if (advance spring dt ease-fn)
           (set active true)
@@ -178,16 +178,17 @@
     (when (tag :camera-anim) (set active true)))
   active)
 
-(defn- spring-value [w key fallback]
+(defn spring-value
+  "Get animated value for a property, falling back to the window's value."
+  [w key fallback]
   (if-let [s (get-in w [:anim key])]
     (s :current)
     (w fallback)))
 
-(defn resolve-position
-  "Get the visual position for a window (animated or target)."
+(defn resolve-y
+  "Get the visual y position for a window (animated or target)."
   [w]
-  [(spring-value w :x :x)
-   (spring-value w :y :y)])
+  (spring-value w :y :y))
 
 (defn resolve-dimensions
   "Get the visual dimensions for a window (animated or target)."
