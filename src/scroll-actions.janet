@@ -189,19 +189,10 @@
 
 (defn- detach-leaf
   "Remove a leaf from the tree, collapsing empty parents.
-   For top-level leaves, removes the column."
+   Returns true if the column was removed."
   [columns leaf-node]
-  (if (tree/root? leaf-node)
-    (do
-      (def idx (tree/find-column-index columns leaf-node))
-      (when idx (tree/remove-column columns idx))
-      true)
-    (let [col-idx (tree/find-column-index columns leaf-node)
-          parent (tree/remove-child leaf-node)
-          collapsed (tree/collapse-singles parent)]
-      (when (and collapsed (tree/root? collapsed) col-idx)
-        (put columns col-idx collapsed))
-      false)))
+  (def [col-removed _] (tree/remove-leaf columns leaf-node))
+  col-removed)
 
 (defn- join-into
   "Join leaf into the container that holds neighbor, or wrap neighbor."
@@ -210,11 +201,14 @@
                 :vertical :horizontal))
   (def pos (if (or (= direction :left) (= direction :up))
              :before :after))
-  (if-let [np (neighbor :parent)]
+  (def np (neighbor :parent))
+  (if (and np (> (length (np :children)) 1))
+    # Multi-child parent — insert alongside
     (let [ni (tree/child-index neighbor)
           insert-idx (if (or (= direction :right) (= direction :down))
                        (inc ni) ni)]
       (tree/insert-child np insert-idx leaf-node))
+    # Single-child wrapper or no parent — wrap with correct orientation
     (tree/wrap-in-container columns neighbor :split orient leaf-node pos)))
 
 (defn- do-join [ctx s direction]
@@ -237,7 +231,10 @@
 (defn leave [ctx s]
   (when-let [tag (active-tag ctx s)
              leaf (focused-leaf ctx s)]
-    (when (tree/root? leaf) (break)) # already a top-level column
+    # Already a top-level column (sole child of root wrapper)
+    (def parent (leaf :parent))
+    (when (and (tree/root? parent) (= 1 (length (parent :children))))
+      (break))
     (def columns (tag :columns))
     (def col-idx (tree/find-column-index columns leaf))
     (def default-width (get-in ctx [:config :default-column-width] 1.0))
