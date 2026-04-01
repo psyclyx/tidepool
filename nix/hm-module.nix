@@ -35,7 +35,10 @@
 
   keybindLines = lib.mapAttrsToList keybindingToJanet cfg.keybindings;
 
-  hasConfig = cfg.keybindings != {} || cfg.extraConfig != "";
+  outputOrderEntry = entry:
+    "{:name ${builtins.toJSON entry.name}${lib.optionalString (entry.tag != null) " :tag ${toString entry.tag}"}}";
+
+  hasConfig = cfg.keybindings != {} || cfg.outputOrder != [] || cfg.extraConfig != "";
 
   initJanet = pkgs.writeText "tidepool-init.janet" (lib.concatStringsSep "\n" (lib.filter (s: s != "") [
     "(def config (ctx :config))"
@@ -43,6 +46,10 @@
 
       (put config :xkb-bindings
         @[${lib.concatStringsSep "\n    " keybindLines}])'')
+    (lib.optionalString (cfg.outputOrder != []) ''
+
+      (put config :output-order
+        @[${lib.concatStringsSep "\n    " (map outputOrderEntry cfg.outputOrder)}])'')
     (lib.optionalString (cfg.extraConfig != "") "\n${cfg.extraConfig}")
   ]));
 in {
@@ -75,6 +82,28 @@ in {
           "super+j" = "actions/focus-next";
           "super+1" = "(actions/focus-tag 1)";
         }
+      '';
+    };
+
+    outputOrder = lib.mkOption {
+      type = lib.types.listOf (lib.types.submodule {
+        options = {
+          name = lib.mkOption {
+            type = lib.types.str;
+            description = "wl_output name (e.g. DP-1, HDMI-A-1).";
+          };
+          tag = lib.mkOption {
+            type = lib.types.nullOr lib.types.int;
+            default = null;
+            description = "Initial tag to assign to this output.";
+          };
+        };
+      });
+      default = [];
+      description = ''
+        Preferred output ordering, left to right. Each entry specifies a
+        wl_output name and an optional initial tag. Outputs not listed
+        sort after configured ones by compositor position.
       '';
     };
 
