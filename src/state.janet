@@ -15,7 +15,8 @@
     :xcursor-size 24
     :xkb-bindings @[]
     :pointer-bindings @[]
-    :rules @[]})
+    :rules @[]
+    :output-order @[]})
 
 (defn init
   "Initialize the WM context with default state."

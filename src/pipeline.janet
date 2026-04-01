@@ -51,16 +51,52 @@
   (state/remove-destroyed (ctx :render-order)))
 
 (defn- sort-outputs [ctx]
+  (def order (get-in ctx [:config :output-order]))
+  (defn order-index [o]
+    (var idx nil)
+    (when (o :name)
+      (each i (range (length order))
+        (when (= ((order i) :name) (o :name))
+          (set idx i)
+          (break))))
+    idx)
   (sort (ctx :outputs)
     (fn [a b]
-      (let [ax (or (a :x) 0) bx (or (b :x) 0)
-            ay (or (a :y) 0) by (or (b :y) 0)]
-        (if (= ax bx) (< ay by) (< ax bx))))))
+      (let [ai (order-index a) bi (order-index b)]
+        (cond
+          (and ai bi) (< ai bi)
+          ai true
+          bi false
+          # fallback: position-based
+          (let [ax (or (a :x) 0) bx (or (b :x) 0)
+                ay (or (a :y) 0) by (or (b :y) 0)]
+            (if (= ax bx) (< ay by) (< ax bx))))))))
 
 (defn- init-new-outputs [ctx]
+  (def order (get-in ctx [:config :output-order]))
+  (def used-tags @{})
+  # Collect tags already in use by non-new outputs
+  (each o (ctx :outputs)
+    (when (not (o :new))
+      (eachk tag (o :tags) (put used-tags tag true))))
   (each o (ctx :outputs)
     (when (and (o :new) (empty? (o :tags)))
-      (put (o :tags) 1 true))))
+      (var assigned false)
+      # Try to assign tag from output-order config
+      (when (o :name)
+        (each entry order
+          (when (and (= (entry :name) (o :name)) (entry :tag)
+                     (not (used-tags (entry :tag))))
+            (put (o :tags) (entry :tag) true)
+            (put used-tags (entry :tag) true)
+            (set assigned true)
+            (break))))
+      # Fallback: assign first unused integer tag
+      (when (not assigned)
+        (var t 1)
+        (while (used-tags t) (++ t))
+        (put (o :tags) t true)
+        (put used-tags t true)))))
 
 (defn- init-new-windows [ctx]
   (def config (ctx :config))
