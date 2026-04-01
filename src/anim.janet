@@ -122,21 +122,9 @@
 
     (each key [:x :y :w :h]
       (when-let [spring (a key)]
-        (if-let [updated (advance spring dt ease-fn)]
+        (if (advance spring dt ease-fn)
           (set active true)
-          # Done — snap to target
-          (do (put a key nil)
-              (case key
-                :x (put w :anim-x nil)
-                :y (put w :anim-y nil)
-                :w (put w :anim-w nil)
-                :h (put w :anim-h nil))))))
-
-    # Compute current animated values from active springs
-    (when (a :x) (put w :anim-x ((a :x) :current)))
-    (when (a :y) (put w :anim-y ((a :y) :current)))
-    (when (a :w) (put w :anim-w ((a :w) :current)))
-    (when (a :h) (put w :anim-h ((a :h) :current)))
+          (put a key nil))))
 
     # Open animation
     (when-let [spring (a :open)]
@@ -190,14 +178,19 @@
     (when (tag :camera-anim) (set active true)))
   active)
 
+(defn- spring-value [w key fallback]
+  (if-let [s (get-in w [:anim key])]
+    (s :current)
+    (w fallback)))
+
 (defn resolve-position
   "Get the visual position for a window (animated or target)."
   [w]
-  [(or (w :anim-x) (w :x))
-   (or (w :anim-y) (w :y))])
+  [(spring-value w :x :x)
+   (spring-value w :y :y)])
 
 (defn resolve-dimensions
   "Get the visual dimensions for a window (animated or target)."
   [w]
-  [(or (w :anim-w) (w :w))
-   (or (w :anim-h) (w :h))])
+  [(spring-value w :w :w)
+   (spring-value w :h :h)])

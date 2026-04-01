@@ -324,9 +324,6 @@
         (anim/set-targets w target-x target-y
                           (or target-w (w :w)) (or target-h (w :h))
                           duration)
-        # Set initial animated positions so first frame doesn't jump to target
-        (when (get-in w [:anim :x]) (put w :anim-x (w :prev-x)))
-        (when (get-in w [:anim :y]) (put w :anim-y (w :prev-y)))
         # Restore targets
         (put w :x target-x)
         (put w :y target-y)))

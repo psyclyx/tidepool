@@ -128,14 +128,13 @@
 (anim/set-targets w 100 0 800 600 200)
 (def active (anim/tick-window w 100 anim/linear))
 (t/assert-truthy active "still animating")
-(t/assert-eq (w :anim-x) 50 "halfway")
+(t/assert-eq (get-in w [:anim :x :current]) 50 "halfway")
 
 (t/test-start "tick-window: completes and clears")
 (def w @{:x 0 :y 0 :w 800 :h 600})
 (anim/set-targets w 100 0 800 600 200)
 (anim/tick-window w 200 anim/linear)
-# Spring completed, anim-x cleared
-(t/assert-eq (w :anim-x) nil "cleared after completion")
+# Spring completed, cleared
 (t/assert-eq (get-in w [:anim :x]) nil "spring removed")
 
 (t/test-start "animating?: true when springs active")
@@ -213,25 +212,25 @@
 # resolve helpers
 # ============================================================
 
-(t/test-start "resolve-position: uses anim when available")
-(def w @{:x 100 :y 50 :anim-x 75 :anim-y 40})
+(t/test-start "resolve-position: reads from active spring")
+(def w @{:x 100 :y 50 :anim @{:x @{:current 75} :y @{:current 40}}})
 (def [rx ry] (anim/resolve-position w))
 (t/assert-eq rx 75)
 (t/assert-eq ry 40)
 
-(t/test-start "resolve-position: falls back to target")
+(t/test-start "resolve-position: falls back to target when no spring")
 (def w @{:x 100 :y 50})
 (def [rx ry] (anim/resolve-position w))
 (t/assert-eq rx 100)
 (t/assert-eq ry 50)
 
-(t/test-start "resolve-dimensions: uses anim when available")
-(def w @{:w 800 :h 600 :anim-w 750 :anim-h 580})
+(t/test-start "resolve-dimensions: reads from active spring")
+(def w @{:w 800 :h 600 :anim @{:w @{:current 750} :h @{:current 580}}})
 (def [rw rh] (anim/resolve-dimensions w))
 (t/assert-eq rw 750)
 (t/assert-eq rh 580)
 
-(t/test-start "resolve-dimensions: falls back to target")
+(t/test-start "resolve-dimensions: falls back to target when no spring")
 (def w @{:w 800 :h 600})
 (def [rw rh] (anim/resolve-dimensions w))
 (t/assert-eq rw 800)
