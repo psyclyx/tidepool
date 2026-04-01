@@ -8,6 +8,7 @@
 (import ./ipc)
 (import ./tree)
 (import ./scroll)
+(import ./anim)
 
 # --- Chain runner ---
 
@@ -277,6 +278,27 @@
     (when (and (not (w :float)) (not (w :closed)) (not (w :x)))
       (put w :layout-hidden true))))
 
+(defn- start-animations [ctx]
+  (def config (ctx :config))
+  (when (not (config :anim-enabled)) (break))
+  (def duration (config :anim-duration))
+  (def open-dur (config :anim-open-duration))
+  (def close-dur (config :anim-close-duration))
+  # Start position animations for windows that moved
+  (each w (ctx :windows)
+    (when (and (w :x) (w :y) (w :w) (w :h)
+               (not (w :closed)) (not (w :float)))
+      (anim/set-targets w (w :x) (w :y) (w :w) (w :h) duration))
+    # Open animation for new windows
+    (when (and (w :new) (not (w :float)))
+      (anim/start-open w open-dur))
+    # Close animation
+    (when (and (w :closed) (not (w :closing)) (w :tree-leaf))
+      (anim/start-close w close-dur)))
+  # Start camera animations
+  (eachp [_ tag] (ctx :tags)
+    (anim/set-camera-target tag (tag :camera) duration)))
+
 (defn- compute-borders [ctx]
   (def config (ctx :config))
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))
@@ -371,10 +393,26 @@
           (+ (o :y) (div (- (o :h) (w :h)) 2)))
         (window/set-position w 0 0)))))
 
+(defn- tick-animations [ctx]
+  (def config (ctx :config))
+  (when (not (config :anim-enabled)) (break))
+  (def now (os/clock :monotonic))
+  (def last-time (or (ctx :anim-last-time) now))
+  (def dt (* (- now last-time) 1000)) # convert to ms
+  (put ctx :anim-last-time now)
+  (when (< dt 0.1) (break)) # skip if dt is negligible (first frame)
+  (def ease-fn (or (anim/easing-fns (config :anim-ease)) anim/ease-out-cubic))
+  (each w (ctx :windows)
+    (anim/tick-window w dt ease-fn))
+  (eachp [_ tag] (ctx :tags)
+    (anim/tick-camera tag dt ease-fn)))
+
 (defn- apply-positions [ctx]
   (each w (ctx :windows)
-    (when (and (w :x) (w :y) (w :visible))
-      (:set-position (w :node) (w :x) (w :y)))))
+    (when (and (w :visible) (w :node))
+      (def [x y] (anim/resolve-position w))
+      (when (and x y)
+        (:set-position (w :node) (math/round x) (math/round y))))))
 
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
@@ -409,6 +447,7 @@
     state/reconcile-tags
     sync-tree-focus
     run-scroll-layout
+    start-animations
     compute-borders
     compute-visibility
     # --- effects ---
@@ -421,7 +460,8 @@
     signal-manage-done])
 
 (def render-chain
-  @[center-unplaced
+  @[tick-animations
+    center-unplaced
     apply-positions
     apply-clips
     signal-render-done])

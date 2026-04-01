@@ -17,6 +17,11 @@
     :border-normal 0x646464
     :border-urgent 0xff0000
     :border-insert 0x00ff88
+    :anim-enabled true
+    :anim-duration 200
+    :anim-open-duration 150
+    :anim-close-duration 120
+    :anim-ease :ease-out-cubic
     :xcursor-theme "Adwaita"
     :xcursor-size 24
     :xkb-bindings @[]

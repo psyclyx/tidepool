@@ -12,6 +12,7 @@
 (import ./scroll-actions)
 (import ./tree)
 (import ./scroll)
+(import ./anim)
 (import ./pipeline)
 (import ./log)
 (import ./ipc)
