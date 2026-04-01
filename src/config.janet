@@ -17,8 +17,8 @@
   (var i 1)
   (while (< i (length args))
     (case (args i)
-      "-c" (do (++ i) (set init-path (get args i)))
-      "--config" (do (++ i) (set init-path (get args i))))
+      "-c" (do (++ i) (set init-path (assert (get args i) "-c requires a path")))
+      "--config" (do (++ i) (set init-path (assert (get args i) "--config requires a path"))))
     (++ i))
   {:init-path init-path})
 

@@ -35,6 +35,7 @@
   (def seat @{:obj obj
               :layer-focus :none
               :xkb-bindings @[]
+              :pending-actions @[]
               :new true})
   (when-let [ls-proxy (get-in registry [:proxies "river_layer_shell_v1"])]
     (def ls (:get-seat ls-proxy obj))

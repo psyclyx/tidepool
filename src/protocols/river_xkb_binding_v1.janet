@@ -4,4 +4,4 @@
 
 (dispatch/reg-proto interface :pressed
   (fn [_ctx seat binding]
-    (put seat :pending-action (binding :action)) nil))
+    (array/push (seat :pending-actions) (binding :action)) nil))

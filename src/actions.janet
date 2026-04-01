@@ -69,4 +69,4 @@
   "Return an action that spawns a command."
   [& cmd]
   (fn [ctx s]
-    (os/spawn [;cmd] :p)))
+    (ev/go (fn [] (os/proc-wait (os/spawn [;cmd] :p))))))

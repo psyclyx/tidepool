@@ -54,10 +54,9 @@
       (when (and (not (w :closed))
                  (or (not (w :events))
                      (find |(= $ event-type) (w :events))))
-        (ev/go (fn []
-                 (unless (try-write (w :stream) buf)
-                   (put w :closed true)
-                   (try (:close (w :stream)) ([_])))))))))
+        (unless (try-write (w :stream) buf)
+          (put w :closed true)
+          (try (:close (w :stream)) ([_])))))))
 
 # --- JSON-RPC response helpers ---
 
@@ -80,10 +79,11 @@
                         ((entry :fn) ;(or args []))
                         (entry :fn))]
         (try
-          (do
-            (when-let [s (first (ctx-ref :seats))]
-              (action-fn ctx-ref s))
-            (respond stream id {"ok" true}))
+          (if-let [s (first (ctx-ref :seats))]
+            (do
+              (array/push (s :pending-actions) action-fn)
+              (respond stream id {"ok" true}))
+            (respond-error stream id -32603 "no seat available"))
           ([err]
             (respond-error stream id -32603 (string err)))))
       (respond-error stream id -32602 (string "unknown action: " name)))

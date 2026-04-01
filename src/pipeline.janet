@@ -34,7 +34,9 @@
 
 (defn- apply-destroys [ctx]
   (each o (ctx :outputs)
-    (when (o :pending-destroy) (:destroy (o :obj))))
+    (when (o :pending-destroy)
+      (when (o :layer-shell) (:destroy (o :layer-shell)))
+      (:destroy (o :obj))))
   (each w (ctx :windows)
     (when (w :pending-destroy)
       (:destroy (w :obj))
@@ -64,8 +66,9 @@
   (def config (ctx :config))
   (each w (ctx :windows)
     (when (w :new)
-      (put w :needs-ssd (not= (w :decoration-hint) 0))
-      (if (w :wl-parent)
+      (put w :needs-ssd (and (not (nil? (w :decoration-hint)))
+                             (not= (w :decoration-hint) 0)))
+      (if (and (w :wl-parent) (not ((w :wl-parent) :closed)))
         (do
           (window/set-float w true)
           (put w :tag ((w :wl-parent) :tag)))
@@ -102,8 +105,8 @@
     # Clicked window gets focus
     (when-let [w (s :window-interaction)]
       (seat/focus s w))
-    # Pending keybinding action
-    (when-let [action-fn (s :pending-action)]
+    # Pending actions (keybindings + IPC)
+    (each action-fn (s :pending-actions)
       (try
         (action-fn ctx s)
         ([err fib]
@@ -201,7 +204,7 @@
     (put w :proposed-h nil))
   (each s (ctx :seats)
     (put s :new nil)
-    (put s :pending-action nil)
+    (array/clear (s :pending-actions))
     (put s :focus-changed nil)
     (put s :focus-output-changed nil)
     (put s :window-interaction nil)

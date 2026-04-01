@@ -45,18 +45,23 @@
   (def focused
     (when-let [s (first (ctx :seats))]
       (s :focused-output)))
+  # Collect all tags in use
+  (def all-tags @{})
+  (each o outputs (eachk tag (o :tags) (put all-tags tag true)))
+  (each w (ctx :windows) (when (w :tag) (put all-tags (w :tag) true)))
+  (def tags (sorted (keys all-tags)))
   # Focused output wins tag conflicts
   (when focused
-    (for tag 1 10
+    (each tag tags
       (when ((focused :tags) tag)
         (each o outputs
           (when (not= o focused)
             (put (o :tags) tag nil))))))
   # Assign orphaned tags to empty outputs
-  (for tag 1 10
+  (each tag tags
     (unless (find |(($ :tags) tag) outputs)
       (when-let [o (find |(empty? ($ :tags)) outputs)]
         (put (o :tags) tag true))))
   # Track primary tag
   (each o outputs
-    (put o :primary-tag (min-of (keys (o :tags))))))
+    (put o :primary-tag (or (min-of (keys (o :tags))) 1))))
