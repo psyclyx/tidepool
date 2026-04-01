@@ -84,10 +84,12 @@
 
   (defn update-prop [key new-val rest-pos]
     (def existing (a key))
+    (def effective-rest (or rest-pos (when existing (existing :current))))
     (def current-target
-      (if existing (existing :target) rest-pos))
-    (when (or (nil? current-target) (not (close-enough? current-target new-val)))
-      (put a key (retarget existing new-val duration rest-pos))))
+      (if existing (existing :target) effective-rest))
+    (when (and new-val
+               (or (nil? current-target) (not (close-enough? current-target new-val))))
+      (put a key (retarget existing new-val duration effective-rest))))
 
   (update-prop :y y prev-y)
   (update-prop :w width prev-w)
@@ -145,15 +147,19 @@
 # Stored on tag as :camera-anim spring.
 
 (defn set-camera-target
-  "Set camera animation target for a tag."
-  [tag new-cam duration]
+  "Set camera animation target for a tag.
+   prev-cam is the camera value before layout updated it."
+  [tag new-cam duration &opt prev-cam]
+  (def rest-pos (or prev-cam new-cam))
   (def current-target
     (if-let [spring (tag :camera-anim)]
       (spring :target)
-      (tag :camera)))
+      rest-pos))
   (when (not (close-enough? current-target new-cam))
-    (put tag :camera-anim
-      (retarget (tag :camera-anim) new-cam duration (tag :camera)))))
+    (def spring (retarget (tag :camera-anim) new-cam duration rest-pos))
+    (put tag :camera-anim spring)
+    (when spring
+      (put tag :camera-visual (spring :current)))))
 
 (defn tick-camera
   "Advance camera animation. Returns true if still animating."

@@ -232,7 +232,7 @@
       (put w :tree-leaf nil))))
 
 (defn- adopt-orphan-windows [ctx]
-  "Ensure all tiled, non-closed windows have a tree-leaf."
+  "Ensure all non-closed windows have a tree-leaf (tiled) or are floated."
   (def config (ctx :config))
   (each w (ctx :windows)
     (when (and (not (w :tree-leaf))
@@ -240,14 +240,19 @@
                (not (w :closed))
                (not (w :pending-destroy))
                (w :tag))
-      (def tag-id (w :tag))
-      (def tag (state/ensure-tag ctx tag-id))
-      (def leaf (tree/leaf w (config :default-column-width)))
-      (put w :tree-leaf leaf)
-      (tree/insert-column (tag :columns) (length (tag :columns)) leaf)
-      (when (nil? (tag :focused-id))
-        (put tag :focused-id w)
-        (tree/update-active-path leaf)))))
+      # Apply float logic — same rules as init-new-windows
+      (when (or (window/fixed-size? w)
+                (and (w :wl-parent) (not ((w :wl-parent) :closed))))
+        (window/set-float w true))
+      (when (not (w :float))
+        (def tag-id (w :tag))
+        (def tag (state/ensure-tag ctx tag-id))
+        (def leaf (tree/leaf w (config :default-column-width)))
+        (put w :tree-leaf leaf)
+        (tree/insert-column (tag :columns) (length (tag :columns)) leaf)
+        (when (nil? (tag :focused-id))
+          (put tag :focused-id w)
+          (tree/update-active-path leaf))))))
 
 (defn- sync-tree-focus [ctx]
   "Sync seat focus from the tag tree's focused-id."
@@ -268,9 +273,17 @@
   # Save previous positions for animation (y, w, h only — x is camera-driven)
   (each w (ctx :windows)
     (put w :prev-y (w :y))
-    (put w :prev-w (w :proposed-w))
-    (put w :prev-h (w :proposed-h)))
-  (each w (ctx :windows) (put w :layout-hidden nil))
+    (put w :prev-w (or (w :proposed-w) (w :w)))
+    (put w :prev-h (or (w :proposed-h) (w :h))))
+  # Clear placement state so every window gets fresh data from scroll-layout
+  (each w (ctx :windows)
+    (put w :layout-hidden nil)
+    (when (and (not (w :float)) (not (w :closed)))
+      (put w :x nil)
+      (put w :vx nil)))
+  # Save previous camera before layout overwrites it
+  (eachp [_ tag] (ctx :tags)
+    (put tag :prev-camera (tag :camera)))
   (each o (ctx :outputs)
     (when-let [tag-id (o :primary-tag)
                tag (get-in ctx [:tags tag-id])]
@@ -323,7 +336,7 @@
       (anim/start-close w close-dur)))
   # Camera animation — the primary driver for horizontal scrolling
   (eachp [_ tag] (ctx :tags)
-    (anim/set-camera-target tag (tag :camera) duration)))
+    (anim/set-camera-target tag (tag :camera) duration (tag :prev-camera))))
 
 (defn- compute-borders [ctx]
   (def config (ctx :config))
@@ -427,9 +440,10 @@
   (when (not (config :anim-enabled)) (break))
   (def now (os/clock :monotonic))
   (def last-time (or (ctx :anim-last-time) now))
-  (def dt (* (- now last-time) 1000)) # convert to ms
+  (def raw-dt (* (- now last-time) 1000)) # convert to ms
   (put ctx :anim-last-time now)
-  (when (< dt 0.1) (break)) # skip if dt is negligible (first frame)
+  (when (< raw-dt 0.1) (break)) # skip if dt is negligible (first frame)
+  (def dt (min raw-dt 33)) # cap at ~2 frames to prevent instant completion after idle
   (def ease-fn (or (anim/easing-fns (config :anim-ease)) anim/ease-out-cubic))
   (each w (ctx :windows)
     (anim/tick-window w dt ease-fn))
@@ -458,21 +472,44 @@
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj))
-      (def clip
-        (when-let [screen-x (window-screen-x w ctx)
-                   o (window/tag-output w (ctx :outputs))]
+      (def screen-x (window-screen-x w ctx))
+      (def o (window/tag-output w (ctx :outputs)))
+      (def [rw rh] (anim/resolve-dimensions w))
+      (def win-w (or rw 0))
+      (def on-screen
+        (and screen-x o
+             (scroll/visible? screen-x win-w
+                              (or (o :x) 0) (or (o :w) 1920))))
+      (if on-screen
+        (do
+          # Re-show if previously hidden by render clipping
+          (when (w :render-hidden)
+            (put w :render-hidden nil)
+            (:show (w :obj)))
           (def screen-y (anim/resolve-y w))
-          (scroll/clip-rect screen-x (or (w :w) 0)
-                            screen-y (or (w :h) 0)
-                            (or (o :x) 0) (or (o :y) 0)
-                            (or (o :w) 1920) (or (o :h) 1080))))
-      (if clip
-        (:set-clip-box (w :obj)
-                       (math/round (clip :clip-x)) (math/round (clip :clip-y))
-                       (math/round (clip :clip-w)) (math/round (clip :clip-h)))
-        (when (w :clip-applied)
-          (:set-clip-box (w :obj) 0 0 0 0)))
-      (put w :clip-applied clip))))
+          (def clip
+            (scroll/clip-rect screen-x win-w
+                              screen-y (or rh 0)
+                              (or (o :x) 0) (or (o :y) 0)
+                              (or (o :w) 1920) (or (o :h) 1080)))
+          (if clip
+            (:set-clip-box (w :obj)
+                           (math/round (clip :clip-x)) (math/round (clip :clip-y))
+                           (math/round (clip :clip-w)) (math/round (clip :clip-h)))
+            (when (w :clip-applied)
+              (:set-clip-box (w :obj) 0 0 0 0)))
+          (put w :clip-applied clip))
+        # Fully off-screen — hide instead of zero-size clip
+        (do
+          (when (not (w :render-hidden))
+            (put w :render-hidden true)
+            (:hide (w :obj)))
+          (put w :clip-applied nil))))))
+
+(defn- request-rerender [ctx]
+  (when (anim/any-animating? ctx)
+    (:manage-dirty
+      (get-in ctx [:registry :proxies "river_window_manager_v1"]))))
 
 (defn- signal-render-done [ctx]
   (:render-finish
@@ -514,7 +551,8 @@
     center-unplaced
     apply-positions
     apply-clips
-    signal-render-done])
+    signal-render-done
+    request-rerender])
 
 # ============================================================
 # Event registration

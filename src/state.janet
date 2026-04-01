@@ -86,6 +86,14 @@
     (unless (find |(($ :tags) tag) outputs)
       (when-let [o (find |(empty? ($ :tags)) outputs)]
         (put (o :tags) tag true))))
+  # Ensure every output has a tag — assign lowest unused integer if needed
+  (each o outputs
+    (when (empty? (o :tags))
+      (def used @{})
+      (each o2 outputs (eachk tag (o2 :tags) (put used tag true)))
+      (var t 1)
+      (while (used t) (++ t))
+      (put (o :tags) t true)))
   # Track primary tag
   (each o outputs
-    (put o :primary-tag (or (min-of (keys (o :tags))) 1))))
+    (put o :primary-tag (min-of (keys (o :tags))))))

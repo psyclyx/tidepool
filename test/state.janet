@@ -78,11 +78,19 @@
 (state/reconcile-tags ctx)
 (t/assert-eq (o1 :primary-tag) 1)
 
-(t/test-start "reconcile-tags: empty tags falls back to 1")
+(t/test-start "reconcile-tags: empty output gets assigned a new tag")
 (def o1 (t/make-output {:tags @{}}))
 (def ctx (t/make-ctx {:outputs @[o1] :seats @[]}))
 (state/reconcile-tags ctx)
 (t/assert-eq (o1 :primary-tag) 1)
+
+(t/test-start "reconcile-tags: empty output avoids used tags")
+(def o1 (t/make-output {:tags @{1 true}}))
+(def o2 (t/make-output {:tags @{}}))
+(def ctx (t/make-ctx {:outputs @[o1 o2] :seats @[]}))
+(state/reconcile-tags ctx)
+(t/assert-eq (o1 :primary-tag) 1)
+(t/assert-eq (o2 :primary-tag) 2)
 
 # ============================================================
 # init

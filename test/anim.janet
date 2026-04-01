@@ -173,37 +173,49 @@
 # ============================================================
 
 (t/test-start "set-camera-target: creates camera spring")
-(def tag @{:camera 0 :camera-anim nil})
-(anim/set-camera-target tag 500 200)
+(def tag @{:camera 500 :camera-anim nil})
+(anim/set-camera-target tag 500 200 0)
 (t/assert-truthy (tag :camera-anim))
 (t/assert-eq ((tag :camera-anim) :target) 500)
+(t/assert-eq ((tag :camera-anim) :start) 0)
 
 (t/test-start "set-camera-target: no-op when already at target")
+(def tag @{:camera 500 :camera-anim nil})
+(anim/set-camera-target tag 500 200 500)
+(t/assert-eq (tag :camera-anim) nil)
+
+(t/test-start "set-camera-target: no-op without prev-cam when at target")
 (def tag @{:camera 500 :camera-anim nil})
 (anim/set-camera-target tag 500 200)
 (t/assert-eq (tag :camera-anim) nil)
 
 (t/test-start "tick-camera: advances and sets visual")
-(def tag @{:camera 0 :camera-anim nil})
-(anim/set-camera-target tag 100 200)
+(def tag @{:camera 100 :camera-anim nil})
+(anim/set-camera-target tag 100 200 0)
 (def active (anim/tick-camera tag 100 anim/linear))
 (t/assert-truthy active)
 (t/assert-eq (tag :camera-visual) 50)
 
 (t/test-start "tick-camera: completes and snaps")
-(def tag @{:camera 100 :camera-anim nil})
-(anim/set-camera-target tag 200 200)
+(def tag @{:camera 200 :camera-anim nil})
+(anim/set-camera-target tag 200 200 100)
 (anim/tick-camera tag 200 anim/linear)
 (t/assert-eq (tag :camera-anim) nil "spring cleared")
-(t/assert-eq (tag :camera-visual) 100 "snapped to tag :camera")
+(t/assert-eq (tag :camera-visual) 200 "snapped to tag :camera")
 
 (t/test-start "set-camera-target: retargets in-flight")
-(def tag @{:camera 0 :camera-anim nil})
-(anim/set-camera-target tag 100 200)
+(def tag @{:camera 100 :camera-anim nil})
+(anim/set-camera-target tag 100 200 0)
 (anim/tick-camera tag 100 anim/linear) # visual = 50
-(anim/set-camera-target tag 200 200) # retarget from 50 to 200
+(put tag :camera 200)
+(anim/set-camera-target tag 200 200 100) # retarget from 50 to 200
 (t/assert-eq ((tag :camera-anim) :start) 50)
 (t/assert-eq ((tag :camera-anim) :target) 200)
+
+(t/test-start "set-camera-target: initializes camera-visual on spring creation")
+(def tag @{:camera 500 :camera-anim nil :camera-visual nil})
+(anim/set-camera-target tag 500 200 0)
+(t/assert-eq (tag :camera-visual) 0)
 
 # ============================================================
 # resolve helpers
@@ -244,9 +256,40 @@
 (t/assert-truthy (anim/any-animating? ctx))
 
 (t/test-start "any-animating?: true when camera animating")
-(def tag @{:camera 0 :camera-anim nil})
-(anim/set-camera-target tag 100 200)
+(def tag @{:camera 100 :camera-anim nil})
+(anim/set-camera-target tag 100 200 0)
 (def ctx @{:windows @[] :tags @{1 tag}})
 (t/assert-truthy (anim/any-animating? ctx))
+
+# ============================================================
+# Nil-safety and mid-flight retarget
+# ============================================================
+
+(t/test-start "set-targets: nil prev-w/prev-h with no existing spring creates no spring")
+(def w @{:y 50 :w 800 :h 600})
+(anim/set-targets w 100 800 600 200 50 nil nil)
+(t/assert-truthy (get-in w [:anim :y]) "y spring created from prev-y")
+(t/assert-eq (get-in w [:anim :w]) nil "no w spring — nil rest, target matches")
+(t/assert-eq (get-in w [:anim :h]) nil "no h spring — nil rest, target matches")
+
+(t/test-start "set-targets: nil prev with existing spring retargets from spring current")
+(def w @{:y 0 :w 800 :h 600})
+(anim/set-targets w 100 900 700 200 0 800 600)
+(t/assert-truthy (get-in w [:anim :w]) "w spring created")
+# Tick partway
+(anim/tick-window w 100 anim/linear)
+(def mid-w (get-in w [:anim :w :current]))
+# Retarget with nil prev (simulates manage-dirty re-render cycle)
+(anim/set-targets w 100 950 700 200 0 nil nil)
+(t/assert-truthy (get-in w [:anim :w]) "w spring retargeted")
+(t/assert-eq (get-in w [:anim :w :start]) mid-w "starts from spring current")
+(t/assert-eq (get-in w [:anim :w :target]) 950 "targets new value")
+
+(t/test-start "set-targets: nil new-val does not create spring")
+(def w @{:y 50 :w 800 :h 600})
+(anim/set-targets w 100 nil nil 200 50 800 600)
+(t/assert-truthy (get-in w [:anim :y]) "y spring created")
+(t/assert-eq (get-in w [:anim :w]) nil "no w spring — nil new-val")
+(t/assert-eq (get-in w [:anim :h]) nil "no h spring — nil new-val")
 
 (t/report)

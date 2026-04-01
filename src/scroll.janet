@@ -214,15 +214,12 @@
   (for i 0 (length columns)
     (def col (columns i))
     (def vp (vpositions i))
-    # Use target camera for visibility check (which columns to lay out)
-    (def col-screen-x (screen-x (vp :vx) new-cam (usable :x)))
-    (when (visible? col-screen-x (vp :vw) (output :x) (output :w))
-      # Layout with virtual x — render chain converts to screen x via camera
-      (def rect {:x (vp :vx) :y col-screen-y
-                 :w (vp :vw) :h col-h})
-      (def node-placements (layout-node col rect ig bw))
-      (each p node-placements
-        (array/push placements
-          (merge p {:vx (p :x) :x nil})))))
+    # Layout ALL columns — render chain clips/hides off-screen windows via camera
+    (def rect {:x (vp :vx) :y col-screen-y
+               :w (vp :vw) :h col-h})
+    (def node-placements (layout-node col rect ig bw))
+    (each p node-placements
+      (array/push placements
+        (merge p {:vx (p :x) :x nil}))))
 
   {:placements placements :camera new-cam})
