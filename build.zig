@@ -209,13 +209,27 @@ pub fn build(b: *Build) !void {
 
     b.installArtifact(tidepool);
 
-    // --- tidepoolmsg (REPL client helper) ---
+    // --- tidepoolmsg (REPL client + IPC helper) ---
     const gen_msg = b.addRunArtifact(janet.artifact("janet-bin"));
     gen_msg.has_side_effects = true;
     gen_msg.addFileArg(b.path("build/gen-c-source.janet"));
     gen_msg.addFileArg(b.path("src/tidepoolmsg.janet"));
     _ = gen_msg.addOutputFileArg("tidepoolmsg.jimage");
     const msg_generated = gen_msg.addOutputFileArg("tidepoolmsg.c");
+
+    // spork modules needed by tidepoolmsg
+    gen_msg.addArgs(&.{ "--source", "spork/netrepl" });
+    gen_msg.addFileArg(spork.path("spork/netrepl.janet"));
+    gen_msg.addArgs(&.{ "--source", "spork/msg" });
+    gen_msg.addFileArg(spork.path("spork/msg.janet"));
+    gen_msg.addArgs(&.{ "--source", "spork/getline" });
+    gen_msg.addFileArg(spork.path("spork/getline.janet"));
+    gen_msg.addArgs(&.{ "--source", "spork/ev-utils" });
+    gen_msg.addFileArg(spork.path("spork/ev-utils.janet"));
+    gen_msg.addArgs(&.{ "--native", "spork/rawterm", "janet_module_entry_rawterm" });
+    gen_msg.addArtifactArg(rawterm);
+    gen_msg.addArgs(&.{ "--native", "spork/json", "janet_module_entry_json" });
+    gen_msg.addArtifactArg(json);
 
     b.getInstallStep().dependOn(&gen_msg.step);
 
@@ -229,6 +243,8 @@ pub fn build(b: *Build) !void {
     });
     tidepoolmsg.addCSourceFile(.{ .file = msg_generated });
     tidepoolmsg.linkLibrary(janet_static.artifact("janet"));
+    tidepoolmsg.linkLibrary(rawterm_static);
+    tidepoolmsg.linkLibrary(json_static);
 
     b.installArtifact(tidepoolmsg);
 

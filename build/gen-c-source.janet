@@ -178,7 +178,22 @@ int main(int argc, const char **argv) {
                         (info :prefix)
                         "\", 0);\n\n")))
 
-(spit image-file (marshal main mdict))
+# Prepare module env for runtime: strip prototype (restored at runtime),
+# module-system internals, and :private flags so dofile/REPL can see everything.
+(table/setproto env nil)
+(put env *module-paths* nil)
+(put env *module-cache* nil)
+(put env *module-make-env* nil)
+(eachp [k v] env
+  (when (and (symbol? k) (table? v))
+    (put v :private nil)))
+
+(def entry (fn [& args]
+  (table/setproto env (curenv))
+  (fiber/setenv (fiber/current) env)
+  (main ;args)))
+
+(spit image-file (marshal entry mdict))
 (spit out-file (make-bin-source image-file declarations lookup-into-invocations false))
 
 (os/exit 0)
