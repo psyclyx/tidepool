@@ -10,7 +10,7 @@
   "Close the focused window."
   [ctx s]
   (when-let [w (s :focused)]
-    (put w :closed true)))
+    (:close (w :obj))))
 
 (defn focus-next
   "Focus the next tiled window."
