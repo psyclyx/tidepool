@@ -296,7 +296,7 @@
           (def w (p :window))
           (window/set-position w (p :x) (p :y))
           (window/propose-dimensions w (p :w) (p :h) config)
-          (put w :clip (p :clip))))))
+)))))
   # Mark windows not placed by scroll layout as hidden
   (each w (ctx :windows)
     (when (and (not (w :float)) (not (w :closed)) (not (w :x)))
@@ -324,6 +324,9 @@
         (anim/set-targets w target-x target-y
                           (or target-w (w :w)) (or target-h (w :h))
                           duration)
+        # Set initial animated positions so first frame doesn't jump to target
+        (when (get-in w [:anim :x]) (put w :anim-x (w :prev-x)))
+        (when (get-in w [:anim :y]) (put w :anim-y (w :prev-y)))
         # Restore targets
         (put w :x target-x)
         (put w :y target-y)))
@@ -459,13 +462,22 @@
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj))
-      (if-let [clip (w :clip)]
-        (:set-clip-box (w :obj) (clip :clip-x) (clip :clip-y)
-                       (clip :clip-w) (clip :clip-h))
-        # Clear clip (0,0,0,0 disables clipping)
+      # Compute clip from animated position and output geometry
+      (def clip
+        (when-let [o (window/tag-output w (ctx :outputs))]
+          (let [[ax ay] (anim/resolve-position w)
+                aw (or (w :w) 0)
+                ah (or (w :h) 0)]
+            (scroll/clip-rect ax aw ay ah
+                              (or (o :x) 0) (or (o :y) 0)
+                              (or (o :w) 1920) (or (o :h) 1080)))))
+      (if clip
+        (:set-clip-box (w :obj)
+                       (math/round (clip :clip-x)) (math/round (clip :clip-y))
+                       (math/round (clip :clip-w)) (math/round (clip :clip-h)))
         (when (w :clip-applied)
           (:set-clip-box (w :obj) 0 0 0 0)))
-      (put w :clip-applied (w :clip)))))
+      (put w :clip-applied clip))))
 
 (defn- signal-render-done [ctx]
   (:render-finish

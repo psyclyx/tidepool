@@ -131,20 +131,18 @@
 
 (defn collapse-singles
   "Walk up from node, collapsing any single-child containers.
-   Returns the node that ended up in the collapsed position."
+   Never collapses root containers (columns are structural wrappers)."
   [node]
-  (if (and (container? node) (= 1 (length (node :children))))
+  (if (and (container? node) (= 1 (length (node :children)))
+           (node :parent))
     (let [child (first (node :children))
           p (node :parent)]
       (put child :width (node :width))
       (put child :parent p)
-      (if p
-        (do
-          (def idx (find-index |(= $ node) (p :children)))
-          (put (p :children) idx child)
-          (collapse-singles p)
-          child)
-        child))
+      (def idx (find-index |(= $ node) (p :children)))
+      (put (p :children) idx child)
+      (collapse-singles p)
+      child)
     node))
 
 (defn insert-child
@@ -162,10 +160,15 @@
 # --- Column operations (top-level scroll sequence) ---
 
 (defn insert-column
-  "Insert a node into the columns array at index."
+  "Insert a node into the columns array at index.
+   Bare leaves are auto-wrapped in a container (columns must be containers)."
   [columns idx node]
-  (put node :parent nil)
-  (array/insert columns idx node))
+  (def col-node
+    (if (leaf? node)
+      (container :split :horizontal @[node] (node :width))
+      node))
+  (put col-node :parent nil)
+  (array/insert columns idx col-node))
 
 (defn remove-column
   "Remove a column by index. Returns the removed node."
@@ -183,21 +186,24 @@
 # --- Structural operations ---
 
 (defn remove-leaf
-  "Remove a leaf from the tree. Collapses single-child parents.
+  "Remove a leaf from the tree. Cleans up empty containers, collapses singles.
    Returns [columns-changed? collapsed-node-or-nil]."
   [columns leaf-node]
   (def col-idx (find-column-index columns leaf-node))
-  (if (root? leaf-node)
-    # Leaf is a top-level column — just remove it
-    (do (remove-column columns col-idx)
+  (var node (remove-child leaf-node))
+  # Walk up removing empty non-root containers
+  (while (and node (container? node) (= 0 (length (node :children)))
+              (not (root? node)))
+    (set node (remove-child node)))
+  # If root container is now empty, remove the column
+  (if (and node (container? node) (= 0 (length (node :children))))
+    (do (when col-idx (remove-column columns col-idx))
         [true nil])
-    # Leaf is inside a container
-    (let [parent (remove-child leaf-node)
-          result (collapse-singles parent)]
-      # If the collapse replaced a top-level node, update columns
-      (when (and result (root? result) col-idx)
-        (put columns col-idx result))
-      [false result])))
+    (let [result (collapse-singles node)]
+      (if (and (root? result) col-idx)
+        (do (put columns col-idx result)
+            [false result])
+        [false result]))))
 
 (defn wrap-in-container
   "Replace a node with a new container holding it and a new sibling.
