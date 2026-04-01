@@ -54,9 +54,40 @@
     (when-let [o (s :focused-output)]
       (output/set-tags o {tag true}))))
 
+(import ./tree)
+(import ./state)
+
 (defn send-to-tag
   "Return an action that moves the focused window to a tag."
   [tag]
   (fn [ctx s]
-    (when-let [w (s :focused)]
-      (put w :tag tag))))
+    (when-let [w (s :focused)
+               leaf (w :tree-leaf)]
+      (def old-tag-id (w :tag))
+      (when (= old-tag-id tag) (break))
+      (def old-tag (get-in ctx [:tags old-tag-id]))
+      # Remove from old tag's tree
+      (when old-tag
+        (def columns (old-tag :columns))
+        (def col-idx (tree/find-column-index columns leaf))
+        (def child-idx (or (tree/child-index leaf) 0))
+        (def [col-removed result] (tree/remove-leaf columns leaf))
+        # Update old tag's focus
+        (when (= (old-tag :focused-id) w)
+          (def successor (tree/focus-successor columns
+                           (or col-idx 0) child-idx
+                           (if col-removed nil result)))
+          (if successor
+            (do (put old-tag :focused-id (successor :window))
+                (tree/update-active-path successor))
+            (put old-tag :focused-id nil))))
+      # Move window to new tag
+      (put w :tag tag)
+      # Insert into new tag's tree
+      (def new-tag (state/ensure-tag ctx tag))
+      (tree/insert-column (new-tag :columns) (length (new-tag :columns)) leaf)
+      (put new-tag :focused-id w)
+      (tree/update-active-path leaf)
+      # Clear position so layout recomputes
+      (put w :x nil)
+      (put w :y nil))))

@@ -231,6 +231,24 @@
             (put tag :focused-id nil))))
       (put w :tree-leaf nil))))
 
+(defn- adopt-orphan-windows [ctx]
+  "Ensure all tiled, non-closed windows have a tree-leaf."
+  (def config (ctx :config))
+  (each w (ctx :windows)
+    (when (and (not (w :tree-leaf))
+               (not (w :float))
+               (not (w :closed))
+               (not (w :pending-destroy))
+               (w :tag))
+      (def tag-id (w :tag))
+      (def tag (state/ensure-tag ctx tag-id))
+      (def leaf (tree/leaf w (config :default-column-width)))
+      (put w :tree-leaf leaf)
+      (tree/insert-column (tag :columns) (length (tag :columns)) leaf)
+      (when (nil? (tag :focused-id))
+        (put tag :focused-id w)
+        (tree/update-active-path leaf)))))
+
 (defn- sync-tree-focus [ctx]
   "Sync seat focus from the tag tree's focused-id."
   (each s (ctx :seats)
@@ -247,6 +265,12 @@
                         :border-width (config :border-width)
                         :inner-gap (config :inner-gap)
                         :outer-gap (config :outer-gap)})
+  # Save previous positions for animation
+  (each w (ctx :windows)
+    (put w :prev-x (w :x))
+    (put w :prev-y (w :y))
+    (put w :prev-w (w :proposed-w))
+    (put w :prev-h (w :proposed-h)))
   (each w (ctx :windows) (put w :layout-hidden nil))
   (each o (ctx :outputs)
     (when-let [tag-id (o :primary-tag)
@@ -284,18 +308,32 @@
   (def duration (config :anim-duration))
   (def open-dur (config :anim-open-duration))
   (def close-dur (config :anim-close-duration))
-  # Start position animations for windows that moved
   (each w (ctx :windows)
-    (when (and (w :x) (w :y) (w :w) (w :h)
-               (not (w :closed)) (not (w :float)))
-      (anim/set-targets w (w :x) (w :y) (w :w) (w :h) duration))
+    (when (and (w :x) (w :y) (not (w :closed)) (not (w :float)))
+      # Only animate if window had a previous position (not new)
+      (when (and (w :prev-x) (w :prev-y) (not (w :new)))
+        # Temporarily set w's position to prev so set-targets sees the delta
+        (def target-x (w :x))
+        (def target-y (w :y))
+        (def target-w (w :proposed-w))
+        (def target-h (w :proposed-h))
+        (put w :x (w :prev-x))
+        (put w :y (w :prev-y))
+        (put w :w (or (w :prev-w) (w :w)))
+        (put w :h (or (w :prev-h) (w :h)))
+        (anim/set-targets w target-x target-y
+                          (or target-w (w :w)) (or target-h (w :h))
+                          duration)
+        # Restore targets
+        (put w :x target-x)
+        (put w :y target-y)))
     # Open animation for new windows
     (when (and (w :new) (not (w :float)))
       (anim/start-open w open-dur))
     # Close animation
     (when (and (w :closed) (not (w :closing)) (w :tree-leaf))
       (anim/start-close w close-dur)))
-  # Start camera animations
+  # Camera animations
   (eachp [_ tag] (ctx :tags)
     (anim/set-camera-target tag (tag :camera) duration)))
 
@@ -367,7 +405,11 @@
     (put w :needs-ssd nil)
     (put w :float-changed nil)
     (put w :proposed-w nil)
-    (put w :proposed-h nil))
+    (put w :proposed-h nil)
+    (put w :prev-x nil)
+    (put w :prev-y nil)
+    (put w :prev-w nil)
+    (put w :prev-h nil))
   (each s (ctx :seats)
     (put s :new nil)
     (array/clear (s :pending-actions))
@@ -416,13 +458,13 @@
 
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
-    (when (and (w :visible) (w :node))
+    (when (and (w :visible) (w :obj))
       (if-let [clip (w :clip)]
-        (:set-clip-box (w :node) (clip :clip-x) (clip :clip-y)
+        (:set-clip-box (w :obj) (clip :clip-x) (clip :clip-y)
                        (clip :clip-w) (clip :clip-h))
         # Clear clip (0,0,0,0 disables clipping)
         (when (w :clip-applied)
-          (:set-clip-box (w :node) 0 0 0 0)))
+          (:set-clip-box (w :obj) 0 0 0 0)))
       (put w :clip-applied (w :clip)))))
 
 (defn- signal-render-done [ctx]
@@ -445,6 +487,7 @@
     init-new-seats
     process-focus
     state/reconcile-tags
+    adopt-orphan-windows
     sync-tree-focus
     run-scroll-layout
     start-animations
