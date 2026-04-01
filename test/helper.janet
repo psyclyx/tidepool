@@ -20,6 +20,14 @@
       (eprintf "  FAIL [%s] %s\n    expected: %q\n    got:      %q"
                current-test (or msg "") expected actual))))
 
+(defn assert-is [actual expected &opt msg]
+  (if (= actual expected)
+    (++ pass-count)
+    (do
+      (++ fail-count)
+      (eprintf "  FAIL [%s] %s\n    expected: %q\n    got:      %q"
+               current-test (or msg "") expected actual))))
+
 (defn assert-truthy [val &opt msg]
   (if val
     (++ pass-count)
