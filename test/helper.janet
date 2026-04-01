@@ -54,6 +54,11 @@
   (def c @{:border-width 4
             :outer-padding 4
             :inner-padding 8
+            :outer-gap 4
+            :inner-gap 8
+            :peek-width 8
+            :default-column-width 1.0
+            :width-presets @[0.33 0.5 0.66 0.8 1.0]
             :main-ratio 0.55
             :main-count 1
             :default-layout :master-stack
@@ -62,6 +67,7 @@
             :border-focused 0xffffff
             :border-normal 0x646464
             :border-urgent 0xff0000
+            :border-insert 0x00ff88
             :xkb-bindings @[]
             :pointer-bindings @[]
             :rules @[]
@@ -115,6 +121,7 @@
               :seats @[]
               :render-order @[]
               :tag-layouts @{}
-              :tag-focus @{}})
+              :tag-focus @{}
+              :tags @{}})
   (when overrides (merge-into ctx overrides))
   ctx)

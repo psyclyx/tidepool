@@ -6,6 +6,8 @@
 (import ./output)
 (import ./log)
 (import ./ipc)
+(import ./tree)
+(import ./scroll)
 
 # --- Chain runner ---
 
@@ -114,7 +116,44 @@
             (window/set-float w true))
           (when-let [s (first (ctx :seats))
                      o (s :focused-output)]
-            (put w :tag (or (min-of (keys (o :tags))) 1))))))))
+            (put w :tag (or (min-of (keys (o :tags))) 1)))
+          # Insert tiled windows into the tag's node tree
+          (when (not (w :float))
+            (def tag-id (w :tag))
+            (def tag (state/ensure-tag ctx tag-id))
+            (def leaf (tree/leaf w (config :default-column-width)))
+            (put w :tree-leaf leaf)
+            (if (= (tag :insert-mode) :child)
+              # Insert into focused node's container
+              (if-let [fid (tag :focused-id)
+                       focused-leaf (do (var found nil)
+                                      (each col (tag :columns)
+                                        (when (not found)
+                                          (set found (tree/find-leaf col fid))))
+                                      found)]
+                (if-let [p (focused-leaf :parent)]
+                  # Insert after focused in its parent
+                  (let [idx (inc (tree/child-index focused-leaf))]
+                    (tree/insert-child p idx leaf))
+                  # Focused is a bare column — wrap into vertical split
+                  (tree/wrap-in-container (tag :columns) focused-leaf
+                                          :split :vertical leaf :after))
+                # No focus — just append as column
+                (tree/insert-column (tag :columns) (length (tag :columns)) leaf))
+              # :sibling mode — insert as new column after focused
+              (let [insert-idx
+                    (if-let [fid (tag :focused-id)
+                             focused-leaf (do (var found nil)
+                                            (each col (tag :columns)
+                                              (when (not found)
+                                                (set found (tree/find-leaf col fid))))
+                                            found)]
+                      (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
+                      (length (tag :columns)))]
+                (tree/insert-column (tag :columns) insert-idx leaf)))
+            # Set focus to new window
+            (put tag :focused-id w)
+            (tree/update-active-path leaf)))))))
 
 (defn- init-new-seats [ctx]
   (each s (ctx :seats)
@@ -168,6 +207,75 @@
             (window/set-position (r :window) (r :x) (r :y))
             (window/propose-dimensions (r :window)
                                        (r :w) (r :h) config)))))))
+
+(defn- remove-closed-from-tree [ctx]
+  (each w (ctx :windows)
+    (when (and (w :closed) (w :tree-leaf))
+      (def leaf (w :tree-leaf))
+      (when-let [tag-id (w :tag)
+                 tag (get-in ctx [:tags tag-id])]
+        (def columns (tag :columns))
+        (def col-idx (tree/find-column-index columns leaf))
+        (def child-idx (or (tree/child-index leaf) 0))
+        # Remove from tree
+        (def [col-removed result] (tree/remove-leaf columns leaf))
+        # Update focus if this was the focused window
+        (when (= (tag :focused-id) w)
+          (def successor (tree/focus-successor columns
+                           (or col-idx 0) child-idx
+                           (if col-removed nil result)))
+          (if successor
+            (do (put tag :focused-id (successor :window))
+                (tree/update-active-path successor))
+            (put tag :focused-id nil))))
+      (put w :tree-leaf nil))))
+
+(defn- sync-tree-focus [ctx]
+  "Sync seat focus from the tag tree's focused-id."
+  (each s (ctx :seats)
+    (when-let [o (s :focused-output)
+               tag-id (o :primary-tag)
+               tag (get-in ctx [:tags tag-id])
+               fwin (tag :focused-id)]
+      (when (and fwin (not (fwin :closed)) (not (fwin :pending-destroy)))
+        (seat/focus s fwin)))))
+
+(defn- run-scroll-layout [ctx]
+  (def config (ctx :config))
+  (def scroll-config @{:peek-width (config :peek-width)
+                        :border-width (config :border-width)
+                        :inner-gap (config :inner-gap)
+                        :outer-gap (config :outer-gap)})
+  (each w (ctx :windows) (put w :layout-hidden nil))
+  (each o (ctx :outputs)
+    (when-let [tag-id (o :primary-tag)
+               tag (get-in ctx [:tags tag-id])]
+      (def columns (tag :columns))
+      (when (not (empty? columns))
+        (def usable (output/usable-area o))
+        (def output-rect {:x (or (o :x) 0) :y (or (o :y) 0)
+                          :w (or (o :w) 1920) :h (or (o :h) 1080)})
+        # Find focused leaf
+        (var focus-leaf nil)
+        (when (tag :focused-id)
+          (each col columns
+            (when (not focus-leaf)
+              (set focus-leaf (tree/find-leaf col (tag :focused-id))))))
+        (def result (scroll/scroll-layout columns focus-leaf
+                                           (tag :camera) output-rect usable
+                                           scroll-config))
+        # Update camera
+        (put tag :camera (result :camera))
+        # Apply placements
+        (each p (result :placements)
+          (def w (p :window))
+          (window/set-position w (p :x) (p :y))
+          (window/propose-dimensions w (p :w) (p :h) config)
+          (put w :clip (p :clip))))))
+  # Mark windows not placed by scroll layout as hidden
+  (each w (ctx :windows)
+    (when (and (not (w :float)) (not (w :closed)) (not (w :x)))
+      (put w :layout-hidden true))))
 
 (defn- compute-borders [ctx]
   (def config (ctx :config))
@@ -268,6 +376,17 @@
     (when (and (w :x) (w :y) (w :visible))
       (:set-position (w :node) (w :x) (w :y)))))
 
+(defn- apply-clips [ctx]
+  (each w (ctx :windows)
+    (when (and (w :visible) (w :node))
+      (if-let [clip (w :clip)]
+        (:set-clip-box (w :node) (clip :clip-x) (clip :clip-y)
+                       (clip :clip-w) (clip :clip-h))
+        # Clear clip (0,0,0,0 disables clipping)
+        (when (w :clip-applied)
+          (:set-clip-box (w :node) 0 0 0 0)))
+      (put w :clip-applied (w :clip)))))
+
 (defn- signal-render-done [ctx]
   (:render-finish
     (get-in ctx [:registry :proxies "river_window_manager_v1"])))
@@ -279,6 +398,7 @@
 (def manage-chain
   @[prune-closed
     flag-destroyed
+    remove-closed-from-tree
     ipc/emit-close-events
     apply-destroys
     sort-outputs
@@ -287,7 +407,8 @@
     init-new-seats
     process-focus
     state/reconcile-tags
-    run-layout
+    sync-tree-focus
+    run-scroll-layout
     compute-borders
     compute-visibility
     # --- effects ---
@@ -302,6 +423,7 @@
 (def render-chain
   @[center-unplaced
     apply-positions
+    apply-clips
     signal-render-done])
 
 # ============================================================

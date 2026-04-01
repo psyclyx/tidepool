@@ -3,6 +3,11 @@
   @{:border-width 4
     :outer-padding 4
     :inner-padding 8
+    :outer-gap 4
+    :inner-gap 8
+    :peek-width 8
+    :default-column-width 1.0
+    :width-presets @[0.33 0.5 0.66 0.8 1.0]
     :main-ratio 0.55
     :main-count 1
     :default-layout :master-stack
@@ -11,6 +16,7 @@
     :border-focused 0xffffff
     :border-normal 0x646464
     :border-urgent 0xff0000
+    :border-insert 0x00ff88
     :xcursor-theme "Adwaita"
     :xcursor-size 24
     :xkb-bindings @[]
@@ -28,7 +34,19 @@
   (put ctx :render-order @[])
   (put ctx :tag-layouts @{})
   (put ctx :tag-focus @{})
+  (put ctx :tags @{})
   ctx)
+
+(defn ensure-tag
+  "Get or create tag state for a given tag id."
+  [ctx tag-id]
+  (or (get-in ctx [:tags tag-id])
+      (let [tag @{:columns @[]
+                  :camera 0
+                  :focused-id nil
+                  :insert-mode :sibling}]
+        (put-in ctx [:tags tag-id] tag)
+        tag)))
 
 (defn remove-destroyed
   "Remove entries with :pending-destroy from array in-place."
