@@ -1,55 +1,51 @@
+# Public action API. All keybindings reference this module.
+# Re-exports scroll-actions and adds tag/spawn actions.
+
+(import ./scroll-actions)
 (import ./output)
-(import ./window)
 (import ./seat)
 
-(defn- tiled-on-output [ctx o]
-  (filter |(and (not ($ :float)) (not ($ :closed)))
-          (output/visible o (ctx :windows))))
+# --- Directional focus ---
+(def focus-left scroll-actions/focus-left)
+(def focus-right scroll-actions/focus-right)
+(def focus-up scroll-actions/focus-up)
+(def focus-down scroll-actions/focus-down)
 
-(defn close-focused
-  "Close the focused window."
-  [ctx s]
-  (when-let [w (s :focused)]
-    (:close (w :obj))))
+# --- Directional swap ---
+(def swap-left scroll-actions/swap-left)
+(def swap-right scroll-actions/swap-right)
+(def swap-up scroll-actions/swap-up)
+(def swap-down scroll-actions/swap-down)
 
-(defn focus-next
-  "Focus the next tiled window."
-  [ctx s]
-  (when-let [o (s :focused-output)]
-    (def tiled (tiled-on-output ctx o))
-    (when (> (length tiled) 0)
-      (def idx (or (find-index |(= $ (s :focused)) tiled) -1))
-      (seat/focus s (tiled (% (+ idx 1) (length tiled)))))))
+# --- Join / Leave ---
+(def join-left scroll-actions/join-left)
+(def join-right scroll-actions/join-right)
+(def join-up scroll-actions/join-up)
+(def join-down scroll-actions/join-down)
+(def leave scroll-actions/leave)
 
-(defn focus-prev
-  "Focus the previous tiled window."
-  [ctx s]
-  (when-let [o (s :focused-output)]
-    (def tiled (tiled-on-output ctx o))
-    (when (> (length tiled) 0)
-      (def idx (or (find-index |(= $ (s :focused)) tiled) 0))
-      (seat/focus s (tiled (% (+ idx (- (length tiled) 1))
-                              (length tiled)))))))
+# --- Tabs ---
+(def focus-tab-next scroll-actions/focus-tab-next)
+(def focus-tab-prev scroll-actions/focus-tab-prev)
+(def make-tabbed scroll-actions/make-tabbed)
+(def make-split scroll-actions/make-split)
+(def make-horizontal scroll-actions/make-horizontal)
+(def make-vertical scroll-actions/make-vertical)
 
-(defn swap-next
-  "Swap the focused window with the next in layout order."
-  [ctx s]
-  (when-let [o (s :focused-output)]
-    (def tiled (tiled-on-output ctx o))
-    (when (> (length tiled) 1)
-      (when-let [idx (find-index |(= $ (s :focused)) tiled)]
-        (def next-idx (% (+ idx 1) (length tiled)))
-        (window/swap ctx (tiled idx) (tiled next-idx))))))
+# --- Width ---
+(def cycle-width-forward scroll-actions/cycle-width-forward)
+(def cycle-width-backward scroll-actions/cycle-width-backward)
 
-(defn swap-prev
-  "Swap the focused window with the previous in layout order."
-  [ctx s]
-  (when-let [o (s :focused-output)]
-    (def tiled (tiled-on-output ctx o))
-    (when (> (length tiled) 1)
-      (when-let [idx (find-index |(= $ (s :focused)) tiled)]
-        (def prev-idx (% (+ idx (- (length tiled) 1)) (length tiled)))
-        (window/swap ctx (tiled idx) (tiled prev-idx))))))
+# --- Insert mode ---
+(def toggle-insert-mode scroll-actions/toggle-insert-mode)
+
+# --- Close ---
+(def close-focused scroll-actions/close-focused)
+
+# --- Spawn ---
+(def spawn scroll-actions/spawn)
+
+# --- Tag management ---
 
 (defn focus-tag
   "Return an action that switches the focused output to a tag."
@@ -64,9 +60,3 @@
   (fn [ctx s]
     (when-let [w (s :focused)]
       (put w :tag tag))))
-
-(defn spawn
-  "Return an action that spawns a command."
-  [& cmd]
-  (fn [ctx s]
-    (ev/go (fn [] (os/proc-wait (os/spawn [;cmd] :p))))))
