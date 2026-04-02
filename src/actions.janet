@@ -48,11 +48,16 @@
 # --- Tag management ---
 
 (defn focus-tag
-  "Return an action that switches the focused output to a tag."
+  "Return an action that switches the focused output to a tag.
+   If another output already shows that tag, focus moves there instead."
   [tag]
   (fn [ctx s]
     (when-let [o (s :focused-output)]
-      (output/set-tags o {tag true}))))
+      (def other (find |(and (not= $ o) (($ :tags) tag))
+                       (ctx :outputs)))
+      (if other
+        (seat/focus-output s other)
+        (output/set-tags o {tag true})))))
 
 (import ./tree)
 (import ./state)
