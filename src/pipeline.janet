@@ -178,9 +178,18 @@
                  (when-let [o (s :focused-output)]
                    ((o :tags) (w :tag))))
         (seat/focus s w)))
-    # Clicked window gets focus
+    # Clicked window gets focus + output follows + update tag tree
     (when-let [w (s :window-interaction)]
-      (seat/focus s w))
+      (when-let [tag-id (w :tag)
+                 o (find |(($ :tags) tag-id) (ctx :outputs))]
+        (seat/focus-output s o))
+      (seat/focus s w)
+      # Update tag tree so sync-tree-focus doesn't override
+      (when-let [leaf (w :tree-leaf)]
+        (when-let [tag-id (w :tag)
+                   tag (get-in ctx [:tags tag-id])]
+          (put tag :focused-id w)
+          (tree/update-active-path leaf))))
     # Pending actions (keybindings + IPC)
     (each action-fn (s :pending-actions)
       (try
@@ -476,35 +485,43 @@
       (def o (window/tag-output w (ctx :outputs)))
       (def [rw rh] (anim/resolve-dimensions w))
       (def win-w (or rw 0))
-      (def on-screen
-        (and screen-x o
-             (scroll/visible? screen-x win-w
-                              (or (o :x) 0) (or (o :w) 1920))))
-      (if on-screen
+      (def win-h (or rh 0))
+      (if (or (<= win-w 0) (<= win-h 0))
+        # Dimensions not yet known — clear any stale clip, don't hide
+        (when (w :clip-applied)
+          (:set-clip-box (w :obj) 0 0 0 0)
+          (put w :clip-applied nil))
+        # Normal clipping logic
         (do
-          # Re-show if previously hidden by render clipping
-          (when (w :render-hidden)
-            (put w :render-hidden nil)
-            (:show (w :obj)))
-          (def screen-y (anim/resolve-y w))
-          (def clip
-            (scroll/clip-rect screen-x win-w
-                              screen-y (or rh 0)
-                              (or (o :x) 0) (or (o :y) 0)
-                              (or (o :w) 1920) (or (o :h) 1080)))
-          (if clip
-            (:set-clip-box (w :obj)
-                           (math/round (clip :clip-x)) (math/round (clip :clip-y))
-                           (math/round (clip :clip-w)) (math/round (clip :clip-h)))
-            (when (w :clip-applied)
-              (:set-clip-box (w :obj) 0 0 0 0)))
-          (put w :clip-applied clip))
-        # Fully off-screen — hide instead of zero-size clip
-        (do
-          (when (not (w :render-hidden))
-            (put w :render-hidden true)
-            (:hide (w :obj)))
-          (put w :clip-applied nil))))))
+          (def on-screen
+            (and screen-x o
+                 (scroll/visible? screen-x win-w
+                                  (or (o :x) 0) (or (o :w) 1920))))
+          (if on-screen
+            (do
+              # Re-show if previously hidden by render clipping
+              (when (w :render-hidden)
+                (put w :render-hidden nil)
+                (:show (w :obj)))
+              (def screen-y (anim/resolve-y w))
+              (def clip
+                (scroll/clip-rect screen-x win-w
+                                  screen-y win-h
+                                  (or (o :x) 0) (or (o :y) 0)
+                                  (or (o :w) 1920) (or (o :h) 1080)))
+              (if clip
+                (:set-clip-box (w :obj)
+                               (math/round (clip :clip-x)) (math/round (clip :clip-y))
+                               (math/round (clip :clip-w)) (math/round (clip :clip-h)))
+                (when (w :clip-applied)
+                  (:set-clip-box (w :obj) 0 0 0 0)))
+              (put w :clip-applied clip))
+            # Fully off-screen — hide instead of zero-size clip
+            (do
+              (when (not (w :render-hidden))
+                (put w :render-hidden true)
+                (:hide (w :obj)))
+              (put w :clip-applied nil))))))))
 
 (defn- request-rerender [ctx]
   (when (anim/any-animating? ctx)
