@@ -143,7 +143,7 @@
 # Swap
 # ============================================================
 
-(t/test-start "swap-right: swaps window refs, focus follows")
+(t/test-start "swap-right: structural swap, focus follows")
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def wb @{:wid 2})
@@ -154,13 +154,14 @@
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/swap-right ctx seat)
-# Windows swapped: la now holds wb, lb now holds wa
-(t/assert-is (la :window) wb)
-(t/assert-is (lb :window) wa)
-# Focus followed the window to lb
-(t/assert-is (tag :focused-id) wa)
+# Nodes swapped positions: la (with wa) is now in column 1, lb (with wb) in column 0
+(t/assert-is (la :window) wa "la keeps its window")
+(t/assert-is (lb :window) wb "lb keeps its window")
+(t/assert-is (tree/first-leaf (cols 0)) lb "lb now first")
+(t/assert-is (tree/first-leaf (cols 1)) la "la now second")
+(t/assert-is (tag :focused-id) wa "focus followed")
 
-(t/test-start "swap-down: in vertical split")
+(t/test-start "swap-down: structural swap in vertical split")
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def wb @{:wid 2})
@@ -172,8 +173,30 @@
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
 (sa/swap-down ctx seat)
-(t/assert-is (la :window) wb "swapped")
-(t/assert-is (lb :window) wa "swapped")
+(t/assert-is ((c :children) 0) lb "lb now first child")
+(t/assert-is ((c :children) 1) la "la now second child")
+
+(t/test-start "swap-right: with container swaps subtrees, not contents")
+(tree/reset-ids)
+(def wa @{:wid 1})
+(def wb @{:wid 2})
+(def wc @{:wid 3})
+(def la (tree/leaf wa))
+(def lb (tree/leaf wb))
+(def lc (tree/leaf wc))
+(def vsplit (tree/container :split :vertical @[lb lc]))
+(def cols @[])
+(tree/insert-column cols 0 la)
+(array/push cols vsplit)
+(def tag (make-tag cols wa))
+(def ctx (make-scroll-ctx tag))
+(def seat (make-scroll-seat wa))
+(sa/swap-right ctx seat)
+# la's column wrapper swapped with vsplit — la is now column 1, vsplit is column 0
+(t/assert-is (cols 0) vsplit "vsplit now first")
+(t/assert-is (tree/first-leaf (cols 1)) la "la now second")
+(t/assert-is (la :window) wa "la still holds wa")
+(t/assert-eq (length (vsplit :children)) 2 "vsplit unchanged")
 
 # ============================================================
 # Join

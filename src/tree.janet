@@ -226,6 +226,22 @@
       (put columns idx c)))
   c)
 
+# --- Swap ---
+
+(defn swap-children
+  "Swap two nodes' positions. Handles same-parent, cross-parent, and column-level."
+  [columns node-a node-b]
+  (def pa (node-a :parent))
+  (def pb (node-b :parent))
+  (def idx-a (if pa (child-index node-a) (find-column-index columns node-a)))
+  (def idx-b (if pb (child-index node-b) (find-column-index columns node-b)))
+  (def arr-a (if pa (pa :children) columns))
+  (def arr-b (if pb (pb :children) columns))
+  (put arr-a idx-a node-b)
+  (put arr-b idx-b node-a)
+  (put node-a :parent pb)
+  (put node-b :parent pa))
+
 # --- Focus helpers ---
 
 (defn update-active-path

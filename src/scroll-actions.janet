@@ -149,41 +149,84 @@
         (break))
       (set node p))))
 
+# --- Structural neighbor finding (for swap) ---
+
+(defn find-structural-neighbor
+  "Find the structural sibling in a given direction from a leaf.
+   Returns [swap-node neighbor] where swap-node is the ancestor of leaf-node
+   that is a sibling of neighbor, or nil if no neighbor exists."
+  [columns leaf-node direction]
+  (var node leaf-node)
+  (var result nil)
+
+  (case direction
+    :left
+    (while (and (not result) node)
+      (if-let [p (node :parent)]
+        (if (= (p :orientation) :horizontal)
+          (let [idx (tree/child-index node)]
+            (if (> idx 0)
+              (set result [node ((p :children) (dec idx))])
+              (set node p)))
+          (set node p))
+        (let [col-idx (tree/find-column-index columns node)]
+          (when (and col-idx (> col-idx 0))
+            (set result [node (columns (dec col-idx))]))
+          (set node nil))))
+
+    :right
+    (while (and (not result) node)
+      (if-let [p (node :parent)]
+        (if (= (p :orientation) :horizontal)
+          (let [idx (tree/child-index node)]
+            (if (< idx (dec (length (p :children))))
+              (set result [node ((p :children) (inc idx))])
+              (set node p)))
+          (set node p))
+        (let [col-idx (tree/find-column-index columns node)]
+          (when (and col-idx (< col-idx (dec (length columns))))
+            (set result [node (columns (inc col-idx))]))
+          (set node nil))))
+
+    :up
+    (while (and (not result) node)
+      (if-let [p (node :parent)]
+        (if (= (p :orientation) :vertical)
+          (let [idx (tree/child-index node)]
+            (if (> idx 0)
+              (set result [node ((p :children) (dec idx))])
+              (set node nil)))
+          (set node p))
+        (set node nil)))
+
+    :down
+    (while (and (not result) node)
+      (if-let [p (node :parent)]
+        (if (= (p :orientation) :vertical)
+          (let [idx (tree/child-index node)]
+            (if (< idx (dec (length (p :children))))
+              (set result [node ((p :children) (inc idx))])
+              (set node nil)))
+          (set node p))
+        (set node nil))))
+
+  result)
+
 # --- Swap ---
 
-(defn- swap-windows [a b]
-  (def wa (a :window))
-  (def wb (b :window))
-  (put a :window wb)
-  (put b :window wa))
-
-(defn swap-left [ctx s]
+(defn- do-swap [ctx s direction]
   (when-let [tag (active-tag ctx s)
              leaf (focused-leaf ctx s)]
-    (when-let [target (find-directional-neighbor (tag :columns) leaf :left)]
-      (swap-windows leaf target)
-      (set-focus ctx s tag target))))
+    (def columns (tag :columns))
+    (when-let [pair (find-structural-neighbor columns leaf direction)]
+      (def [swap-node target] pair)
+      (tree/swap-children columns swap-node target)
+      (set-focus ctx s tag leaf))))
 
-(defn swap-right [ctx s]
-  (when-let [tag (active-tag ctx s)
-             leaf (focused-leaf ctx s)]
-    (when-let [target (find-directional-neighbor (tag :columns) leaf :right)]
-      (swap-windows leaf target)
-      (set-focus ctx s tag target))))
-
-(defn swap-up [ctx s]
-  (when-let [tag (active-tag ctx s)
-             leaf (focused-leaf ctx s)]
-    (when-let [target (find-directional-neighbor (tag :columns) leaf :up)]
-      (swap-windows leaf target)
-      (set-focus ctx s tag target))))
-
-(defn swap-down [ctx s]
-  (when-let [tag (active-tag ctx s)
-             leaf (focused-leaf ctx s)]
-    (when-let [target (find-directional-neighbor (tag :columns) leaf :down)]
-      (swap-windows leaf target)
-      (set-focus ctx s tag target))))
+(defn swap-left [ctx s] (do-swap ctx s :left))
+(defn swap-right [ctx s] (do-swap ctx s :right))
+(defn swap-up [ctx s] (do-swap ctx s :up))
+(defn swap-down [ctx s] (do-swap ctx s :down))
 
 # --- Join ---
 

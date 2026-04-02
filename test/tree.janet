@@ -496,4 +496,31 @@
 (def succ (tree/focus-successor cols 0 0 nil))
 (t/assert-eq succ nil)
 
+# --- swap-children ---
+
+(t/test-start "swap-children: same parent")
+(tree/reset-ids)
+(def la (tree/leaf @{:wid 1}))
+(def lb (tree/leaf @{:wid 2}))
+(def c (tree/container :split :vertical @[la lb]))
+(def cols @[c])
+(tree/swap-children cols la lb)
+(t/assert-is ((c :children) 0) lb)
+(t/assert-is ((c :children) 1) la)
+(t/assert-is (la :parent) c)
+(t/assert-is (lb :parent) c)
+
+(t/test-start "swap-children: cross-column")
+(tree/reset-ids)
+(def la (tree/leaf @{:wid 1}))
+(def lb (tree/leaf @{:wid 2}))
+(def ca (tree/container :split :horizontal @[la]))
+(def cb (tree/container :split :horizontal @[lb]))
+(def cols @[ca cb])
+(tree/swap-children cols ca cb)
+(t/assert-is (cols 0) cb "cb now first")
+(t/assert-is (cols 1) ca "ca now second")
+(t/assert-eq (ca :parent) nil)
+(t/assert-eq (cb :parent) nil)
+
 (t/report)
