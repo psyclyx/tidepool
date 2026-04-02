@@ -198,6 +198,40 @@
 (t/assert-is (la :window) wa "la still holds wa")
 (t/assert-eq (length (vsplit :children)) 2 "vsplit unchanged")
 
+(t/test-start "swap-down at edge: extracts leaf from vertical container")
+(tree/reset-ids)
+(def wa @{:wid 1})
+(def wb @{:wid 2})
+(def la (tree/leaf wa))
+(def lb (tree/leaf wb))
+(def vsplit (tree/container :split :vertical @[la lb]))
+(def cols @[vsplit])
+(def tag (make-tag cols wb))
+(def ctx (make-scroll-ctx tag))
+(def seat (make-scroll-seat wb))
+(sa/swap-down ctx seat)
+# lb was at bottom of vsplit, should extract to a new column after vsplit
+(t/assert-eq (length cols) 2 "now two columns")
+(t/assert-is (tree/first-leaf (cols 0)) la "la stays in original column")
+(t/assert-is (tree/first-leaf (cols 1)) lb "lb extracted to new column")
+
+(t/test-start "swap-up at edge: extracts leaf from vertical container")
+(tree/reset-ids)
+(def wa @{:wid 1})
+(def wb @{:wid 2})
+(def la (tree/leaf wa))
+(def lb (tree/leaf wb))
+(def vsplit (tree/container :split :vertical @[la lb]))
+(def cols @[vsplit])
+(def tag (make-tag cols wa))
+(def ctx (make-scroll-ctx tag))
+(def seat (make-scroll-seat wa))
+(sa/swap-up ctx seat)
+# la was at top of vsplit, should extract to a new column before vsplit
+(t/assert-eq (length cols) 2 "now two columns")
+(t/assert-is (tree/first-leaf (cols 0)) la "la extracted before")
+(t/assert-is (tree/first-leaf (cols 1)) lb "lb stays in original column")
+
 # ============================================================
 # Join
 # ============================================================

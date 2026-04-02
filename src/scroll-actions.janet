@@ -212,23 +212,7 @@
 
   result)
 
-# --- Swap ---
-
-(defn- do-swap [ctx s direction]
-  (when-let [tag (active-tag ctx s)
-             leaf (focused-leaf ctx s)]
-    (def columns (tag :columns))
-    (when-let [pair (find-structural-neighbor columns leaf direction)]
-      (def [swap-node target] pair)
-      (tree/swap-children columns swap-node target)
-      (set-focus ctx s tag leaf))))
-
-(defn swap-left [ctx s] (do-swap ctx s :left))
-(defn swap-right [ctx s] (do-swap ctx s :right))
-(defn swap-up [ctx s] (do-swap ctx s :up))
-(defn swap-down [ctx s] (do-swap ctx s :down))
-
-# --- Join ---
+# --- Detach helper (shared by swap edge-extract and join) ---
 
 (defn- detach-leaf
   "Remove a leaf from the tree, collapsing empty parents.
@@ -236,6 +220,73 @@
   [columns leaf-node]
   (def [col-removed _] (tree/remove-leaf columns leaf-node))
   col-removed)
+
+# --- Edge detection (for extract-on-swap) ---
+
+(defn- direction-axis [direction]
+  (case direction :left :horizontal :right :horizontal
+                  :up :vertical :down :vertical))
+
+(defn- at-start? [direction]
+  (case direction :left true :up true :right false :down false))
+
+(defn- find-edge-container
+  "Walk up from node to find the nearest ancestor container where the node
+   is at the directional edge. Only considers containers with >1 child
+   whose orientation matches the direction axis.
+   Returns [container direct-child] or nil."
+  [node direction]
+  (def axis (direction-axis direction))
+  (def start (at-start? direction))
+  (var child node)
+  (var result nil)
+  (while (and (not result) (child :parent))
+    (def p (child :parent))
+    (when (and (= (p :orientation) axis)
+               (> (length (p :children)) 1))
+      (def idx (tree/child-index child))
+      (if start
+        (when (= idx 0) (set result [p child]))
+        (when (= idx (dec (length (p :children)))) (set result [p child]))))
+    (set child p))
+  result)
+
+# --- Swap ---
+
+(defn- do-swap [ctx s direction]
+  (when-let [tag (active-tag ctx s)
+             leaf (focused-leaf ctx s)]
+    (def columns (tag :columns))
+    (if-let [pair (find-structural-neighbor columns leaf direction)]
+      # Normal structural swap
+      (let [[swap-node target] pair]
+        (tree/swap-children columns swap-node target)
+        (set-focus ctx s tag leaf))
+      # At edge — extract from container
+      (when-let [[source _] (find-edge-container leaf direction)]
+        (def source-is-root (tree/root? source))
+        (def sc-idx (tree/find-column-index columns source))
+        (def source-parent (source :parent))
+        (def source-idx (when source-parent (tree/child-index source)))
+        (def default-width (get-in ctx [:config :default-column-width] 1.0))
+        (detach-leaf columns leaf)
+        (put leaf :width default-width)
+        (if source-is-root
+          (let [insert-idx (if (at-start? direction)
+                             (or sc-idx 0)
+                             (min (inc (or sc-idx 0)) (length columns)))]
+            (tree/insert-column columns insert-idx leaf))
+          (tree/insert-child source-parent
+            (if (at-start? direction) source-idx (inc source-idx))
+            leaf))
+        (set-focus ctx s tag leaf)))))
+
+(defn swap-left [ctx s] (do-swap ctx s :left))
+(defn swap-right [ctx s] (do-swap ctx s :right))
+(defn swap-up [ctx s] (do-swap ctx s :up))
+(defn swap-down [ctx s] (do-swap ctx s :down))
+
+# --- Join ---
 
 (defn- join-into
   "Join leaf into the container that holds neighbor, or wrap neighbor."
