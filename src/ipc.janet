@@ -1,6 +1,7 @@
 (import spork/json)
 (import ./log)
 (import ./actions)
+(import ./tree)
 
 (var- ctx-ref nil)
 (def- watchers @[])
@@ -98,6 +99,8 @@
           (if-let [s (first (ctx-ref :seats))]
             (do
               (array/push (s :pending-actions) action-fn)
+              (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
+                (:manage-dirty wm))
               (respond stream id {"ok" true}))
             (respond-error stream id -32603 "no seat available"))
           ([err]
@@ -125,6 +128,25 @@
         "action" (handle-action stream id params)
         "watch" (handle-watch stream id params)
         "list-actions" (handle-list-actions stream id)
+        "debug-windows" (respond stream id
+          {"windows"
+           (seq [w :in (ctx-ref :windows)
+                 :when (not (w :pending-destroy))]
+             {"wid" (w :wid) "app-id" (or (w :app-id) "")
+              "tag" (or (w :tag) 0)
+              "w" (or (w :w) 0) "h" (or (w :h) 0)
+              "proposed-w" (or (w :proposed-w) 0)
+              "proposed-h" (or (w :proposed-h) 0)
+              "vx" (or (w :vx) -1)
+              "x" (if (w :x) true false)
+              "y" (or (w :y) 0)
+              "visible" (if (w :visible) true false)
+              "layout-hidden" (if (w :layout-hidden) true false)
+              "render-hidden" (if (w :render-hidden) true false)
+              "closed" (if (w :closed) true false)
+              "float" (if (w :float) true false)
+              "has-leaf" (if (w :tree-leaf) true false)
+              "clip-applied" (if (w :clip-applied) true false)})})
         (respond-error stream id -32601 (string "unknown method: " method))))
     ([err]
       (log/debugf "ipc: parse error: %s" err)
@@ -162,8 +184,57 @@
                               "title" (w :title)
                               "tag" (w :tag)}))))
 
+(defn- count-leaves [node]
+  (case (node :type)
+    :leaf 1
+    :container (sum (map count-leaves (node :children)))
+    0))
+
+(defn- build-state [ctx]
+  (def focused-output
+    (when-let [s (first (ctx :seats))] (s :focused-output)))
+  (def focused-window
+    (when-let [s (first (ctx :seats))] (s :focused)))
+
+  # Per-output state with scroll viewport
+  (def outputs
+    (seq [o :in (ctx :outputs)]
+      (def tag-id (o :primary-tag))
+      (def tag (when tag-id (get-in ctx [:tags tag-id])))
+      (def columns
+        (when tag
+          (def cols (tag :columns))
+          (def fid (tag :focused-id))
+          (seq [col :in cols]
+            (def has-focus
+              (when fid (truthy? (tree/find-leaf col fid))))
+            {"width" (col :width)
+             "leaves" (count-leaves col)
+             "focused" (if has-focus true false)})))
+      {"name" (or (o :name) "")
+       "x" (or (o :x) 0) "y" (or (o :y) 0)
+       "w" (or (o :w) 0) "h" (or (o :h) 0)
+       "focused" (= o focused-output)
+       "tag" (or tag-id 0)
+       "columns" (or columns [])
+       "camera" (if tag (or (tag :camera) 0) 0)
+       "insert-mode" (if tag (or (string (tag :insert-mode)) "sibling") "sibling")}))
+
+  # Occupied tags (tags with at least one non-closed window)
+  (def occ @{})
+  (each w (ctx :windows)
+    (when (and (w :tag) (not (w :closed)) (not (w :pending-destroy)))
+      (put occ (w :tag) true)))
+
+  {"outputs" outputs
+   "occupied-tags" (sorted (keys occ))
+   "focused" (if focused-window
+               {"app-id" (or (focused-window :app-id) "")
+                "title" (or (focused-window :title) "")}
+               {})})
+
 (defn emit-state-events
-  "Pipeline step: emit new-window and focus-change events."
+  "Pipeline step: emit state snapshot and granular events."
   [ctx]
   (each w (ctx :windows)
     (when (w :new)
@@ -176,7 +247,8 @@
       (emit "focus:changed"
         (if w
           {"app-id" (w :app-id) "title" (w :title) "tag" (w :tag)}
-          {})))))
+          {}))))
+  (emit "state" (build-state ctx)))
 
 # --- Server ---
 
