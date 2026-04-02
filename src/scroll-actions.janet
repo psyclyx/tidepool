@@ -28,7 +28,8 @@
   [ctx s tag leaf-node]
   (when leaf-node
     (put tag :focused-id (leaf-node :window))
-    (tree/update-active-path leaf-node)))
+    (tree/update-active-path leaf-node)
+    true))
 
 # --- Directional neighbor finding ---
 

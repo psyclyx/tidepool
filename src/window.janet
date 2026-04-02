@@ -16,9 +16,9 @@
 
 (defn fixed-size? [w]
   (let [{:min-w mw :max-w xw :min-h mh :max-h xh} w]
-    (and mw (> mw 0) xw (> xw 0)
-         mh (> mh 0) xh (> xh 0)
-         (= mw xw) (= mh xh))))
+    (and mw (> mw 0) mh (> mh 0)
+         (or (and xw (> xw 0) xh (> xh 0) (= mw xw) (= mh xh))
+             (and (w :w) (w :h) (= mw (w :w)) (= mh (w :h)))))))
 
 (defn tag-output [w outputs]
   (find |(($ :tags) (w :tag)) outputs))
@@ -43,7 +43,8 @@
     (put w :visible
       (if (and (all-tags (w :tag))
                (not (w :closed))
-               (not (w :layout-hidden)))
+               (not (w :layout-hidden))
+               (w :w) (w :h))
         true false))))
 
 # --- Create ---

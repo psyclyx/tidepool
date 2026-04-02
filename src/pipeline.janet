@@ -356,6 +356,13 @@
         (if (= w focused) :focused :normal)
         config))))
 
+(defn- sync-child-tags [ctx]
+  (each w (ctx :windows)
+    (when-let [p (w :wl-parent)]
+      (when (and (w :float) (not (w :closed)) (not (p :closed))
+                 (not= (w :tag) (p :tag)))
+        (put w :tag (p :tag))))))
+
 (defn- compute-visibility [ctx]
   (window/compute-visibility (ctx :outputs) (ctx :windows)))
 
@@ -372,7 +379,13 @@
         (:set-tiled (w :obj) {})
         (:set-tiled (w :obj) {:left true :bottom true :top true :right true})))
     (when (and (w :proposed-w) (w :proposed-h))
-      (:propose-dimensions (w :obj) (w :proposed-w) (w :proposed-h)))))
+      # Skip re-proposing identical dimensions the window already rejected
+      (unless (and (= (w :proposed-w) (w :last-proposed-w))
+                   (= (w :proposed-h) (w :last-proposed-h))
+                   (not (w :new)))
+        (put w :last-proposed-w (w :proposed-w))
+        (put w :last-proposed-h (w :proposed-h))
+        (:propose-dimensions (w :obj) (w :proposed-w) (w :proposed-h))))))
 
 (defn- apply-focus [ctx]
   (each s (ctx :seats)
@@ -504,11 +517,17 @@
                 (put w :render-hidden nil)
                 (:show (w :obj)))
               (def screen-y (anim/resolve-y w))
+              # Inset output bounds by border-width so borders don't bleed
+              # onto adjacent monitors during scroll animation
+              (def bw (or (w :border-width) 0))
+              (def ox (+ (or (o :x) 0) bw))
+              (def oy (+ (or (o :y) 0) bw))
+              (def ow (- (or (o :w) 1920) (* 2 bw)))
+              (def oh (- (or (o :h) 1080) (* 2 bw)))
               (def clip
                 (scroll/clip-rect screen-x win-w
                                   screen-y win-h
-                                  (or (o :x) 0) (or (o :y) 0)
-                                  (or (o :w) 1920) (or (o :h) 1080)))
+                                  ox oy ow oh))
               (if clip
                 (:set-clip-box (w :obj)
                                (math/round (clip :clip-x)) (math/round (clip :clip-y))
@@ -553,6 +572,7 @@
     run-scroll-layout
     start-animations
     compute-borders
+    sync-child-tags
     compute-visibility
     # --- effects ---
     apply-window-config
