@@ -624,13 +624,10 @@
                 (put w :render-hidden nil)
                 (:show (w :obj)))
               (def screen-y (anim/resolve-y w))
-              # Inset output bounds by border-width so borders don't bleed
-              # onto adjacent monitors during scroll animation
-              (def bw (or (w :border-width) 0))
-              (def ox (+ (or (o :x) 0) bw))
-              (def oy (+ (or (o :y) 0) bw))
-              (def ow (- (or (o :w) 1920) (* 2 bw)))
-              (def oh (- (or (o :h) 1080) (* 2 bw)))
+              (def ox (or (o :x) 0))
+              (def oy (or (o :y) 0))
+              (def ow (or (o :w) 1920))
+              (def oh (or (o :h) 1080))
               (def clip
                 (scroll/clip-rect screen-x win-w
                                   screen-y win-h
