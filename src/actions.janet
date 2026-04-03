@@ -123,6 +123,24 @@
 # --- Spawn ---
 (def spawn scroll-actions/spawn)
 
+# --- Output focus cycling ---
+
+(defn focus-output-next [ctx s]
+  (when-let [o (s :focused-output)]
+    (def outputs (filter |(not ($ :removed)) (ctx :outputs)))
+    (when (> (length outputs) 1)
+      (def idx (find-index |(= $ o) outputs))
+      (when idx
+        (seat/focus-output s (outputs (% (+ idx 1) (length outputs))))))))
+
+(defn focus-output-prev [ctx s]
+  (when-let [o (s :focused-output)]
+    (def outputs (filter |(not ($ :removed)) (ctx :outputs)))
+    (when (> (length outputs) 1)
+      (def idx (find-index |(= $ o) outputs))
+      (when idx
+        (seat/focus-output s (outputs (% (+ idx (- (length outputs) 1)) (length outputs))))))))
+
 # --- Tag management ---
 
 (defn focus-tag

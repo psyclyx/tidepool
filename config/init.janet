@@ -9,6 +9,9 @@
 (def super-shift {:mod4 true :shift true})
 (def super-ctrl {:mod4 true :ctrl true})
 
+(put config :outer-padding 12)
+(put config :peek-width 16)
+
 (put config :xkb-bindings
   @[[:Return super (actions/spawn "foot")]
     [:q super-shift actions/close-focused]
@@ -38,6 +41,9 @@
     # Tab cycling
     [:Tab super actions/focus-tab-next]
     [:Tab super-shift actions/focus-tab-prev]
+    # Output focus
+    [:comma super actions/focus-output-prev]
+    [:period super actions/focus-output-next]
     # Tags
     [:1 super (actions/focus-tag 1)]
     [:2 super (actions/focus-tag 2)]
