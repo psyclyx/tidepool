@@ -15,6 +15,34 @@
 (defn run-chain [ctx chain]
   (each step chain (step ctx)))
 
+# --- Tag state persistence ---
+
+(defn- tag-state-path []
+  "Path for saving window-tag state, scoped to wayland socket, in tmpfs."
+  (def runtime-dir (or (os/getenv "XDG_RUNTIME_DIR") "/tmp"))
+  (def wl-display (or (os/getenv "WAYLAND_DISPLAY") "wayland-0"))
+  (string runtime-dir "/tidepool-" wl-display "-tags.jdn"))
+
+(defn- save-tag-state [ctx]
+  "Save window app-id/title → tag mapping for restart recovery."
+  (def entries @[])
+  (each w (ctx :windows)
+    (when (and (w :app-id) (w :tag) (not (w :closed)))
+      (array/push entries {:app-id (w :app-id)
+                           :title (or (w :title) "")
+                           :tag (w :tag)
+                           :float (truthy? (w :float))})))
+  (try
+    (spit (tag-state-path) (string/format "%j" entries))
+    ([err] (log/debugf "failed to save tag state: %s" err))))
+
+(defn- load-tag-state []
+  "Load saved window-tag state. Returns array of entries or nil."
+  (try
+    (do (def raw (slurp (tag-state-path)))
+        (parse raw))
+    ([err] nil)))
+
 # ============================================================
 # Manage steps — data computation
 # ============================================================
@@ -53,15 +81,24 @@
   (state/remove-destroyed (ctx :seats))
   (state/remove-destroyed (ctx :render-order)))
 
+(defn- output-matches-entry? [o entry]
+  "Check if output matches an order entry by :name (exact) or :match (substring of name or description)."
+  (cond
+    (entry :match)
+    (let [pat (string/ascii-lower (entry :match))]
+      (or (and (o :name) (string/find pat (string/ascii-lower (o :name))))
+          (and (o :description) (string/find pat (string/ascii-lower (o :description))))))
+    (entry :name)
+    (= (o :name) (entry :name))))
+
 (defn- sort-outputs [ctx]
   (def order (get-in ctx [:config :output-order]))
   (defn order-index [o]
     (var idx nil)
-    (when (o :name)
-      (each i (range (length order))
-        (when (= ((order i) :name) (o :name))
-          (set idx i)
-          (break))))
+    (each i (range (length order))
+      (when (output-matches-entry? o (order i))
+        (set idx i)
+        (break)))
     idx)
   (sort (ctx :outputs)
     (fn [a b]
@@ -86,75 +123,131 @@
     (when (and (o :new) (empty? (o :tags)))
       (var assigned false)
       # Try to assign tag from output-order config
-      (when (o :name)
-        (each entry order
-          (when (and (= (entry :name) (o :name)) (entry :tag)
-                     (not (used-tags (entry :tag))))
-            (put (o :tags) (entry :tag) true)
-            (put used-tags (entry :tag) true)
-            (set assigned true)
-            (break))))
+      (each entry order
+        (when (and (output-matches-entry? o entry) (entry :tag)
+                   (not (used-tags (entry :tag))))
+          (put (o :tags) (entry :tag) true)
+          (put used-tags (entry :tag) true)
+          (set assigned true)
+          (break)))
       # Fallback: assign first unused integer tag
       (when (not assigned)
         (var t 1)
         (while (used-tags t) (++ t))
         (put (o :tags) t true)
-        (put used-tags t true)))))
+        (put used-tags t true))))
+  # Re-assign tags when description arrives late and config specifies a different tag
+  (each o (ctx :outputs)
+    (when (and (not (o :new)) (o :description))
+      (each entry order
+        (when (and (output-matches-entry? o entry) (entry :tag)
+                   (not ((o :tags) (entry :tag))))
+          # Swap tags with whoever currently holds our desired tag
+          (def desired (entry :tag))
+          (def current-tag (min-of (keys (o :tags))))
+          (def holder (find |(and (not= $ o) (($ :tags) desired)) (ctx :outputs)))
+          (when holder
+            (put (holder :tags) desired nil)
+            (put (holder :tags) current-tag true))
+          (table/clear (o :tags))
+          (put (o :tags) desired true)
+          (break))))))
+
+(defn- match-saved-tag
+  "Find and consume a saved entry matching this window. Returns tag-id or nil."
+  [w saved]
+  (when saved
+    # Prefer exact app-id + title match, then app-id only
+    (var best nil)
+    (for i 0 (length saved)
+      (def entry (saved i))
+      (when (and entry (= (entry :app-id) (w :app-id)))
+        (if (= (entry :title) (or (w :title) ""))
+          (do (set best i) (break))
+          (when (nil? best) (set best i)))))
+    (when best
+      (def entry (saved best))
+      (put saved best nil)
+      (entry :tag))))
+
+(defn- assign-tag-for-new-window
+  "Pick a tag for a new window: saved state > focused output > round-robin."
+  [ctx w saved rr-counter]
+  (def outputs (ctx :outputs))
+  # Try saved state first
+  (def saved-tag (match-saved-tag w saved))
+  (if saved-tag
+    saved-tag
+    # Round-robin across outputs when bulk-adopting (multiple new windows)
+    (if (and (> rr-counter 0) (> (length outputs) 1))
+      (let [idx (% rr-counter (length outputs))
+            o (outputs idx)]
+        (or (min-of (keys (o :tags))) 1))
+      # Single new window: use focused output
+      (when-let [s (first (ctx :seats))
+                 o (s :focused-output)]
+        (or (min-of (keys (o :tags))) 1)))))
 
 (defn- init-new-windows [ctx]
   (def config (ctx :config))
-  (each w (ctx :windows)
-    (when (w :new)
-      (put w :needs-ssd (and (not (nil? (w :decoration-hint)))
-                             (not= (w :decoration-hint) 0)))
-      (if (and (w :wl-parent) (not ((w :wl-parent) :closed)))
-        (do
-          (window/set-float w true)
-          (put w :tag ((w :wl-parent) :tag)))
-        (do
-          (window/set-float w false)
-          (when (window/fixed-size? w)
-            (window/set-float w true))
-          (when-let [s (first (ctx :seats))
-                     o (s :focused-output)]
-            (put w :tag (or (min-of (keys (o :tags))) 1)))
-          # Insert tiled windows into the tag's node tree
-          (when (not (w :float))
-            (def tag-id (w :tag))
-            (def tag (state/ensure-tag ctx tag-id))
-            (def leaf (tree/leaf w (config :default-column-width)))
-            (put w :tree-leaf leaf)
-            (if (= (tag :insert-mode) :child)
-              # Insert into focused node's container
-              (if-let [fid (tag :focused-id)
-                       focused-leaf (do (var found nil)
-                                      (each col (tag :columns)
-                                        (when (not found)
-                                          (set found (tree/find-leaf col fid))))
-                                      found)]
-                (if-let [p (focused-leaf :parent)]
-                  # Insert after focused in its parent
-                  (let [idx (inc (tree/child-index focused-leaf))]
-                    (tree/insert-child p idx leaf))
-                  # Focused is a bare column — wrap into vertical split
-                  (tree/wrap-in-container (tag :columns) focused-leaf
-                                          :split :vertical leaf :after))
-                # No focus — just append as column
-                (tree/insert-column (tag :columns) (length (tag :columns)) leaf))
-              # :sibling mode — insert as new column after focused
-              (let [insert-idx
-                    (if-let [fid (tag :focused-id)
-                             focused-leaf (do (var found nil)
-                                            (each col (tag :columns)
-                                              (when (not found)
-                                                (set found (tree/find-leaf col fid))))
-                                            found)]
-                      (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
-                      (length (tag :columns)))]
-                (tree/insert-column (tag :columns) insert-idx leaf)))
-            # Set focus to new window
-            (put tag :focused-id w)
-            (tree/update-active-path leaf)))))))
+  (def new-windows (filter |($ :new) (ctx :windows)))
+  # Load saved state only when bulk-adopting (restart scenario)
+  (def saved (when (> (length new-windows) 1) (load-tag-state)))
+  (var rr-counter 0)
+  (each w new-windows
+    (put w :needs-ssd (and (not (nil? (w :decoration-hint)))
+                           (not= (w :decoration-hint) 0)))
+    (if (and (w :wl-parent) (not ((w :wl-parent) :closed)))
+      (do
+        (window/set-float w true)
+        (put w :tag ((w :wl-parent) :tag)))
+      (do
+        (window/set-float w false)
+        (when (window/fixed-size? w)
+          (window/set-float w true))
+        (put w :tag (assign-tag-for-new-window ctx w saved rr-counter))
+        (++ rr-counter)
+        # Insert tiled windows into the tag's node tree
+        (when (not (w :float))
+          (def tag-id (w :tag))
+          (def tag (state/ensure-tag ctx tag-id))
+          (def leaf (tree/leaf w (config :default-column-width)))
+          (put w :tree-leaf leaf)
+          (if (= (tag :insert-mode) :child)
+            # Insert into focused node's container
+            (if-let [fid (tag :focused-id)
+                     focused-leaf (do (var found nil)
+                                    (each col (tag :columns)
+                                      (when (not found)
+                                        (set found (tree/find-leaf col fid))))
+                                    found)]
+              (if-let [p (focused-leaf :parent)]
+                # Insert after focused in its parent
+                (let [idx (inc (tree/child-index focused-leaf))]
+                  (tree/insert-child p idx leaf))
+                # Focused is a bare column — wrap into vertical split
+                (tree/wrap-in-container (tag :columns) focused-leaf
+                                        :split :vertical leaf :after))
+              # No focus — just append as column
+              (tree/insert-column (tag :columns) (length (tag :columns)) leaf))
+            # :sibling mode — insert as new column after focused
+            (let [insert-idx
+                  (if-let [fid (tag :focused-id)
+                           focused-leaf (do (var found nil)
+                                          (each col (tag :columns)
+                                            (when (not found)
+                                              (set found (tree/find-leaf col fid))))
+                                          found)]
+                    (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
+                    (length (tag :columns)))]
+              (tree/insert-column (tag :columns) insert-idx leaf)))
+          # Set focus to new window
+          (put tag :focused-id w)
+          (tree/update-active-path leaf))))
+    # Propose 0x0 for float windows so compositor configures the client
+    (when (and (w :float) (not (w :w)))
+      (put w :proposed-w 0)
+      (put w :proposed-h 0))))
 
 (defn- init-new-seats [ctx]
   (each s (ctx :seats)
@@ -252,7 +345,10 @@
       # Apply float logic — same rules as init-new-windows
       (when (or (window/fixed-size? w)
                 (and (w :wl-parent) (not ((w :wl-parent) :closed))))
-        (window/set-float w true))
+        (window/set-float w true)
+        (when (not (w :w))
+          (put w :proposed-w 0)
+          (put w :proposed-h 0)))
       (when (not (w :float))
         (def tag-id (w :tag))
         (def tag (state/ensure-tag ctx tag-id))
@@ -397,7 +493,11 @@
     (when (s :focus-output-changed)
       (when-let [o (s :focused-output)]
         (when (o :layer-shell)
-          (:set-default (o :layer-shell)))))))
+          (:set-default (o :layer-shell))))))
+  # Ensure floating windows stay above tiled windows
+  (each w (ctx :windows)
+    (when (and (w :float) (w :visible) (w :node))
+      (:place-top (w :node)))))
 
 (def- all-edges {:left true :bottom true :top true :right true})
 
@@ -450,12 +550,15 @@
 
 (defn- center-unplaced [ctx]
   (each w (ctx :windows)
-    (when (and (not (w :x)) (w :w))
+    (when (and (w :w) (w :h)
+               (or (not (w :x))
+                   (and (w :float) (not (w :float-centered)))))
       (if-let [o (window/tag-output w (ctx :outputs))]
         (window/set-position w
           (+ (o :x) (div (- (o :w) (w :w)) 2))
           (+ (o :y) (div (- (o :h) (w :h)) 2)))
-        (window/set-position w 0 0)))))
+        (window/set-position w 0 0))
+      (when (w :float) (put w :float-centered true)))))
 
 (defn- tick-animations [ctx]
   (def config (ctx :config))
@@ -485,15 +588,19 @@
 (defn- apply-positions [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :node))
-      (def screen-x (window-screen-x w ctx))
-      (def screen-y (anim/resolve-y w))
-      (when (and screen-x screen-y)
-        (:set-position (w :node)
-                       (math/round screen-x) (math/round screen-y))))))
+      (if (w :float)
+        (when (and (w :x) (w :y))
+          (:set-position (w :node) (math/round (w :x)) (math/round (w :y))))
+        (do
+          (def screen-x (window-screen-x w ctx))
+          (def screen-y (anim/resolve-y w))
+          (when (and screen-x screen-y)
+            (:set-position (w :node)
+                           (math/round screen-x) (math/round screen-y))))))))
 
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
-    (when (and (w :visible) (w :obj))
+    (when (and (w :visible) (w :obj) (not (w :float)))
       (def screen-x (window-screen-x w ctx))
       (def o (window/tag-output w (ctx :outputs)))
       (def [rw rh] (anim/resolve-dimensions w))
@@ -581,6 +688,7 @@
     apply-visibility
     ipc/emit-state-events
     clear-transient
+    save-tag-state
     signal-manage-done])
 
 (def render-chain

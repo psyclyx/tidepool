@@ -1,5 +1,10 @@
 (def config (ctx :config))
 
+(put config :output-order
+  @[{:match "GF005" :tag 1}
+    {:match "BenQ" :tag 2}
+    {:match "DELL" :tag 3}])
+
 (def super {:mod4 true})
 (def super-shift {:mod4 true :shift true})
 (def super-ctrl {:mod4 true :ctrl true})
@@ -24,8 +29,7 @@
     [:j super-ctrl actions/join-down]
     [:space super-ctrl actions/leave]
     # Width
-    [:equal super actions/cycle-width-forward]
-    [:minus super actions/cycle-width-backward]
+    [:r super actions/grow]
     # Insert mode
     [:i super actions/toggle-insert-mode]
     # Container mode

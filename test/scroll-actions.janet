@@ -13,7 +13,7 @@
 (defn make-scroll-ctx [tag &opt config-overrides]
   (def config (t/make-config))
   (put config :default-column-width 1.0)
-  (put config :width-presets @[0.33 0.5 0.66 0.8 1.0])
+  (put config :width-presets @[0.5 0.66 0.8 1.0])
   (put config :peek-width 8)
   (when config-overrides (merge-into config config-overrides))
   @{:config config
@@ -344,7 +344,7 @@
 # Width cycling
 # ============================================================
 
-(t/test-start "cycle-width-forward: from 0.5 to 0.66")
+(t/test-start "grow: from 0.5 to 0.66")
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def la (tree/leaf wa 0.5))
@@ -353,25 +353,15 @@
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
-(sa/cycle-width-forward ctx seat)
+(sa/grow ctx seat)
 (t/assert-eq (col :width) 0.66)
 
-(t/test-start "cycle-width-backward: from 0.5 to 0.33")
-(put col :width 0.5)
-(sa/cycle-width-backward ctx seat)
-(t/assert-eq (col :width) 0.33)
-
-(t/test-start "cycle-width-forward: clamped at max")
+(t/test-start "grow: wraps from max to min")
 (put col :width 1.0)
-(sa/cycle-width-forward ctx seat)
-(t/assert-eq (col :width) 1.0 "stays at max")
+(sa/grow ctx seat)
+(t/assert-eq (col :width) 0.5 "wraps to first preset")
 
-(t/test-start "cycle-width-backward: clamped at min")
-(put col :width 0.33)
-(sa/cycle-width-backward ctx seat)
-(t/assert-eq (col :width) 0.33 "stays at min")
-
-(t/test-start "cycle-width: works on nested leaf's column")
+(t/test-start "grow: works on nested leaf's column")
 (tree/reset-ids)
 (def wa @{:wid 1})
 (def wb @{:wid 2})
@@ -382,7 +372,7 @@
 (def tag (make-tag cols wa))
 (def ctx (make-scroll-ctx tag))
 (def seat (make-scroll-seat wa))
-(sa/cycle-width-forward ctx seat)
+(sa/grow ctx seat)
 (t/assert-eq (c :width) 0.66 "column width changed, not leaf")
 
 # ============================================================

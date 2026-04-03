@@ -5,3 +5,7 @@
 (dispatch/reg-proto interface :name
   (fn [ctx n output]
     (put output :name n) nil))
+
+(dispatch/reg-proto interface :description
+  (fn [ctx desc output]
+    (put output :description desc) nil))

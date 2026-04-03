@@ -112,8 +112,7 @@
 (def make-vertical scroll-actions/make-vertical)
 
 # --- Width ---
-(def cycle-width-forward scroll-actions/cycle-width-forward)
-(def cycle-width-backward scroll-actions/cycle-width-backward)
+(def grow scroll-actions/grow)
 
 # --- Insert mode ---
 (def toggle-insert-mode scroll-actions/toggle-insert-mode)

@@ -6,8 +6,8 @@
     :outer-gap 4
     :inner-gap 8
     :peek-width 8
-    :default-column-width 1.0
-    :width-presets @[0.33 0.5 0.66 0.8 1.0]
+    :default-column-width 0.5
+    :width-presets @[0.5 0.66 0.8 1.0]
     :main-ratio 0.55
     :main-count 1
     :default-layout :master-stack

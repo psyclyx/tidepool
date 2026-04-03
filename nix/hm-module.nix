@@ -36,7 +36,7 @@
   keybindLines = lib.mapAttrsToList keybindingToJanet cfg.keybindings;
 
   outputOrderEntry = entry:
-    "{:name ${builtins.toJSON entry.name}${lib.optionalString (entry.tag != null) " :tag ${toString entry.tag}"}}";
+    "{${if entry.match != null then ":match ${builtins.toJSON entry.match}" else ":name ${builtins.toJSON entry.name}"}${lib.optionalString (entry.tag != null) " :tag ${toString entry.tag}"}}";
 
   hasConfig = cfg.keybindings != {} || cfg.outputOrder != [] || cfg.extraConfig != "";
 
@@ -89,8 +89,14 @@ in {
       type = lib.types.listOf (lib.types.submodule {
         options = {
           name = lib.mkOption {
-            type = lib.types.str;
-            description = "wl_output name (e.g. DP-1, HDMI-A-1).";
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Exact wl_output name (e.g. DP-1, HDMI-A-1).";
+          };
+          match = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Substring to match against output name or description (case-insensitive).";
           };
           tag = lib.mkOption {
             type = lib.types.nullOr lib.types.int;

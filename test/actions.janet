@@ -17,7 +17,7 @@
 (t/assert-truthy actions/swap-right "swap-right")
 (t/assert-truthy actions/close-focused "close-focused")
 (t/assert-truthy actions/toggle-insert-mode "toggle-insert-mode")
-(t/assert-truthy actions/cycle-width-forward "cycle-width-forward")
+(t/assert-truthy actions/grow "grow")
 
 # ============================================================
 # focus-tag

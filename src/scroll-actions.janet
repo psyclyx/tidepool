@@ -269,7 +269,7 @@
         (def sc-idx (tree/find-column-index columns source))
         (def source-parent (source :parent))
         (def source-idx (when source-parent (tree/child-index source)))
-        (def default-width (get-in ctx [:config :default-column-width] 1.0))
+        (def default-width (get-in ctx [:config :default-column-width] 0.5))
         (detach-leaf columns leaf)
         (put leaf :width default-width)
         (if source-is-root
@@ -332,7 +332,7 @@
       (break))
     (def columns (tag :columns))
     (def col-idx (tree/find-column-index columns leaf))
-    (def default-width (get-in ctx [:config :default-column-width] 1.0))
+    (def default-width (get-in ctx [:config :default-column-width] 0.5))
     (detach-leaf columns leaf)
     (put leaf :width default-width)
     # Insert as new column to the right of the old column
@@ -342,31 +342,24 @@
 
 # --- Width cycling ---
 
-(defn cycle-width
-  "Return an action that cycles column width through presets in the given direction."
-  [direction]
-  (fn [ctx s]
-    (when-let [tag (active-tag ctx s)
-               leaf (focused-leaf ctx s)]
-      (def col (tree/column-of leaf))
-      (def presets (get-in ctx [:config :width-presets] @[0.33 0.5 0.66 0.8 1.0]))
-      (def current (col :width))
-      # Find nearest preset
-      (var best-idx 0)
-      (var best-dist math/inf)
-      (for i 0 (length presets)
-        (def d (math/abs (- (presets i) current)))
-        (when (< d best-dist)
-          (set best-dist d)
-          (set best-idx i)))
-      (def new-idx
-        (case direction
-          :forward (min (inc best-idx) (dec (length presets)))
-          :backward (max (dec best-idx) 0)))
-      (put col :width (presets new-idx)))))
-
-(def cycle-width-forward (cycle-width :forward))
-(def cycle-width-backward (cycle-width :backward))
+(defn grow
+  "Cycle column width forward through presets, wrapping around."
+  [ctx s]
+  (when-let [tag (active-tag ctx s)
+             leaf (focused-leaf ctx s)]
+    (def col (tree/column-of leaf))
+    (def presets (get-in ctx [:config :width-presets] @[0.5 0.66 0.8 1.0]))
+    (def current (col :width))
+    # Find nearest preset
+    (var best-idx 0)
+    (var best-dist math/inf)
+    (for i 0 (length presets)
+      (def d (math/abs (- (presets i) current)))
+      (when (< d best-dist)
+        (set best-dist d)
+        (set best-idx i)))
+    (def new-idx (% (inc best-idx) (length presets)))
+    (put col :width (presets new-idx))))
 
 # --- Insert mode ---
 
