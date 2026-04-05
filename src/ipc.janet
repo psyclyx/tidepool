@@ -193,6 +193,16 @@
     :container (sum (map count-leaves (node :children)))
     0))
 
+(defn- build-tree [node focused-id]
+  "Build a JSON-friendly tree representation of the column layout."
+  (case (node :type)
+    :leaf {"type" "leaf"
+           "focused" (if (and focused-id (= (get node :id) focused-id)) true false)}
+    :container {"type" "container"
+                "orientation" (string (node :orientation))
+                "children" (map |(build-tree $ focused-id) (node :children))}
+    nil))
+
 (defn- build-state [ctx]
   (def focused-output
     (when-let [s (first (ctx :seats))] (s :focused-output)))
@@ -213,7 +223,8 @@
               (when fid (truthy? (tree/find-leaf col fid))))
             {"width" (col :width)
              "leaves" (count-leaves col)
-             "focused" (if has-focus true false)})))
+             "focused" (if has-focus true false)
+             "tree" (build-tree col fid)})))
       {"name" (or (o :name) "")
        "x" (or (o :x) 0) "y" (or (o :y) 0)
        "w" (or (o :w) 0) "h" (or (o :h) 0)
