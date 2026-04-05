@@ -46,9 +46,20 @@
     (break true))
   # Constrained max dimensions suggest a dialog
   (when (and (w :max-w) (> (w :max-w) 0)
-             (w :max-h) (> (w :max-h) 0)
-             (< (w :max-w) 1200)
-             (< (w :max-h) 900))
+             (w :max-h) (> (w :max-h) 0))
+    # Small max → almost certainly a dialog
+    (when (and (< (w :max-w) 1600) (< (w :max-h) 1200))
+      (break true))
+    # Min and max close together → constrained window, likely a dialog
+    (when (and (w :min-w) (> (w :min-w) 0)
+               (w :min-h) (> (w :min-h) 0)
+               (>= (w :min-w) (* 0.5 (w :max-w)))
+               (>= (w :min-h) (* 0.5 (w :max-h))))
+      (break true)))
+  # CSD-only windows with initial dimensions smaller than typical tiling
+  (when (and (= (w :decoration-hint) 0)
+             (w :w) (w :h)
+             (< (w :w) 1200) (< (w :h) 900))
     (break true))
   false)
 

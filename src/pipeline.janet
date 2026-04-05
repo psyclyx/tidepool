@@ -136,9 +136,10 @@
         (while (used-tags t) (++ t))
         (put (o :tags) t true)
         (put used-tags t true))))
-  # Re-assign tags when description arrives late and config specifies a different tag
+  # Re-assign tags when description first arrives and config specifies a different tag
   (each o (ctx :outputs)
-    (when (and (not (o :new)) (o :description))
+    (when (and (not (o :new)) (o :description) (not (o :description-applied)))
+      (put o :description-applied true)
       (each entry order
         (when (and (output-matches-entry? o entry) (entry :tag)
                    (not ((o :tags) (entry :tag))))
@@ -255,6 +256,11 @@
 
 (defn- process-focus [ctx]
   (each s (ctx :seats)
+    # Re-assert focus after layer shell releases exclusive focus
+    (when (and (= (s :layer-focus-prev) :exclusive)
+               (not= (s :layer-focus) :exclusive))
+      (put s :focus-changed true))
+    (put s :layer-focus-prev (s :layer-focus))
     # Clear stale focus
     (when-let [w (s :focused)]
       (when (or (w :closed) (w :pending-destroy))
@@ -363,7 +369,11 @@
                tag-id (o :primary-tag)
                tag (get-in ctx [:tags tag-id])
                fwin (tag :focused-id)]
-      (when (and fwin (not (fwin :closed)) (not (fwin :pending-destroy)))
+      # Don't override if seat is focused on a visible float on the active tag
+      (def current (s :focused))
+      (def on-float (and current (current :float) (not (current :closed))
+                         (= (current :tag) tag-id)))
+      (when (and (not on-float) fwin (not (fwin :closed)) (not (fwin :pending-destroy)))
         (seat/focus s fwin)))))
 
 (defn- process-pointer-ops [ctx]
@@ -530,11 +540,25 @@
         (:propose-dimensions (w :obj) (w :proposed-w) (w :proposed-h))))))
 
 (defn- apply-focus [ctx]
+  (def config (ctx :config))
   (each s (ctx :seats)
     (when (s :focus-changed)
       (if-let [w (s :focused)]
         (do (:focus-window (s :obj) (w :obj))
-            (:place-top (w :node)))
+            (:place-top (w :node))
+            # Warp cursor to center of focused window
+            (when (and (config :warp-cursor) (not (s :window-interaction)))
+              (when-let [ww (w :w) wh (w :h)
+                         vx (or (w :float-vx) (w :vx))
+                         tag (get-in ctx [:tags (w :tag)])
+                         o (window/tag-output w (ctx :outputs))]
+                (def usable (output/usable-area o))
+                (def cam (or (tag :camera) 0))
+                (def sx (+ (usable :x) (- vx cam)))
+                (def sy (or (w :float-vy) (w :y) 0))
+                (:pointer-warp (s :obj)
+                               (math/round (+ sx (/ ww 2)))
+                               (math/round (+ sy (/ wh 2)))))))
         (:clear-focus (s :obj))))
     (when (s :focus-output-changed)
       (when-let [o (s :focused-output)]
@@ -653,7 +677,7 @@
                            (math/round screen-x) (math/round screen-y))))))))
 
 (defn- apply-float-clips [ctx]
-  "Hide floating windows that are fully off-screen."
+  "Clip floating windows at output boundaries, hide if fully off-screen."
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj) (w :float))
       (when-let [[sx sy] (float-screen-pos w ctx)
@@ -667,9 +691,18 @@
         (def on-screen (and (< sx (+ ox ow)) (> (+ sx ww) ox)
                             (< sy (+ oy oh)) (> (+ sy wh) oy)))
         (if on-screen
-          (when (w :render-hidden)
-            (put w :render-hidden nil)
-            (:show (w :obj)))
+          (do
+            (when (w :render-hidden)
+              (put w :render-hidden nil)
+              (:show (w :obj)))
+            (def clip (scroll/clip-rect sx ww sy wh ox oy ow oh))
+            (if clip
+              (:set-clip-box (w :obj)
+                             (math/round (clip :clip-x)) (math/round (clip :clip-y))
+                             (math/round (clip :clip-w)) (math/round (clip :clip-h)))
+              (when (w :clip-applied)
+                (:set-clip-box (w :obj) 0 0 0 0)))
+            (put w :clip-applied clip))
           (when (not (w :render-hidden))
             (put w :render-hidden true)
             (:hide (w :obj))))))))
@@ -716,11 +749,10 @@
                   (:set-clip-box (w :obj) 0 0 0 0)))
               (put w :clip-applied clip))
             # Fully off-screen — hide instead of zero-size clip
-            (do
-              (when (not (w :render-hidden))
-                (put w :render-hidden true)
-                (:hide (w :obj)))
-              (put w :clip-applied nil))))))))
+            (when (not (w :render-hidden))
+              (put w :render-hidden true)
+              (:hide (w :obj)))))))))
+
 
 (defn- request-rerender [ctx]
   (when (anim/any-animating? ctx)

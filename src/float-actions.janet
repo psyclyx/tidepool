@@ -48,15 +48,91 @@
           (put w :float-vx (w :vx))
           (put w :float-vy (or (w :y) 0)))))))
 
-# --- Focus cycling ---
+# --- Helpers ---
 
-(defn- tag-floats
+(defn tag-floats
   "Get visible floating windows on the seat's focused tag."
   [ctx s]
   (when-let [o (s :focused-output)
              tag-id (o :primary-tag)]
     (filter |(and ($ :float) (not ($ :closed)) (= ($ :tag) tag-id))
             (ctx :windows))))
+
+(defn- win-center [w]
+  [(+ (or (w :float-vx) 0) (/ (or (w :w) 0) 2))
+   (+ (or (w :float-vy) 0) (/ (or (w :h) 0) 2))])
+
+(defn focus-directional
+  "Focus the nearest float in a direction from the current window."
+  [ctx s direction]
+  (def floats (tag-floats ctx s))
+  (when (and floats (not (empty? floats)))
+    (def current (s :focused))
+    (def [cx cy] (if (and current (current :float))
+                   (win-center current)
+                   # Focused tiled window — use screen position
+                   (let [w current
+                         ww (or (w :w) 0) wh (or (w :h) 0)
+                         vx (or (w :vx) 0) wy (or (w :y) 0)]
+                     [vx wy])))
+    (var best nil)
+    (var best-dist math/inf)
+    (each f floats
+      (when (not= f current)
+        (def [fx fy] (win-center f))
+        (def valid
+          (case direction
+            :left (< fx cx)
+            :right (> fx cx)
+            :up (< fy cy)
+            :down (> fy cy)))
+        (when valid
+          (def dist (+ (math/abs (- fx cx)) (math/abs (- fy cy))))
+          (when (< dist best-dist)
+            (set best-dist dist)
+            (set best f)))))
+    (when best
+      (seat/focus s best)
+      true)))
+
+(defn move-directional
+  "Move a floating window in a direction by a step."
+  [ctx s direction]
+  (when-let [w (s :focused)]
+    (when (w :float)
+      (def step-x (div (or (w :w) 100) 2))
+      (def step-y (div (or (w :h) 100) 2))
+      (case direction
+        :left (put w :float-vx (- (or (w :float-vx) 0) step-x))
+        :right (put w :float-vx (+ (or (w :float-vx) 0) step-x))
+        :up (put w :float-vy (- (or (w :float-vy) 0) step-y))
+        :down (put w :float-vy (+ (or (w :float-vy) 0) step-y)))
+      true)))
+
+(defn focus-tiled
+  "Jump from a float back to the tiled tree's focused window."
+  [ctx s]
+  (when (and (s :focused) ((s :focused) :float))
+    (when-let [o (s :focused-output)
+               tag-id (o :primary-tag)
+               tag (get-in ctx [:tags tag-id])
+               fwin (tag :focused-id)]
+      (when (and fwin (not (fwin :closed)))
+        (seat/focus s fwin)
+        true))))
+
+(defn toggle-focus-float
+  "Toggle focus between float layer and tiled layer."
+  [ctx s]
+  (if (and (s :focused) ((s :focused) :float))
+    (focus-tiled ctx s)
+    # Focus the most recent float, or first available
+    (let [floats (tag-floats ctx s)]
+      (when (and floats (not (empty? floats)))
+        (seat/focus s (first floats))
+        true))))
+
+# --- Focus cycling ---
 
 (defn focus-float-next [ctx s]
   (def floats (tag-floats ctx s))

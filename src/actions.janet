@@ -73,29 +73,54 @@
         (put tag :focused-id (target :window))
         (tree/update-active-path target)))))
 
-# --- Directional focus (with cross-output fallback) ---
+# --- Directional focus (float-aware, with cross-output fallback) ---
 
 (defn focus-left [ctx s]
-  (or (scroll-actions/focus-left ctx s)
-      (cross-output-focus ctx s :left)))
+  (if (and (s :focused) ((s :focused) :float))
+    (or (float-actions/focus-directional ctx s :left)
+        (float-actions/focus-tiled ctx s))
+    (or (scroll-actions/focus-left ctx s)
+        (float-actions/focus-directional ctx s :left)
+        (cross-output-focus ctx s :left))))
 
 (defn focus-right [ctx s]
-  (or (scroll-actions/focus-right ctx s)
-      (cross-output-focus ctx s :right)))
+  (if (and (s :focused) ((s :focused) :float))
+    (or (float-actions/focus-directional ctx s :right)
+        (float-actions/focus-tiled ctx s))
+    (or (scroll-actions/focus-right ctx s)
+        (float-actions/focus-directional ctx s :right)
+        (cross-output-focus ctx s :right))))
 
 (defn focus-up [ctx s]
-  (or (scroll-actions/focus-up ctx s)
-      (cross-output-focus ctx s :up)))
+  (if (and (s :focused) ((s :focused) :float))
+    (or (float-actions/focus-directional ctx s :up)
+        (float-actions/focus-tiled ctx s))
+    (or (scroll-actions/focus-up ctx s)
+        (float-actions/focus-directional ctx s :up)
+        (cross-output-focus ctx s :up))))
 
 (defn focus-down [ctx s]
-  (or (scroll-actions/focus-down ctx s)
-      (cross-output-focus ctx s :down)))
+  (if (and (s :focused) ((s :focused) :float))
+    (or (float-actions/focus-directional ctx s :down)
+        (float-actions/focus-tiled ctx s))
+    (or (scroll-actions/focus-down ctx s)
+        (float-actions/focus-directional ctx s :down)
+        (cross-output-focus ctx s :down))))
 
-# --- Directional swap ---
-(def swap-left scroll-actions/swap-left)
-(def swap-right scroll-actions/swap-right)
-(def swap-up scroll-actions/swap-up)
-(def swap-down scroll-actions/swap-down)
+# --- Directional swap (float-aware) ---
+
+(defn swap-left [ctx s]
+  (or (float-actions/move-directional ctx s :left)
+      (scroll-actions/swap-left ctx s)))
+(defn swap-right [ctx s]
+  (or (float-actions/move-directional ctx s :right)
+      (scroll-actions/swap-right ctx s)))
+(defn swap-up [ctx s]
+  (or (float-actions/move-directional ctx s :up)
+      (scroll-actions/swap-up ctx s)))
+(defn swap-down [ctx s]
+  (or (float-actions/move-directional ctx s :down)
+      (scroll-actions/swap-down ctx s)))
 
 # --- Join / Leave ---
 (def join-left scroll-actions/join-left)
@@ -126,6 +151,7 @@
 
 # --- Float ---
 (def toggle-float float-actions/toggle-float)
+(def toggle-focus-float float-actions/toggle-focus-float)
 (def focus-float-next float-actions/focus-float-next)
 (def focus-float-prev float-actions/focus-float-prev)
 (def gather-floats float-actions/gather-floats)

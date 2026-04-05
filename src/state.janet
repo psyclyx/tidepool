@@ -26,6 +26,7 @@
     :xcursor-size 24
     :xkb-bindings @[]
     :pointer-bindings @[]
+    :warp-cursor false
     :rules @[]
     :output-order @[]})
 
