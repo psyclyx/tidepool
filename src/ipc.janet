@@ -39,6 +39,10 @@
 (reg-action "focus-tag" actions/focus-tag true)
 (reg-action "send-to-tag" actions/send-to-tag true)
 (reg-action "spawn" actions/spawn true)
+(reg-action "toggle-float" actions/toggle-float)
+(reg-action "focus-float-next" actions/focus-float-next)
+(reg-action "focus-float-prev" actions/focus-float-prev)
+(reg-action "gather-floats" actions/gather-floats)
 
 # --- Write helpers ---
 

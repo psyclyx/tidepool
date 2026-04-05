@@ -148,6 +148,47 @@
 (t/assert-falsey (w3 :visible))
 
 # ============================================================
+# should-float?
+# ============================================================
+
+(t/test-start "should-float?: parent window floats")
+(def parent (t/make-window 1))
+(def w (t/make-window 2 {:wl-parent parent}))
+(t/assert-truthy (window/should-float? w @[]))
+
+(t/test-start "should-float?: closed parent does not float")
+(def parent (t/make-window 1 {:closed true}))
+(def w (t/make-window 2 {:wl-parent parent}))
+(t/assert-falsey (window/should-float? w @[]))
+
+(t/test-start "should-float?: fixed-size floats")
+(def w (t/make-window 1 {:min-w 800 :max-w 800 :min-h 600 :max-h 600}))
+(t/assert-truthy (window/should-float? w @[]))
+
+(t/test-start "should-float?: constrained max-size dialog floats")
+(def w (t/make-window 1 {:min-w 0 :max-w 600 :min-h 0 :max-h 400}))
+(t/assert-truthy (window/should-float? w @[]))
+
+(t/test-start "should-float?: large max-size does not auto-float")
+(def w (t/make-window 1 {:min-w 0 :max-w 2000 :min-h 0 :max-h 1200}))
+(t/assert-falsey (window/should-float? w @[]))
+
+(t/test-start "should-float?: no hints does not float")
+(def w (t/make-window 1))
+(t/assert-falsey (window/should-float? w @[]))
+
+(t/test-start "should-float?: user rule overrides heuristic")
+(def w (t/make-window 1 {:app-id "pavucontrol"}))
+(def rules @[{:match (fn [w] (= (w :app-id) "pavucontrol")) :float true}])
+(t/assert-truthy (window/should-float? w rules))
+
+(t/test-start "should-float?: user rule can force tiled")
+(def w (t/make-window 1 {:min-w 800 :max-w 800 :min-h 600 :max-h 600
+                          :app-id "my-app"}))
+(def rules @[{:match (fn [w] (= (w :app-id) "my-app")) :float false}])
+(t/assert-falsey (window/should-float? w rules))
+
+# ============================================================
 # swap
 # ============================================================
 

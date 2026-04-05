@@ -202,9 +202,7 @@
         (window/set-float w true)
         (put w :tag ((w :wl-parent) :tag)))
       (do
-        (window/set-float w false)
-        (when (window/fixed-size? w)
-          (window/set-float w true))
+        (window/set-float w (window/should-float? w (config :rules)))
         (put w :tag (assign-tag-for-new-window ctx w saved rr-counter))
         (++ rr-counter)
         # Insert tiled windows into the tag's node tree
@@ -343,8 +341,7 @@
                (not (w :pending-destroy))
                (w :tag))
       # Apply float logic — same rules as init-new-windows
-      (when (or (window/fixed-size? w)
-                (and (w :wl-parent) (not ((w :wl-parent) :closed))))
+      (when (window/should-float? w (config :rules))
         (window/set-float w true)
         (when (not (w :w))
           (put w :proposed-w 0)
@@ -368,6 +365,30 @@
                fwin (tag :focused-id)]
       (when (and fwin (not (fwin :closed)) (not (fwin :pending-destroy)))
         (seat/focus s fwin)))))
+
+(defn- process-pointer-ops [ctx]
+  "Start and apply pointer move/resize operations on floating windows."
+  (each w (ctx :windows)
+    (when-let [seat (w :pointer-move-requested)]
+      (when (w :float)
+        (put seat :op @{:type :move :window w
+                        :origin-vx (or (w :float-vx) 0)
+                        :origin-vy (or (w :float-vy) 0)})
+        (:op-start-pointer (seat :obj)))
+      (put w :pointer-move-requested nil)))
+  (each s (ctx :seats)
+    (when-let [op (s :op)]
+      (when-let [dx (op :dx)
+                 dy (op :dy)]
+        (def w (op :window))
+        (case (op :type)
+          :move
+          (do
+            (put w :float-vx (+ (op :origin-vx) dx))
+            (put w :float-vy (+ (op :origin-vy) dy))))))
+    (when (s :op-release)
+      (put s :op nil)
+      (put s :op-release nil))))
 
 (defn- run-scroll-layout [ctx]
   (def config (ctx :config))
@@ -458,6 +479,31 @@
       (when (and (w :float) (not (w :closed)) (not (p :closed))
                  (not= (w :tag) (p :tag)))
         (put w :tag (p :tag))))))
+
+(defn- anchor-floats
+  "Assign virtual positions to floating windows so they scroll with content.
+   Also rescues floats that have drifted too far from the viewport."
+  [ctx]
+  (each w (ctx :windows)
+    (when (and (w :float) (not (w :closed)) (not (w :pending-destroy)))
+      (when-let [o (window/tag-output w (ctx :outputs))
+                 tag-id (o :primary-tag)
+                 tag (get-in ctx [:tags tag-id])]
+        (def cam (or (tag :camera) 0))
+        (def ow (or (o :w) 1920))
+        (def oh (or (o :h) 1080))
+        (def oy (or (o :y) 0))
+        # Assign initial anchor for new floats
+        (when (nil? (w :float-vx))
+          (def ww (or (w :w) 0))
+          (def wh (or (w :h) 0))
+          (put w :float-vx (+ cam (div (- ow ww) 2)))
+          (put w :float-vy (+ oy (div (- oh wh) 2))))
+        # Rescue: if float is more than 2 viewports away, pull it back
+        (def screen-vx (- (w :float-vx) cam))
+        (when (or (< screen-vx (- 0 (* 2 ow)))
+                  (> screen-vx (* 3 ow)))
+          (put w :float-vx (+ cam (div ow 2))))))))
 
 (defn- compute-visibility [ctx]
   (window/compute-visibility (ctx :outputs) (ctx :windows)))
@@ -550,15 +596,12 @@
 
 (defn- center-unplaced [ctx]
   (each w (ctx :windows)
-    (when (and (w :w) (w :h)
-               (or (not (w :x))
-                   (and (w :float) (not (w :float-centered)))))
+    (when (and (w :w) (w :h) (not (w :float)) (not (w :x)))
       (if-let [o (window/tag-output w (ctx :outputs))]
         (window/set-position w
           (+ (o :x) (div (- (o :w) (w :w)) 2))
           (+ (o :y) (div (- (o :h) (w :h)) 2)))
-        (window/set-position w 0 0))
-      (when (w :float) (put w :float-centered true)))))
+        (window/set-position w 0 0)))))
 
 (defn- tick-animations [ctx]
   (def config (ctx :config))
@@ -585,18 +628,51 @@
     (def cam (or (tag :camera-visual) (tag :camera)))
     (+ (usable :x) (- vx cam))))
 
+(defn- float-screen-pos
+  "Compute screen position for a floating window from its virtual anchor."
+  [w ctx]
+  (when-let [vx (w :float-vx)
+             vy (w :float-vy)
+             tag (get-in ctx [:tags (w :tag)])
+             o (window/tag-output w (ctx :outputs))]
+    (def usable (output/usable-area o))
+    (def cam (or (tag :camera-visual) (tag :camera) 0))
+    [(+ (usable :x) (- vx cam)) vy]))
+
 (defn- apply-positions [ctx]
   (each w (ctx :windows)
     (when (and (w :visible) (w :node))
       (if (w :float)
-        (when (and (w :x) (w :y))
-          (:set-position (w :node) (math/round (w :x)) (math/round (w :y))))
+        (when-let [[sx sy] (float-screen-pos w ctx)]
+          (:set-position (w :node) (math/round sx) (math/round sy)))
         (do
           (def screen-x (window-screen-x w ctx))
           (def screen-y (anim/resolve-y w))
           (when (and screen-x screen-y)
             (:set-position (w :node)
                            (math/round screen-x) (math/round screen-y))))))))
+
+(defn- apply-float-clips [ctx]
+  "Hide floating windows that are fully off-screen."
+  (each w (ctx :windows)
+    (when (and (w :visible) (w :obj) (w :float))
+      (when-let [[sx sy] (float-screen-pos w ctx)
+                 o (window/tag-output w (ctx :outputs))]
+        (def ox (or (o :x) 0))
+        (def oy (or (o :y) 0))
+        (def ow (or (o :w) 1920))
+        (def oh (or (o :h) 1080))
+        (def ww (or (w :w) 0))
+        (def wh (or (w :h) 0))
+        (def on-screen (and (< sx (+ ox ow)) (> (+ sx ww) ox)
+                            (< sy (+ oy oh)) (> (+ sy wh) oy)))
+        (if on-screen
+          (when (w :render-hidden)
+            (put w :render-hidden nil)
+            (:show (w :obj)))
+          (when (not (w :render-hidden))
+            (put w :render-hidden true)
+            (:hide (w :obj))))))))
 
 (defn- apply-clips [ctx]
   (each w (ctx :windows)
@@ -670,6 +746,7 @@
     init-new-windows
     init-new-seats
     process-focus
+    process-pointer-ops
     state/reconcile-tags
     adopt-orphan-windows
     sync-tree-focus
@@ -677,6 +754,7 @@
     start-animations
     compute-borders
     sync-child-tags
+    anchor-floats
     compute-visibility
     # --- effects ---
     apply-window-config
@@ -692,6 +770,7 @@
   @[tick-animations
     center-unplaced
     apply-positions
+    apply-float-clips
     apply-clips
     signal-render-done
     request-rerender])

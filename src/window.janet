@@ -27,6 +27,31 @@
   (put w :float float)
   (put w :float-changed true))
 
+(defn should-float?
+  "Determine if a window should be floating. Checks user rules first,
+   then falls back to heuristics (parent, fixed-size, constrained max)."
+  [w rules]
+  # Check user rules first — :float can be false (force-tiled)
+  (var rule-result nil)
+  (each rule rules
+    (when ((rule :match) w)
+      (set rule-result (rule :float))
+      (break)))
+  (when (not (nil? rule-result)) (break rule-result))
+  # Parent windows always float
+  (when (and (w :wl-parent) (not ((w :wl-parent) :closed)))
+    (break true))
+  # Fixed-size windows float
+  (when (fixed-size? w)
+    (break true))
+  # Constrained max dimensions suggest a dialog
+  (when (and (w :max-w) (> (w :max-w) 0)
+             (w :max-h) (> (w :max-h) 0)
+             (< (w :max-w) 1200)
+             (< (w :max-h) 900))
+    (break true))
+  false)
+
 (defn set-borders [w status config]
   (put w :border-rgb
     (case status

@@ -2,6 +2,7 @@
 # Re-exports scroll-actions, adds cross-output navigation and tag actions.
 
 (import ./scroll-actions)
+(import ./float-actions)
 (import ./output)
 (import ./seat)
 (import ./tree)
@@ -122,6 +123,12 @@
 
 # --- Spawn ---
 (def spawn scroll-actions/spawn)
+
+# --- Float ---
+(def toggle-float float-actions/toggle-float)
+(def focus-float-next float-actions/focus-float-next)
+(def focus-float-prev float-actions/focus-float-prev)
+(def gather-floats float-actions/gather-floats)
 
 # --- Output focus cycling ---
 
