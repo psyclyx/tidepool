@@ -57,7 +57,7 @@
                (>= (w :min-h) (* 0.5 (w :max-h))))
       (break true)))
   # CSD-only windows with initial dimensions smaller than typical tiling
-  (when (and (= (w :decoration-hint) 0)
+  (when (and (= (w :decoration-hint) :only-supports-csd)
              (w :w) (w :h)
              (< (w :w) 1200) (< (w :h) 900))
     (break true))

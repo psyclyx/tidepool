@@ -197,7 +197,7 @@
   (var rr-counter 0)
   (each w new-windows
     (put w :needs-ssd (and (not (nil? (w :decoration-hint)))
-                           (not= (w :decoration-hint) 0)))
+                           (not= (w :decoration-hint) :only-supports-csd)))
     (if (and (w :wl-parent) (not ((w :wl-parent) :closed)))
       (do
         (window/set-float w true)
