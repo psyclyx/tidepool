@@ -197,7 +197,7 @@
   "Build a JSON-friendly tree representation of the column layout."
   (case (node :type)
     :leaf {"type" "leaf"
-           "focused" (if (and focused-id (= (get node :id) focused-id)) true false)}
+           "focused" (if (and focused-id (= (get node :window) focused-id)) true false)}
     :container {"type" "container"
                 "orientation" (string (node :orientation))
                 "children" (map |(build-tree $ focused-id) (node :children))}
