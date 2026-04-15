@@ -13,6 +13,11 @@
 
 (dispatch/reg-proto interface :dimensions-hint
   (fn [_ctx min-w min-h max-w max-h window]
+    (when (or (not= min-w (or (window :min-w) 0))
+              (not= min-h (or (window :min-h) 0))
+              (not= max-w (or (window :max-w) 0))
+              (not= max-h (or (window :max-h) 0)))
+      (put window :hints-changed true))
     (put window :min-w min-w) (put window :min-h min-h)
     (put window :max-w max-w) (put window :max-h max-h) nil))
 
