@@ -25,19 +25,16 @@
     [:l super-shift actions/swap-right]
     [:k super-shift actions/swap-up]
     [:j super-shift actions/swap-down]
-    # Join / Leave
-    [:h super-ctrl actions/join-left]
-    [:l super-ctrl actions/join-right]
-    [:k super-ctrl actions/join-up]
-    [:j super-ctrl actions/join-down]
-    [:space super-ctrl actions/leave]
+    # Absorb / Eject / Expel
+    [:h super-ctrl actions/absorb-left]
+    [:l super-ctrl actions/absorb-right]
+    [:k super-ctrl actions/absorb-up]
+    [:j super-ctrl actions/absorb-down]
+    [:space super-ctrl actions/eject]
     # Width
     [:r super actions/grow]
-    # Insert mode
-    [:i super actions/toggle-insert-mode]
-    # Container mode
-    [:t super actions/make-tabbed]
-    [:s super actions/make-split]
+    # Tabs
+    [:t super actions/toggle-split-tabbed]
     # Tab cycling
     [:Tab super actions/focus-tab-next]
     [:Tab super-shift actions/focus-tab-prev]
