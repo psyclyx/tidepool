@@ -9,22 +9,23 @@
 # --- Node constructors ---
 
 (defn leaf
-  "Create a leaf node wrapping a window."
+  "Create a leaf node wrapping a window. Also sets the :tree-leaf backpointer on the window."
   [window &opt width]
-  @{:type :leaf
-    :id (++ next-nid)
-    :window window
-    :width (or width 1.0)
-    :parent nil})
+  (def node @{:type :leaf
+              :id (++ next-nid)
+              :window window
+              :width (or width 1.0)
+              :parent nil})
+  (put window :tree-leaf node)
+  node)
 
 (defn container
   "Create a container node. Mode is :split or :tabbed.
-   Orientation is :horizontal or :vertical."
-  [mode orientation children &opt width]
+   Orientation is derived from tree depth (alternating splits)."
+  [mode children &opt width]
   (def node @{:type :container
               :id (++ next-nid)
               :mode mode
-              :orientation orientation
               :active 0
               :children @[]
               :width (or width 1.0)
@@ -41,6 +42,28 @@
 (defn tabbed? [node] (and (container? node) (= (node :mode) :tabbed)))
 (defn split? [node] (and (container? node) (= (node :mode) :split)))
 (defn root? [node] (nil? (node :parent)))
+
+# --- Depth and orientation ---
+
+(defn node-depth
+  "Compute the depth of a node by counting parent links to root."
+  [node]
+  (var d 0)
+  (var n node)
+  (while (n :parent)
+    (++ d)
+    (set n (n :parent)))
+  d)
+
+(defn orientation-at-depth
+  "Derive orientation from depth. Even depths are horizontal, odd are vertical."
+  [depth]
+  (if (even? depth) :horizontal :vertical))
+
+(defn node-orientation
+  "Get the derived orientation for a node based on its tree depth."
+  [node]
+  (orientation-at-depth (node-depth node)))
 
 # --- Traversal ---
 
@@ -165,7 +188,7 @@
   [columns idx node]
   (def col-node
     (if (leaf? node)
-      (container :split :horizontal @[node] (node :width))
+      (container :split @[node] (node :width))
       node))
   (put col-node :parent nil)
   (array/insert columns idx col-node))
@@ -207,8 +230,8 @@
 
 (defn wrap-in-container
   "Replace a node with a new container holding it and a new sibling.
-   sibling-pos is :before or :after."
-  [columns node mode orientation sibling sibling-pos]
+   sibling-pos is :before or :after. Orientation is derived from depth."
+  [columns node mode sibling sibling-pos]
   (def old-width (node :width))
   (def old-parent (node :parent))
   (def old-idx (when old-parent
@@ -216,7 +239,7 @@
   (def children (if (= sibling-pos :before)
                   @[sibling node]
                   @[node sibling]))
-  (def c (container mode orientation children old-width))
+  (def c (container mode children old-width))
   (if old-parent
     (do
       (put c :parent old-parent)

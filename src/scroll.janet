@@ -125,8 +125,9 @@
 (defn layout-node
   "Compute pixel placements for a node within an allocated rectangle.
    Returns array of {:window :x :y :w :h} for each visible leaf.
-   inner-gap is applied between children of split containers."
-  [node rect inner-gap border-width]
+   inner-gap is applied between children of split containers.
+   depth determines orientation (alternating: even=horizontal, odd=vertical)."
+  [node rect inner-gap border-width depth]
   (case (node :type)
     :leaf
     @[{:window (node :window)
@@ -136,12 +137,13 @@
     :container
     (case (node :mode)
       :tabbed
-      (layout-node ((node :children) (node :active)) rect inner-gap border-width)
+      (layout-node ((node :children) (node :active)) rect inner-gap border-width (inc depth))
 
       :split
       (let [children (node :children)
-            n (length children)]
-        (case (node :orientation)
+            n (length children)
+            orient (tree/orientation-at-depth depth)]
+        (case orient
           :vertical
           (let [total-gap (* inner-gap (dec n))
                 usable-h (- (rect :h) total-gap)
@@ -154,7 +156,7 @@
               (array/concat results
                 (layout-node (children i)
                   {:x (rect :x) :y y :w (rect :w) :h h}
-                  inner-gap border-width))
+                  inner-gap border-width (inc depth)))
               (set y (+ y h inner-gap)))
             results)
 
@@ -170,7 +172,7 @@
               (array/concat results
                 (layout-node (children i)
                   {:x x :y (rect :y) :w w :h (rect :h)}
-                  inner-gap border-width))
+                  inner-gap border-width (inc depth)))
               (set x (+ x w inner-gap)))
             results))))))
 
@@ -217,7 +219,7 @@
     # Layout ALL columns — render chain clips/hides off-screen windows via camera
     (def rect {:x (vp :vx) :y col-screen-y
                :w (vp :vw) :h col-h})
-    (def node-placements (layout-node col rect ig bw))
+    (def node-placements (layout-node col rect ig bw 0))
     (each p node-placements
       (array/push placements
         (merge p {:vx (p :x) :x nil}))))
