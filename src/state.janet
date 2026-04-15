@@ -70,31 +70,37 @@
   (def focused
     (when-let [s (first (ctx :seats))]
       (s :focused-output)))
-  # Collect all tags in use
-  (def all-tags @{})
-  (each o outputs (eachk tag (o :tags) (put all-tags tag true)))
-  (each w (ctx :windows) (when (w :tag) (put all-tags (w :tag) true)))
-  (def tags (sorted (keys all-tags)))
-  # Focused output wins tag conflicts
+  # Focused output wins tag conflicts — clear its tags from all other outputs
   (when focused
-    (each tag tags
-      (when ((focused :tags) tag)
-        (each o outputs
-          (when (not= o focused)
-            (put (o :tags) tag nil))))))
-  # Assign orphaned tags to empty outputs
-  (each tag tags
-    (unless (find |(($ :tags) tag) outputs)
-      (when-let [o (find |(empty? ($ :tags)) outputs)]
-        (put (o :tags) tag true))))
-  # Ensure every output has a tag — assign lowest unused integer if needed
+    (eachk tag (focused :tags)
+      (each o outputs
+        (when (not= o focused)
+          (put (o :tags) tag nil)))))
+  # Build tag→output map for orphan assignment
+  (def tag-owner @{})
   (each o outputs
-    (when (empty? (o :tags))
-      (def used @{})
-      (each o2 outputs (eachk tag (o2 :tags) (put used tag true)))
-      (var t 1)
-      (while (used t) (++ t))
-      (put (o :tags) t true)))
+    (eachk tag (o :tags) (put tag-owner tag o)))
+  # Collect orphaned tags (on windows but not on any output)
+  (def orphaned @[])
+  (each w (ctx :windows)
+    (when (and (w :tag) (not (tag-owner (w :tag))))
+      (unless (find |(= $ (w :tag)) orphaned)
+        (array/push orphaned (w :tag)))))
+  # Assign orphaned tags to empty outputs
+  (each tag orphaned
+    (when-let [o (find |(empty? ($ :tags)) outputs)]
+      (put (o :tags) tag true)
+      (put tag-owner tag o)))
+  # Ensure every output has a tag — assign lowest unused integer
+  (when (find |(empty? ($ :tags)) outputs)
+    (def used @{})
+    (eachp [tag _] tag-owner (put used tag true))
+    (each o outputs
+      (when (empty? (o :tags))
+        (var t 1)
+        (while (used t) (++ t))
+        (put (o :tags) t true)
+        (put used t true))))
   # Track primary tag
   (each o outputs
     (put o :primary-tag (min-of (keys (o :tags))))))
