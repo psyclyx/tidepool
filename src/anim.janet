@@ -177,12 +177,8 @@
 (defn any-animating?
   "Check if any window or camera is animating."
   [ctx]
-  (var active false)
-  (each w (ctx :windows)
-    (when (animating? w) (set active true)))
-  (eachp [_ tag] (ctx :tags)
-    (when (tag :camera-anim) (set active true)))
-  active)
+  (or (find animating? (ctx :windows))
+      (find |($ :camera-anim) (values (ctx :tags)))))
 
 (defn spring-value
   "Get animated value for a property, falling back to the window's value."
