@@ -62,8 +62,13 @@
       (array/remove watchers i)
       (++ i))))
 
+(defn has-watchers?
+  "Check if there are any active watchers."
+  []
+  (not (empty? watchers)))
+
 (defn emit
-  "Send a JSON-RPC notification to matching watchers."
+  "Send a JSON-RPC notification to matching watchers (non-blocking)."
   [event-type &opt params]
   (prune-watchers)
   (when (not (empty? watchers))
@@ -74,9 +79,10 @@
       (when (and (not (w :closed))
                  (or (not (w :events))
                      (find |(= $ event-type) (w :events))))
-        (unless (try-write (w :stream) buf)
-          (put w :closed true)
-          (try (:close (w :stream)) ([_])))))))
+        (ev/go (fn []
+          (unless (try-write (w :stream) buf)
+            (put w :closed true)
+            (try (:close (w :stream)) ([_])))))))))
 
 # --- JSON-RPC response helpers ---
 
@@ -250,6 +256,7 @@
 (defn emit-state-events
   "Pipeline step: emit state snapshot and granular events."
   [ctx]
+  (when (not (has-watchers?)) (break))
   (each w (ctx :windows)
     (when (w :new)
       (emit "window:new" {"app-id" (w :app-id)
