@@ -220,32 +220,18 @@
         (window/set-float w (window/should-float? w (config :rules)))
         (put w :tag (assign-tag-for-new-window ctx w saved rr-counter))
         (++ rr-counter)
-        # Insert tiled windows into the tag's node tree
+        # Insert tiled windows into the tag's node tree as new columns
         (when (not (w :float))
           (def tag-id (w :tag))
           (def tag (state/ensure-tag ctx tag-id))
           (def leaf (tree/leaf w (config :default-column-width)))
           (put w :tree-leaf leaf)
-          (if (= (tag :insert-mode) :child)
-            # Insert into focused node's container
-            (if-let [fid (tag :focused-id)
-                     focused-leaf (fid :tree-leaf)]
-              (if-let [p (focused-leaf :parent)]
-                # Insert after focused in its parent
-                (let [idx (inc (tree/child-index focused-leaf))]
-                  (tree/insert-child p idx leaf))
-                # Focused is a bare column — wrap into vertical split
-                (tree/wrap-in-container (tag :columns) focused-leaf
-                                        :split :vertical leaf :after))
-              # No focus — just append as column
-              (tree/insert-column (tag :columns) (length (tag :columns)) leaf))
-            # :sibling mode — insert as new column after focused
-            (let [insert-idx
-                  (if-let [fid (tag :focused-id)
-                           focused-leaf (fid :tree-leaf)]
-                    (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
-                    (length (tag :columns)))]
-              (tree/insert-column (tag :columns) insert-idx leaf)))
+          (let [insert-idx
+                (if-let [fid (tag :focused-id)
+                         focused-leaf (fid :tree-leaf)]
+                  (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
+                  (length (tag :columns)))]
+            (tree/insert-column (tag :columns) insert-idx leaf))
           # Set focus to new window
           (put tag :focused-id w)
           (tree/update-active-path leaf))))

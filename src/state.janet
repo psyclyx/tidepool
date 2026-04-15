@@ -49,8 +49,7 @@
   (or (get-in ctx [:tags tag-id])
       (let [tag @{:columns @[]
                   :camera 0
-                  :focused-id nil
-                  :insert-mode :sibling}]
+                  :focused-id nil}]
         (put-in ctx [:tags tag-id] tag)
         tag)))
 

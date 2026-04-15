@@ -25,15 +25,17 @@
 (reg-action "swap-right" actions/swap-right)
 (reg-action "swap-up" actions/swap-up)
 (reg-action "swap-down" actions/swap-down)
-(reg-action "join-left" actions/join-left)
-(reg-action "join-right" actions/join-right)
-(reg-action "join-up" actions/join-up)
-(reg-action "join-down" actions/join-down)
-(reg-action "leave" actions/leave)
+(reg-action "absorb-left" actions/absorb-left)
+(reg-action "absorb-right" actions/absorb-right)
+(reg-action "absorb-up" actions/absorb-up)
+(reg-action "absorb-down" actions/absorb-down)
+(reg-action "eject" actions/eject)
+(reg-action "expel-left" actions/expel-left)
+(reg-action "expel-right" actions/expel-right)
+(reg-action "expel-up" actions/expel-up)
+(reg-action "expel-down" actions/expel-down)
 (reg-action "grow" actions/grow)
-(reg-action "toggle-insert-mode" actions/toggle-insert-mode)
-(reg-action "make-tabbed" actions/make-tabbed)
-(reg-action "make-split" actions/make-split)
+(reg-action "toggle-split-tabbed" actions/toggle-split-tabbed)
 (reg-action "focus-tab-next" actions/focus-tab-next)
 (reg-action "focus-tab-prev" actions/focus-tab-prev)
 (reg-action "focus-tag" actions/focus-tag true)
@@ -199,14 +201,16 @@
     :container (sum (map count-leaves (node :children)))
     0))
 
-(defn- build-tree [node focused-id]
+(defn- build-tree [node focused-id &opt depth]
   "Build a JSON-friendly tree representation of the column layout."
+  (default depth 0)
   (case (node :type)
     :leaf {"type" "leaf"
            "focused" (if (and focused-id (= (get node :window) focused-id)) true false)}
     :container {"type" "container"
-                "orientation" (string (node :orientation))
-                "children" (map |(build-tree $ focused-id) (node :children))}
+                "mode" (string (node :mode))
+                "orientation" (string (tree/orientation-at-depth depth))
+                "children" (map |(build-tree $ focused-id (inc depth)) (node :children))}
     nil))
 
 (defn- build-state [ctx]
@@ -238,8 +242,7 @@
        "focused" (= o focused-output)
        "tag" (or tag-id 0)
        "columns" (or columns [])
-       "camera" (if tag (or (tag :camera) 0) 0)
-       "insert-mode" (if tag (or (string (tag :insert-mode)) "sibling") "sibling")}))
+       "camera" (if tag (or (tag :camera) 0) 0)}))
 
   # Occupied tags (tags with at least one non-closed window)
   (def occ @{})

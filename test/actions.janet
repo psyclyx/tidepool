@@ -16,7 +16,7 @@
 (t/assert-truthy actions/swap-left "swap-left")
 (t/assert-truthy actions/swap-right "swap-right")
 (t/assert-truthy actions/close-focused "close-focused")
-(t/assert-truthy actions/toggle-insert-mode "toggle-insert-mode")
+(t/assert-truthy actions/toggle-split-tabbed "toggle-split-tabbed")
 (t/assert-truthy actions/grow "grow")
 
 # ============================================================
@@ -46,8 +46,8 @@
 (def w (t/make-window 1 {:tag 1}))
 (def leaf (tree/leaf w))
 (put w :tree-leaf leaf)
-(def col (tree/container :split :horizontal @[leaf]))
-(def tag @{:columns @[col] :camera 0 :focused-id w :insert-mode :sibling})
+(def col (tree/container :split @[leaf]))
+(def tag @{:columns @[col] :camera 0 :focused-id w})
 (def ctx (t/make-ctx {:tags @{1 tag} :windows @[w]}))
 (def s (t/make-seat {:focused w :focused-output (t/make-output {:tags @{1 true}})}))
 (def action (actions/send-to-tag 5))

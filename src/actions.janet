@@ -122,26 +122,24 @@
   (or (float-actions/move-directional ctx s :down)
       (scroll-actions/swap-down ctx s)))
 
-# --- Join / Leave ---
-(def join-left scroll-actions/join-left)
-(def join-right scroll-actions/join-right)
-(def join-up scroll-actions/join-up)
-(def join-down scroll-actions/join-down)
-(def leave scroll-actions/leave)
+# --- Absorb / Eject / Expel ---
+(def absorb-left scroll-actions/absorb-left)
+(def absorb-right scroll-actions/absorb-right)
+(def absorb-up scroll-actions/absorb-up)
+(def absorb-down scroll-actions/absorb-down)
+(def eject scroll-actions/eject)
+(def expel-left scroll-actions/expel-left)
+(def expel-right scroll-actions/expel-right)
+(def expel-up scroll-actions/expel-up)
+(def expel-down scroll-actions/expel-down)
 
 # --- Tabs ---
 (def focus-tab-next scroll-actions/focus-tab-next)
 (def focus-tab-prev scroll-actions/focus-tab-prev)
-(def make-tabbed scroll-actions/make-tabbed)
-(def make-split scroll-actions/make-split)
-(def make-horizontal scroll-actions/make-horizontal)
-(def make-vertical scroll-actions/make-vertical)
+(def toggle-split-tabbed scroll-actions/toggle-split-tabbed)
 
 # --- Width ---
 (def grow scroll-actions/grow)
-
-# --- Insert mode ---
-(def toggle-insert-mode scroll-actions/toggle-insert-mode)
 
 # --- Close ---
 (def close-focused scroll-actions/close-focused)

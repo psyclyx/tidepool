@@ -14,7 +14,6 @@
 (t/assert-eq (length (tag :columns)) 0)
 (t/assert-eq (tag :camera) 0)
 (t/assert-eq (tag :focused-id) nil)
-(t/assert-eq (tag :insert-mode) :sibling)
 
 (t/test-start "ensure-tag: returns existing tag")
 (def tag2 (state/ensure-tag ctx 1))
@@ -53,31 +52,6 @@
 (tree/update-active-path leaf2)
 (t/assert-eq (length (tag :columns)) 2)
 (t/assert-is (tree/first-leaf ((tag :columns) 1)) leaf2)
-
-(t/test-start "new window in child mode: wraps into container")
-(tree/reset-ids)
-(def ctx (t/make-ctx))
-(def tag (state/ensure-tag ctx 1))
-(put tag :insert-mode :child)
-(def w1 @{:wid 1 :tag 1})
-(def leaf1 (tree/leaf w1 1.0))
-(put w1 :tree-leaf leaf1)
-(tree/insert-column (tag :columns) 0 leaf1)
-(put tag :focused-id w1)
-(tree/update-active-path leaf1)
-
-# Add w2 in child mode — wraps into vsplit
-(def w2 @{:wid 2 :tag 1})
-(def leaf2 (tree/leaf w2 1.0))
-(put w2 :tree-leaf leaf2)
-(tree/wrap-in-container (tag :columns) leaf1 :split :vertical leaf2 :after)
-(put tag :focused-id w2)
-(tree/update-active-path leaf2)
-(t/assert-eq (length (tag :columns)) 1 "still one column")
-(def col ((tag :columns) 0))
-(t/assert-truthy (tree/container? col) "column is a container")
-(def col-leaves (tree/all-leaves col))
-(t/assert-eq (length col-leaves) 2 "both leaves in column")
 
 # ============================================================
 # Window removal from tree
@@ -203,7 +177,8 @@
 (def w2 @{:wid 2 :tag 1})
 (def l1 (tree/leaf w1))
 (def l2 (tree/leaf w2))
-(def col (tree/container :split :vertical @[l1 l2] 1.0))
+(def inner (tree/container :split @[l1 l2]))
+(def col (tree/container :split @[inner] 1.0))
 (tree/insert-column (tag :columns) 0 col)
 (put tag :focused-id w1)
 (tree/update-active-path l1)

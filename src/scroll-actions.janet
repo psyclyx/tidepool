@@ -31,21 +31,23 @@
 
 (defn find-directional-neighbor
   "Find the neighbor in a given direction from the focused leaf.
-   Returns the neighbor leaf or nil (no-op)."
+   Orientation is derived from depth (alternating splits)."
   [columns leaf-node direction]
   (var node leaf-node)
   (var result nil)
+  (var depth (tree/node-depth leaf-node))
 
   (case direction
     :left
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :horizontal)
-          (let [idx (tree/child-index node)]
-            (if (> idx 0)
-              (set result (tree/last-leaf ((p :children) (dec idx))))
-              (set node p)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :horizontal)
+            (let [idx (tree/child-index node)]
+              (if (> idx 0)
+                (set result (tree/last-leaf ((p :children) (dec idx))))
+                (do (set node p) (-- depth))))
+            (do (set node p) (-- depth))))
         # At column level
         (let [col-idx (tree/find-column-index columns node)]
           (when (and col-idx (> col-idx 0))
@@ -55,12 +57,13 @@
     :right
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :horizontal)
-          (let [idx (tree/child-index node)]
-            (if (< idx (dec (length (p :children))))
-              (set result (tree/first-leaf ((p :children) (inc idx))))
-              (set node p)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :horizontal)
+            (let [idx (tree/child-index node)]
+              (if (< idx (dec (length (p :children))))
+                (set result (tree/first-leaf ((p :children) (inc idx))))
+                (do (set node p) (-- depth))))
+            (do (set node p) (-- depth))))
         (let [col-idx (tree/find-column-index columns node)]
           (when (and col-idx (< col-idx (dec (length columns))))
             (set result (tree/first-leaf (columns (inc col-idx)))))
@@ -69,23 +72,25 @@
     :up
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :vertical)
-          (let [idx (tree/child-index node)]
-            (if (> idx 0)
-              (set result (tree/last-leaf ((p :children) (dec idx))))
-              (set node nil)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :vertical)
+            (let [idx (tree/child-index node)]
+              (if (> idx 0)
+                (set result (tree/last-leaf ((p :children) (dec idx))))
+                (set node nil)))
+            (do (set node p) (-- depth))))
         (set node nil)))
 
     :down
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :vertical)
-          (let [idx (tree/child-index node)]
-            (if (< idx (dec (length (p :children))))
-              (set result (tree/first-leaf ((p :children) (inc idx))))
-              (set node nil)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :vertical)
+            (let [idx (tree/child-index node)]
+              (if (< idx (dec (length (p :children))))
+                (set result (tree/first-leaf ((p :children) (inc idx))))
+                (set node nil)))
+            (do (set node p) (-- depth))))
         (set node nil))))
 
   result)
@@ -150,22 +155,23 @@
 
 (defn find-structural-neighbor
   "Find the structural sibling in a given direction from a leaf.
-   Returns [swap-node neighbor] where swap-node is the ancestor of leaf-node
-   that is a sibling of neighbor, or nil if no neighbor exists."
+   Returns [swap-node neighbor] or nil."
   [columns leaf-node direction]
   (var node leaf-node)
   (var result nil)
+  (var depth (tree/node-depth leaf-node))
 
   (case direction
     :left
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :horizontal)
-          (let [idx (tree/child-index node)]
-            (if (> idx 0)
-              (set result [node ((p :children) (dec idx))])
-              (set node p)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :horizontal)
+            (let [idx (tree/child-index node)]
+              (if (> idx 0)
+                (set result [node ((p :children) (dec idx))])
+                (do (set node p) (-- depth))))
+            (do (set node p) (-- depth))))
         (let [col-idx (tree/find-column-index columns node)]
           (when (and col-idx (> col-idx 0))
             (set result [node (columns (dec col-idx))]))
@@ -174,12 +180,13 @@
     :right
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :horizontal)
-          (let [idx (tree/child-index node)]
-            (if (< idx (dec (length (p :children))))
-              (set result [node ((p :children) (inc idx))])
-              (set node p)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :horizontal)
+            (let [idx (tree/child-index node)]
+              (if (< idx (dec (length (p :children))))
+                (set result [node ((p :children) (inc idx))])
+                (do (set node p) (-- depth))))
+            (do (set node p) (-- depth))))
         (let [col-idx (tree/find-column-index columns node)]
           (when (and col-idx (< col-idx (dec (length columns))))
             (set result [node (columns (inc col-idx))]))
@@ -188,28 +195,30 @@
     :up
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :vertical)
-          (let [idx (tree/child-index node)]
-            (if (> idx 0)
-              (set result [node ((p :children) (dec idx))])
-              (set node nil)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :vertical)
+            (let [idx (tree/child-index node)]
+              (if (> idx 0)
+                (set result [node ((p :children) (dec idx))])
+                (set node nil)))
+            (do (set node p) (-- depth))))
         (set node nil)))
 
     :down
     (while (and (not result) node)
       (if-let [p (node :parent)]
-        (if (= (p :orientation) :vertical)
-          (let [idx (tree/child-index node)]
-            (if (< idx (dec (length (p :children))))
-              (set result [node ((p :children) (inc idx))])
-              (set node nil)))
-          (set node p))
+        (let [orient (tree/orientation-at-depth (dec depth))]
+          (if (= orient :vertical)
+            (let [idx (tree/child-index node)]
+              (if (< idx (dec (length (p :children))))
+                (set result [node ((p :children) (inc idx))])
+                (set node nil)))
+            (do (set node p) (-- depth))))
         (set node nil))))
 
   result)
 
-# --- Detach helper (shared by swap edge-extract and join) ---
+# --- Detach helper ---
 
 (defn- detach-leaf
   "Remove a leaf from the tree, collapsing empty parents.
@@ -229,17 +238,17 @@
 
 (defn- find-edge-container
   "Walk up from node to find the nearest ancestor container where the node
-   is at the directional edge. Only considers containers with >1 child
-   whose orientation matches the direction axis.
-   Returns [container direct-child] or nil."
+   is at the directional edge. Uses depth-derived orientation."
   [node direction]
   (def axis (direction-axis direction))
   (def start (at-start? direction))
   (var child node)
+  (var depth (tree/node-depth node))
   (var result nil)
   (while (and (not result) (child :parent))
     (def p (child :parent))
-    (when (and (= (p :orientation) axis)
+    (-- depth)
+    (when (and (= (tree/orientation-at-depth depth) axis)
                (> (length (p :children)) 1))
       (def idx (tree/child-index child))
       (if start
@@ -283,43 +292,39 @@
 (defn swap-up [ctx s] (do-swap ctx s :up))
 (defn swap-down [ctx s] (do-swap ctx s :down))
 
-# --- Join ---
+# --- Absorb (pull neighbor into focused window's group) ---
 
-(defn- join-into
-  "Join leaf into the container that holds neighbor, or wrap neighbor."
-  [columns leaf-node neighbor direction]
-  (def orient (if (or (= direction :left) (= direction :right))
-                :vertical :horizontal))
-  (def pos (if (or (= direction :left) (= direction :up))
-             :before :after))
-  (def np (neighbor :parent))
-  (if (and np (> (length (np :children)) 1))
-    # Multi-child parent — insert alongside
-    (let [ni (tree/child-index neighbor)
-          insert-idx (if (or (= direction :right) (= direction :down))
-                       (inc ni) ni)]
-      (tree/insert-child np insert-idx leaf-node))
-    # Single-child wrapper or no parent — wrap with correct orientation
-    (tree/wrap-in-container columns neighbor :split orient leaf-node pos)))
-
-(defn- do-join [ctx s direction]
+(defn- do-absorb [ctx s direction]
   (when-let [tag (active-tag ctx s)
              leaf (focused-leaf ctx s)]
     (def columns (tag :columns))
     (def neighbor (find-directional-neighbor columns leaf direction))
     (unless neighbor (break))
-    (detach-leaf columns leaf)
-    (join-into columns leaf neighbor direction)
+    # Detach the neighbor from its current position
+    (def neighbor-leaf neighbor)
+    (detach-leaf columns neighbor-leaf)
+    # Insert neighbor into focused window's parent container
+    (def p (leaf :parent))
+    (if (and p (> (length (p :children)) 1))
+      # Already in a multi-child container: insert alongside focused leaf
+      (let [idx (tree/child-index leaf)
+            insert-idx (if (or (= direction :right) (= direction :down))
+                         (inc idx) idx)]
+        (tree/insert-child p insert-idx neighbor-leaf))
+      # Leaf is alone (sole child of column wrapper): wrap into new container
+      (let [pos (if (or (= direction :left) (= direction :up))
+                  :before :after)]
+        (tree/wrap-in-container columns leaf :split neighbor-leaf pos)))
     (set-focus ctx s tag leaf)))
 
-(defn join-left [ctx s] (do-join ctx s :left))
-(defn join-right [ctx s] (do-join ctx s :right))
-(defn join-up [ctx s] (do-join ctx s :up))
-(defn join-down [ctx s] (do-join ctx s :down))
+(defn absorb-left [ctx s] (do-absorb ctx s :left))
+(defn absorb-right [ctx s] (do-absorb ctx s :right))
+(defn absorb-up [ctx s] (do-absorb ctx s :up))
+(defn absorb-down [ctx s] (do-absorb ctx s :down))
 
-# --- Leave ---
+# --- Eject (push focused window out of its group) ---
 
-(defn leave [ctx s]
+(defn eject [ctx s]
   (when-let [tag (active-tag ctx s)
              leaf (focused-leaf ctx s)]
     # Already a top-level column (sole child of root wrapper)
@@ -335,6 +340,52 @@
     (def insert-idx (min (inc (or col-idx 0)) (length columns)))
     (tree/insert-column columns insert-idx leaf)
     (set-focus ctx s tag leaf)))
+
+# --- Expel (push edge child out of focused window's group) ---
+
+(defn- do-expel [ctx s direction]
+  (when-let [tag (active-tag ctx s)
+             leaf (focused-leaf ctx s)]
+    (def columns (tag :columns))
+    (def axis (direction-axis direction))
+    (def start (at-start? direction))
+    # Walk up from leaf to find a container with matching orientation
+    (var node leaf)
+    (var depth (tree/node-depth leaf))
+    (var target-container nil)
+    (while (and (not target-container) (node :parent))
+      (def p (node :parent))
+      (-- depth)
+      (when (and (= (tree/orientation-at-depth depth) axis)
+                 (> (length (p :children)) 1))
+        (set target-container p))
+      (set node p))
+    (unless target-container (break))
+    # Pick the edge child
+    (def children (target-container :children))
+    (def edge-idx (if start 0 (dec (length children))))
+    (def edge-child (children edge-idx))
+    # Get the first leaf of the edge child to use as the detach target
+    (def edge-leaf (tree/first-leaf edge-child))
+    # Find column position before detach
+    (def col-idx (tree/find-column-index columns edge-child))
+    (def default-width (get-in ctx [:config :default-column-width] 0.5))
+    # If edge child is a subtree, detach the whole subtree
+    (tree/remove-child edge-child)
+    (tree/collapse-singles target-container)
+    (put edge-child :width default-width)
+    # Insert as new column adjacent to the old column
+    (def insert-idx
+      (if start
+        (or col-idx 0)
+        (min (inc (or col-idx 0)) (length columns))))
+    (tree/insert-column columns insert-idx edge-child)
+    (set-focus ctx s tag leaf)))
+
+(defn expel-left [ctx s] (do-expel ctx s :left))
+(defn expel-right [ctx s] (do-expel ctx s :right))
+(defn expel-up [ctx s] (do-expel ctx s :up))
+(defn expel-down [ctx s] (do-expel ctx s :down))
 
 # --- Width cycling ---
 
@@ -357,32 +408,13 @@
     (def new-idx (% (inc best-idx) (length presets)))
     (put col :width (presets new-idx))))
 
-# --- Insert mode ---
+# --- Container mode toggle ---
 
-(defn toggle-insert-mode [ctx s]
-  (when-let [tag (active-tag ctx s)]
-    (put tag :insert-mode
-      (if (= (tag :insert-mode) :child) :sibling :child))))
-
-# --- Container mode conversion ---
-
-(defn- set-container-mode [ctx s mode]
+(defn toggle-split-tabbed [ctx s]
   (when-let [tag (active-tag ctx s)
              leaf (focused-leaf ctx s)
              p (leaf :parent)]
-    (put p :mode mode)))
-
-(defn make-tabbed [ctx s] (set-container-mode ctx s :tabbed))
-(defn make-split [ctx s] (set-container-mode ctx s :split))
-
-(defn- set-container-orientation [ctx s orient]
-  (when-let [tag (active-tag ctx s)
-             leaf (focused-leaf ctx s)
-             p (leaf :parent)]
-    (put p :orientation orient)))
-
-(defn make-horizontal [ctx s] (set-container-orientation ctx s :horizontal))
-(defn make-vertical [ctx s] (set-container-orientation ctx s :vertical))
+    (put p :mode (if (= (p :mode) :tabbed) :split :tabbed))))
 
 # --- Close ---
 
