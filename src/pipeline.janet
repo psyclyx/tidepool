@@ -15,6 +15,20 @@
 (defn run-chain [ctx chain]
   (each step chain (step ctx)))
 
+# --- Tag → output index ---
+
+(defn- build-tag-output-index [ctx]
+  "Build a tag→output lookup table on ctx for O(1) per-window lookups."
+  (def idx @{})
+  (each o (ctx :outputs)
+    (eachk tag (o :tags) (put idx tag o)))
+  (put ctx :tag-output-index idx))
+
+(defn tag-output
+  "O(1) tag→output lookup using precomputed index."
+  [ctx w]
+  (get (ctx :tag-output-index) (w :tag)))
+
 # --- Tag state persistence ---
 
 (defn- tag-state-path []
@@ -514,7 +528,7 @@
   [ctx]
   (each w (ctx :windows)
     (when (and (w :float) (not (w :closed)) (not (w :pending-destroy)))
-      (when-let [o (window/tag-output w (ctx :outputs))
+      (when-let [o (tag-output ctx w)
                  tag-id (o :primary-tag)
                  tag (get-in ctx [:tags tag-id])]
         (def cam (or (tag :camera) 0))
@@ -569,7 +583,7 @@
               (when-let [ww (w :w) wh (w :h)
                          vx (or (w :float-vx) (w :vx))
                          tag (get-in ctx [:tags (w :tag)])
-                         o (window/tag-output w (ctx :outputs))]
+                         o (tag-output ctx w)]
                 (def usable (output/usable-area o))
                 (def cam (or (tag :camera) 0))
                 (def sx (+ (usable :x) (- vx cam)))
@@ -640,7 +654,7 @@
 (defn- center-unplaced [ctx]
   (each w (ctx :windows)
     (when (and (w :w) (w :h) (not (w :float)) (not (w :x)))
-      (if-let [o (window/tag-output w (ctx :outputs))]
+      (if-let [o (tag-output ctx w)]
         (window/set-position w
           (+ (o :x) (div (- (o :w) (w :w)) 2))
           (+ (o :y) (div (- (o :h) (w :h)) 2)))
@@ -666,7 +680,7 @@
   [w ctx]
   (when-let [vx (w :vx)
              tag (get-in ctx [:tags (w :tag)])
-             o (window/tag-output w (ctx :outputs))]
+             o (tag-output ctx w)]
     (def usable (output/usable-area o))
     (def cam (or (tag :camera-visual) (tag :camera)))
     (+ (usable :x) (- vx cam))))
@@ -677,7 +691,7 @@
   (when-let [vx (w :float-vx)
              vy (w :float-vy)
              tag (get-in ctx [:tags (w :tag)])
-             o (window/tag-output w (ctx :outputs))]
+             o (tag-output ctx w)]
     (def usable (output/usable-area o))
     (def cam (or (tag :camera-visual) (tag :camera) 0))
     [(+ (usable :x) (- vx cam)) vy]))
@@ -700,7 +714,7 @@
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj) (w :float))
       (when-let [[sx sy] (float-screen-pos w ctx)
-                 o (window/tag-output w (ctx :outputs))]
+                 o (tag-output ctx w)]
         (def ox (or (o :x) 0))
         (def oy (or (o :y) 0))
         (def ow (or (o :w) 1920))
@@ -730,7 +744,7 @@
   (each w (ctx :windows)
     (when (and (w :visible) (w :obj) (not (w :float)))
       (def screen-x (window-screen-x w ctx))
-      (def o (window/tag-output w (ctx :outputs)))
+      (def o (tag-output ctx w))
       (def [rw rh] (anim/resolve-dimensions w))
       (def win-w (or rw 0))
       (def win-h (or rh 0))
@@ -799,6 +813,7 @@
     process-focus
     process-pointer-ops
     state/reconcile-tags
+    build-tag-output-index
     promote-late-floats
     adopt-orphan-windows
     sync-tree-focus
@@ -819,7 +834,8 @@
     signal-manage-done])
 
 (def render-chain
-  @[tick-animations
+  @[build-tag-output-index
+    tick-animations
     center-unplaced
     apply-positions
     apply-float-clips
