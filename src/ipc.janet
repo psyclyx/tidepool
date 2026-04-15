@@ -224,12 +224,13 @@
         (when tag
           (def cols (tag :columns))
           (def fid (tag :focused-id))
+          (def focused-col
+            (when-let [fl (when fid (fid :tree-leaf))]
+              (tree/column-of fl)))
           (seq [col :in cols]
-            (def has-focus
-              (when fid (truthy? (tree/find-leaf col fid))))
             {"width" (col :width)
              "leaves" (count-leaves col)
-             "focused" (if has-focus true false)
+             "focused" (if (= col focused-col) true false)
              "tree" (build-tree col fid)})))
       {"name" (or (o :name) "")
        "x" (or (o :x) 0) "y" (or (o :y) 0)

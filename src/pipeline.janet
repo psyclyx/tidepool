@@ -215,11 +215,7 @@
           (if (= (tag :insert-mode) :child)
             # Insert into focused node's container
             (if-let [fid (tag :focused-id)
-                     focused-leaf (do (var found nil)
-                                    (each col (tag :columns)
-                                      (when (not found)
-                                        (set found (tree/find-leaf col fid))))
-                                    found)]
+                     focused-leaf (fid :tree-leaf)]
               (if-let [p (focused-leaf :parent)]
                 # Insert after focused in its parent
                 (let [idx (inc (tree/child-index focused-leaf))]
@@ -232,11 +228,7 @@
             # :sibling mode — insert as new column after focused
             (let [insert-idx
                   (if-let [fid (tag :focused-id)
-                           focused-leaf (do (var found nil)
-                                          (each col (tag :columns)
-                                            (when (not found)
-                                              (set found (tree/find-leaf col fid))))
-                                          found)]
+                           focused-leaf (fid :tree-leaf)]
                     (inc (or (tree/find-column-index (tag :columns) focused-leaf) -1))
                     (length (tag :columns)))]
               (tree/insert-column (tag :columns) insert-idx leaf)))
@@ -337,6 +329,35 @@
             (put tag :focused-id nil))))
       (put w :tree-leaf nil))))
 
+(defn- promote-late-floats [ctx]
+  "Convert tiled windows to float when size hints arrive after manage."
+  (def config (ctx :config))
+  (each w (ctx :windows)
+    (when (and (w :hints-changed)
+               (w :tree-leaf)
+               (not (w :float))
+               (not (w :closed))
+               (not (w :new)))
+      (put w :hints-changed nil)
+      (when (window/should-float? w (get config :rules []))
+        (def leaf (w :tree-leaf))
+        (when-let [tag-id (w :tag)
+                   tag (get-in ctx [:tags tag-id])]
+          (def columns (tag :columns))
+          (def col-idx (tree/find-column-index columns leaf))
+          (def child-idx (or (tree/child-index leaf) 0))
+          (def [col-removed result] (tree/remove-leaf columns leaf))
+          (when (= (tag :focused-id) w)
+            (def successor (tree/focus-successor columns
+                             (or col-idx 0) child-idx
+                             (if col-removed nil result)))
+            (if successor
+              (do (put tag :focused-id (successor :window))
+                  (tree/update-active-path successor))
+              (put tag :focused-id nil))))
+        (put w :tree-leaf nil)
+        (window/set-float w true)))))
+
 (defn- adopt-orphan-windows [ctx]
   "Ensure all non-closed windows have a tree-leaf (tiled) or are floated."
   (def config (ctx :config))
@@ -428,12 +449,9 @@
         (def usable (output/usable-area o))
         (def output-rect {:x (or (o :x) 0) :y (or (o :y) 0)
                           :w (or (o :w) 1920) :h (or (o :h) 1080)})
-        # Find focused leaf
-        (var focus-leaf nil)
-        (when (tag :focused-id)
-          (each col columns
-            (when (not focus-leaf)
-              (set focus-leaf (tree/find-leaf col (tag :focused-id))))))
+        # Find focused leaf via cached tree-leaf on the window
+        (def focus-leaf
+          (when-let [fid (tag :focused-id)] (fid :tree-leaf)))
         (def result (scroll/scroll-layout columns focus-leaf
                                            (tag :camera) output-rect usable
                                            scroll-config))
@@ -597,6 +615,7 @@
     (put w :new nil)
     (put w :needs-ssd nil)
     (put w :float-changed nil)
+    (put w :hints-changed nil)
     (put w :proposed-w nil)
     (put w :proposed-h nil)
     (put w :prev-y nil)
@@ -780,6 +799,7 @@
     process-focus
     process-pointer-ops
     state/reconcile-tags
+    promote-late-floats
     adopt-orphan-windows
     sync-tree-focus
     run-scroll-layout

@@ -17,11 +17,7 @@
   [ctx s]
   (when-let [tag (active-tag ctx s)
              fid (tag :focused-id)]
-    (var found nil)
-    (each col (tag :columns)
-      (when (not found)
-        (set found (tree/find-leaf col fid))))
-    found))
+    (fid :tree-leaf)))
 
 (defn- set-focus
   "Set focus to a leaf node, updating tag and active path."
