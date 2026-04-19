@@ -319,9 +319,9 @@
 (def col1 (tree/container :split @[inner]))
 (def cols @[col1])
 (tree/insert-column cols 1 lc)
-(def tag (make-tag cols lb))
+(def tag (make-tag cols wb))
 (def ctx (make-scroll-ctx tag))
-(def seat (make-scroll-seat lb))
+(def seat (make-scroll-seat wb))
 # lb in vertical split, absorb-right pulls from next column
 (sa/absorb-right ctx seat)
 # lc should have been pulled into inner alongside lb

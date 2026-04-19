@@ -430,8 +430,8 @@
   # Save previous positions for animation (y, w, h only — x is camera-driven)
   (each w (ctx :windows)
     (put w :prev-y (w :y))
-    (put w :prev-w (or (w :proposed-w) (w :w)))
-    (put w :prev-h (or (w :proposed-h) (w :h))))
+    (put w :prev-w (if (not (nil? (w :proposed-w))) (w :proposed-w) (w :w)))
+    (put w :prev-h (if (not (nil? (w :proposed-h))) (w :proposed-h) (w :h))))
   # Clear placement state so every window gets fresh data from scroll-layout
   (each w (ctx :windows)
     (put w :layout-hidden nil)
@@ -466,7 +466,7 @@
           (window/propose-dimensions w (p :w) (p :h) config)))))
   # Mark windows not placed by scroll layout as hidden
   (each w (ctx :windows)
-    (when (and (not (w :float)) (not (w :closed)) (not (w :x)))
+    (when (and (not (w :float)) (not (w :fullscreen)) (not (w :closed)) (not (w :x)))
       (put w :layout-hidden true))))
 
 (defn- start-animations [ctx]
@@ -490,7 +490,50 @@
       (anim/start-close w close-dur)))
   # Camera animation — the primary driver for horizontal scrolling
   (eachp [_ tag] (ctx :tags)
-    (anim/set-camera-target tag (tag :camera) duration (tag :prev-camera))))
+    (anim/set-camera-target tag (tag :camera) duration (tag :prev-camera)))
+  # Reset animation clock so the render chain measures dt from now,
+  # not from the last idle render (which may be ~960ms ago).
+  (when (anim/any-animating? ctx)
+    (put ctx :anim-last-time (os/clock :monotonic))))
+
+(defn- process-fullscreen [ctx]
+  "Handle fullscreen requests from clients and toggle-fullscreen action.
+   Also exits fullscreen when the fullscreen output is removed."
+  (each w (ctx :windows)
+    # Exit fullscreen if the output was removed
+    (when (and (w :fullscreen) (w :fullscreen-output)
+               ((w :fullscreen-output) :removed))
+      (put w :fullscreen nil)
+      (put w :fullscreen-output nil))
+    (when-let [req (w :fullscreen-requested)]
+      (put w :fullscreen-requested nil)
+      (match req
+        [:enter output]
+        (let [o (or output (tag-output ctx w))]
+          (when (and o (not (w :fullscreen)))
+            (put w :fullscreen true)
+            (put w :fullscreen-output o)))
+        [:exit]
+        (when (w :fullscreen)
+          (put w :fullscreen nil)
+          (put w :fullscreen-output nil))))))
+
+(defn- apply-fullscreen [ctx]
+  "Send fullscreen/exit-fullscreen protocol requests."
+  (each w (ctx :windows)
+    (when (not= (w :fullscreen) (w :fullscreen-applied))
+      (if (w :fullscreen)
+        (when-let [o (w :fullscreen-output)]
+          (:fullscreen (w :obj) (o :obj))
+          (:inform-fullscreen (w :obj))
+          (put w :fullscreen-applied true))
+        (do
+          (:exit-fullscreen (w :obj))
+          (:inform-not-fullscreen (w :obj))
+          (put w :fullscreen-applied nil)
+          # Force re-proposal of dimensions on the next cycle
+          (put w :last-proposed-w nil)
+          (put w :last-proposed-h nil))))))
 
 (defn- compute-borders [ctx]
   (def config (ctx :config))
@@ -548,11 +591,18 @@
       (if (w :float)
         (:set-tiled (w :obj) {})
         (:set-tiled (w :obj) {:left true :bottom true :top true :right true})))
-    (when (and (w :proposed-w) (w :proposed-h))
-      # Skip re-proposing identical dimensions the window already rejected
+    # Compositor ignores propose-dimensions while fullscreen — skip to avoid
+    # polluting last-proposed-w/h (which would cause the skip check to suppress
+    # the re-proposal needed when exiting fullscreen).
+    (when (and (not (w :fullscreen))
+               (not (nil? (w :proposed-w))) (not (nil? (w :proposed-h))))
+      # Skip re-proposing identical dimensions — unless the window never
+      # confirmed any dimensions (w/h nil), in which case keep trying so
+      # the client eventually commits and the compositor sends :dimensions.
       (unless (and (= (w :proposed-w) (w :last-proposed-w))
                    (= (w :proposed-h) (w :last-proposed-h))
-                   (not (w :new)))
+                   (not (w :new))
+                   (w :w))
         (put w :last-proposed-w (w :proposed-w))
         (put w :last-proposed-h (w :proposed-h))
         (:propose-dimensions (w :obj) (w :proposed-w) (w :proposed-h))))))
@@ -654,7 +704,10 @@
   (def raw-dt (* (- now last-time) 1000)) # convert to ms
   (put ctx :anim-last-time now)
   (when (< raw-dt 0.1) (break)) # skip if dt is negligible (first frame)
-  (def dt (min raw-dt 33)) # cap at ~2 frames to prevent instant completion after idle
+  # Cap dt to prevent instant completion after long idle gaps (e.g. ~960ms
+  # background cycles), but allow real frame intervals through (~100ms at
+  # the compositor's manage-dirty rate).
+  (def dt (min raw-dt 200))
   (def ease-fn (or (anim/easing-fns (config :anim-ease)) anim/ease-out-cubic))
   (each w (ctx :windows)
     (anim/tick-window w dt ease-fn))
@@ -803,6 +856,7 @@
     promote-late-floats
     adopt-orphan-windows
     sync-tree-focus
+    process-fullscreen
     run-scroll-layout
     start-animations
     compute-borders
@@ -810,6 +864,7 @@
     anchor-floats
     compute-visibility
     # --- effects ---
+    apply-fullscreen
     apply-window-config
     apply-focus
     apply-borders

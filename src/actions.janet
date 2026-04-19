@@ -147,6 +147,15 @@
 # --- Spawn ---
 (def spawn scroll-actions/spawn)
 
+# --- Fullscreen ---
+
+(defn toggle-fullscreen [ctx s]
+  (when-let [w (s :focused)]
+    (if (w :fullscreen)
+      (put w :fullscreen-requested [:exit])
+      (when-let [o (s :focused-output)]
+        (put w :fullscreen-requested [:enter o])))))
+
 # --- Float ---
 (def toggle-float float-actions/toggle-float)
 (def toggle-focus-float float-actions/toggle-focus-float)
