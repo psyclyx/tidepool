@@ -49,11 +49,22 @@
 # --- Write helpers ---
 
 (defn- try-write
-  "Write to stream with 1s timeout. Returns true on success, false on failure."
+  "Write to stream with 5s timeout. Returns true on success, false on failure."
   [stream buf]
   (try
-    (do (ev/write stream buf 1) true)
+    (do (ev/write stream buf 5) true)
     ([_] false)))
+
+(defn- watcher-writer
+  "Fiber loop: take messages from channel and write them serially."
+  [w]
+  (def ch (w :ch))
+  (while (not (w :closed))
+    (def buf (ev/take ch))
+    (when (nil? buf) (break))
+    (unless (try-write (w :stream) buf)
+      (put w :closed true)
+      (try (:close (w :stream)) ([_])))))
 
 # --- Watcher management ---
 
@@ -61,7 +72,10 @@
   (var i 0)
   (while (< i (length watchers))
     (if ((watchers i) :closed)
-      (array/remove watchers i)
+      (do
+        (when-let [ch ((watchers i) :ch)]
+          (ev/chan-close ch))
+        (array/remove watchers i))
       (++ i))))
 
 (defn has-watchers?
@@ -70,7 +84,9 @@
   (not (empty? watchers)))
 
 (defn emit
-  "Send a JSON-RPC notification to matching watchers (non-blocking)."
+  "Send a JSON-RPC notification to matching watchers (non-blocking).
+   Messages are queued in a per-watcher channel and written serially by
+   a dedicated fiber, preventing concurrent writes from corrupting the stream."
   [event-type &opt params]
   (prune-watchers)
   (when (not (empty? watchers))
@@ -81,10 +97,7 @@
       (when (and (not (w :closed))
                  (or (not (w :events))
                      (find |(= $ event-type) (w :events))))
-        (ev/go (fn []
-          (unless (try-write (w :stream) buf)
-            (put w :closed true)
-            (try (:close (w :stream)) ([_])))))))))
+        (ev/give (w :ch) buf)))))
 
 # --- JSON-RPC response helpers ---
 
@@ -121,7 +134,9 @@
 
 (defn- handle-watch [stream id params]
   (def events (when params (get params "events")))
-  (array/push watchers @{:stream stream :events events})
+  (def w @{:stream stream :events events :ch (ev/chan 16)})
+  (array/push watchers w)
+  (ev/go (fn [] (watcher-writer w)))
   (respond stream id {"ok" true}))
 
 (defn- handle-list-actions [stream id]
@@ -214,6 +229,9 @@
     nil))
 
 (defn- build-state [ctx]
+  "Build structural state snapshot (frozen for cheap deep= comparison).
+   Camera is excluded — it changes every animation frame and would defeat
+   deduplication. Added back in the emitted version."
   (def focused-output
     (when-let [s (first (ctx :seats))] (s :focused-output)))
   (def focused-window
@@ -221,28 +239,29 @@
 
   # Per-output state with scroll viewport
   (def outputs
-    (seq [o :in (ctx :outputs)]
-      (def tag-id (o :primary-tag))
-      (def tag (when tag-id (get-in ctx [:tags tag-id])))
-      (def columns
-        (when tag
-          (def cols (tag :columns))
-          (def fid (tag :focused-id))
-          (def focused-col
-            (when-let [fl (when fid (fid :tree-leaf))]
-              (tree/column-of fl)))
-          (seq [col :in cols]
-            {"width" (col :width)
-             "leaves" (count-leaves col)
-             "focused" (if (= col focused-col) true false)
-             "tree" (build-tree col fid)})))
-      {"name" (or (o :name) "")
-       "x" (or (o :x) 0) "y" (or (o :y) 0)
-       "w" (or (o :w) 0) "h" (or (o :h) 0)
-       "focused" (= o focused-output)
-       "tag" (or tag-id 0)
-       "columns" (or columns [])
-       "camera" (if tag (or (tag :camera) 0) 0)}))
+    (tuple/slice
+      (seq [o :in (ctx :outputs)]
+        (def tag-id (o :primary-tag))
+        (def tag (when tag-id (get-in ctx [:tags tag-id])))
+        (def columns
+          (when tag
+            (def cols (tag :columns))
+            (def fid (tag :focused-id))
+            (def focused-col
+              (when-let [fl (when fid (fid :tree-leaf))]
+                (tree/column-of fl)))
+            (tuple/slice
+              (seq [col :in cols]
+                {"width" (col :width)
+                 "leaves" (count-leaves col)
+                 "focused" (if (= col focused-col) true false)
+                 "tree" (build-tree col fid)}))))
+        {"name" (or (o :name) "")
+         "x" (or (o :x) 0) "y" (or (o :y) 0)
+         "w" (or (o :w) 0) "h" (or (o :h) 0)
+         "focused" (= o focused-output)
+         "tag" (or tag-id 0)
+         "columns" (or columns [])})))
 
   # Occupied tags (tags with at least one non-closed window)
   (def occ @{})
@@ -251,14 +270,28 @@
       (put occ (w :tag) true)))
 
   {"outputs" outputs
-   "occupied-tags" (sorted (keys occ))
+   "occupied-tags" (tuple ;(sorted (keys occ)))
    "focused" (if focused-window
                {"app-id" (or (focused-window :app-id) "")
                 "title" (or (focused-window :title) "")}
                {})})
 
+(defn- state-with-cameras [state ctx]
+  "Add camera values to a state snapshot for emission."
+  (def outputs
+    (seq [o :in (state "outputs")]
+      (def tag-id (o "tag"))
+      (def tag (when tag-id (get-in ctx [:tags tag-id])))
+      (merge o {"camera" (if tag (or (tag :camera) 0) 0)})))
+  (merge state {"outputs" outputs}))
+
+(var- last-state nil)
+
 (defn emit-state-events
-  "Pipeline step: emit state snapshot and granular events."
+  "Pipeline step: emit state snapshot and granular events.
+   Builds a frozen state struct (excluding camera) and uses deep= to detect
+   changes — short-circuits on identical substructures. Only encodes JSON
+   and emits when something structural actually changed."
   [ctx]
   (when (not (has-watchers?)) (break))
   (each w (ctx :windows)
@@ -273,7 +306,10 @@
         (if w
           {"app-id" (w :app-id) "title" (w :title) "tag" (w :tag)}
           {}))))
-  (emit "state" (build-state ctx)))
+  (def state (build-state ctx))
+  (when (not (deep= state last-state))
+    (set last-state state)
+    (emit "state" (state-with-cameras state ctx))))
 
 # --- Server ---
 
