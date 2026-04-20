@@ -23,10 +23,6 @@
 #include <string.h>
 #include <errno.h>
 
-#ifndef JANET_ENTRY_NAME
-#define JANET_ENTRY_NAME janet_module_entry_deco_buffers
-#endif
-
 /* (deco-buffers/open-shm path) → fd */
 static Janet cfun_open_shm(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
@@ -127,6 +123,6 @@ static const JanetReg cfuns[] = {
     {NULL, NULL, NULL}
 };
 
-void JANET_ENTRY_NAME(JanetTable *env) {
+JANET_MODULE_ENTRY(JanetTable *env) {
     janet_cfuns(env, "deco-buffers", cfuns);
 }

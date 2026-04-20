@@ -32,7 +32,8 @@
     :wayland-xml protocols/wayland-xml
     :system-protocols-dir protocols/wayland-protocols
     :system-protocols ["stable/viewporter/viewporter.xml"
-                       "staging/single-pixel-buffer/single-pixel-buffer-v1.xml"]
+                       "staging/single-pixel-buffer/single-pixel-buffer-v1.xml"
+                       "unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml"]
     :custom-protocols (map |(string protocols/river-protocols $)
                            ["/river-window-management-v1.xml"
                             "/river-layer-shell-v1.xml"
@@ -57,7 +58,11 @@
    "zwlr_output_manager_v1"
    {:min-version 1
     :optional true
-    :handler (dispatch/handler c "zwlr_output_manager_v1")}})
+    :handler (dispatch/handler c "zwlr_output_manager_v1")}
+
+   "zwp_linux_dmabuf_v1"
+   {:min-version 3
+    :optional true}})
 
 
 (defn main "Connect to Wayland, load config, and run the event loop."

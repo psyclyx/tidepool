@@ -80,6 +80,9 @@
 (defn- destroy-decoration [ctx w]
   "Clean up a window's decoration surface and related objects."
   (ipc/emit-decoration-destroy ctx w)
+  (when-let [buf (w :decoration-buffer)]
+    (:destroy buf)
+    (put w :decoration-buffer nil))
   (when-let [deco (w :decoration)]
     (:destroy deco)
     (put w :decoration nil))

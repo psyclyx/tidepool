@@ -2,6 +2,7 @@
 (import ./log)
 (import ./actions)
 (import ./tree)
+(import deco-buffers)
 
 (var- ctx-ref nil)
 (def- watchers @[])
@@ -178,6 +179,55 @@
   (respond stream id {"ok" true
                        "height" (config :decoration-height)}))
 
+# --- Decoration buffer import ---
+
+(def- WL_SHM_FORMAT_ARGB8888 0)
+(def- WL_SHM_FORMAT_XRGB8888 1)
+
+(defn- format-name-to-wl [name]
+  (case name
+    "argb8888" WL_SHM_FORMAT_ARGB8888
+    "xrgb8888" WL_SHM_FORMAT_XRGB8888
+    WL_SHM_FORMAT_ARGB8888))
+
+(defn- find-window-by-deco-id [ctx id]
+  (find |(= ($ :deco-id) id) (ctx :windows)))
+
+(defn- handle-decoration-buffer [ctx params]
+  "Handle a decoration:buffer message from the decorator.
+   Imports the SHM buffer and attaches it to the decoration surface."
+  (def id (get params "id"))
+  (def w (find-window-by-deco-id ctx id))
+  (when (not w) (break))
+  (when (not (w :decoration-surface)) (break))
+  (def shm-path (get params "shm-path"))
+  (def width (get params "width" 0))
+  (def height (get params "height" 0))
+  (def stride (get params "stride" (* width 4)))
+  (def format (format-name-to-wl (get params "format" "argb8888")))
+  (def size (* stride height))
+  (when (or (<= width 0) (<= height 0)) (break))
+  (def shm (get-in ctx [:registry :proxies "wl_shm"]))
+  (when (not shm) (break))
+  (def fd (deco-buffers/open-shm shm-path))
+  (try
+    (do
+      (def pool (:create-pool shm fd size))
+      (def buffer (:create-buffer pool 0 width height stride format))
+      (:destroy pool)
+      (deco-buffers/close-fd fd)
+      # Release old buffer if any
+      (when-let [old (w :decoration-buffer)]
+        (:destroy old))
+      (put w :decoration-buffer buffer)
+      (:attach (w :decoration-surface) buffer 0 0)
+      (when-let [vp (w :decoration-viewport)]
+        (:set-destination vp width height))
+      (put w :decoration-dirty true))
+    ([err]
+      (deco-buffers/close-fd fd)
+      (log/warnf "ipc: decoration buffer import failed: %s" err))))
+
 # --- Request dispatch ---
 
 (defn- handle-request [stream line]
@@ -191,6 +241,9 @@
         "watch" (handle-watch stream id params)
         "list-actions" (handle-list-actions stream id)
         "register-decorator" (handle-register-decorator stream id params)
+        "decoration:buffer" (do
+          (handle-decoration-buffer ctx-ref params)
+          (when id (respond stream id {"ok" true})))
         "debug-windows" (respond stream id
           {"windows"
            (seq [w :in (ctx-ref :windows)
