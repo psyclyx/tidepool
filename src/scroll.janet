@@ -138,7 +138,13 @@
     :container
     (case (node :mode)
       :tabbed
-      (layout-node ((node :children) (node :active)) rect inner-gap border-width (inc depth) deco-h)
+      # Place ALL children at the same rect so inactive tabs track position.
+      # Only the active child is visible; the rest get layout-hidden in pipeline.
+      (let [results @[]]
+        (each child (node :children)
+          (array/concat results
+            (layout-node child rect inner-gap border-width (inc depth) deco-h)))
+        results)
 
       :split
       (let [children (node :children)

@@ -450,14 +450,10 @@
                         :outer-gap (config :outer-gap)
                         :decoration-height (or (config :decoration-height) 0)})
   # Save previous positions for animation (y, w, h only — x is camera-driven)
-  # Clear prev for windows that were layout-hidden (e.g. inactive tabs) so they
-  # don't animate from a stale position when they become active again.
   (each w (ctx :windows)
-    (if (w :layout-hidden)
-      (do (put w :prev-y nil) (put w :prev-w nil) (put w :prev-h nil))
-      (do (put w :prev-y (w :y))
-          (put w :prev-w (if (not (nil? (w :proposed-w))) (w :proposed-w) (w :w)))
-          (put w :prev-h (if (not (nil? (w :proposed-h))) (w :proposed-h) (w :h))))))
+    (put w :prev-y (w :y))
+    (put w :prev-w (if (not (nil? (w :proposed-w))) (w :proposed-w) (w :w)))
+    (put w :prev-h (if (not (nil? (w :proposed-h))) (w :proposed-h) (w :h))))
   # Clear placement state so every window gets fresh data from scroll-layout
   (each w (ctx :windows)
     (put w :layout-hidden nil)
@@ -493,7 +489,16 @@
   # Mark windows not placed by scroll layout as hidden
   (each w (ctx :windows)
     (when (and (not (w :float)) (not (w :fullscreen)) (not (w :closed)) (not (w :x)))
-      (put w :layout-hidden true))))
+      (put w :layout-hidden true)))
+  # Mark inactive tab children as hidden (they were placed for position
+  # tracking but shouldn't be visible or get decorations)
+  (each w (ctx :windows)
+    (when-let [leaf (w :tree-leaf)
+               parent (leaf :parent)]
+      (when (= (parent :mode) :tabbed)
+        (def active-child ((parent :children) (or (parent :active) 0)))
+        (when (not= leaf active-child)
+          (put w :layout-hidden true))))))
 
 (defn- start-animations [ctx]
   (def config (ctx :config))
