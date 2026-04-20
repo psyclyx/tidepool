@@ -27,7 +27,7 @@
 static Janet cfun_open_shm(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
     const char *path = janet_getcstring(argv, 0);
-    int fd = open(path, O_RDONLY);
+    int fd = open(path, O_RDWR);
     if (fd < 0) {
         janet_panicf("open-shm: %s: %s", path, strerror(errno));
     }
