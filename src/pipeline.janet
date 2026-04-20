@@ -681,6 +681,10 @@
         (put w :decoration-dirty nil)
         (:set-destination (w :decoration-viewport) (math/round deco-w) dh)
         (:set-offset (w :decoration) (- bw) (- 0 dh bw))
+        # Re-attach the buffer to signal the compositor that content changed
+        # (wl_shm: compositor won't re-read without a new attach+commit)
+        (when-let [buf (w :decoration-buffer)]
+          (:attach (w :decoration-surface) buf 0 0))
         (:sync-next-commit (w :decoration))
         (:commit (w :decoration-surface))))))
 
