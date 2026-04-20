@@ -6,6 +6,7 @@
 (var- ctx-ref nil)
 (def- watchers @[])
 (def- action-registry @{})
+(var- decorator nil)  # the active decorator watcher, or nil
 
 # --- Action registration ---
 
@@ -73,6 +74,14 @@
   (while (< i (length watchers))
     (if ((watchers i) :closed)
       (do
+        # Detect decorator disconnect
+        (when (= (watchers i) decorator)
+          (set decorator nil)
+          (log/info "ipc: decorator disconnected")
+          (when ctx-ref
+            (put (ctx-ref :config) :decoration-height 0)
+            (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
+              (:manage-dirty wm))))
         (when-let [ch ((watchers i) :ch)]
           (ev/chan-close ch))
         (array/remove watchers i))
@@ -142,6 +151,33 @@
 (defn- handle-list-actions [stream id]
   (respond stream id {"actions" (sorted (keys action-registry))}))
 
+(defn- handle-register-decorator [stream id params]
+  # Close existing decorator (takeover)
+  (when decorator
+    (put decorator :closed true)
+    (try (:close (decorator :stream)) ([_]))
+    (log/info "ipc: decorator replaced"))
+  # Register as watcher with all events
+  (def w @{:stream stream
+            :events ["state" "focus:changed" "window:new" "window:closed"
+                     "decoration:create" "decoration:update"
+                     "decoration:resize" "decoration:destroy"]
+            :ch (ev/chan 64)})
+  (array/push watchers w)
+  (ev/go (fn [] (watcher-writer w)))
+  (set decorator w)
+  # Activate decoration height
+  (def config (ctx-ref :config))
+  (def dh (config :decoration-height))
+  (when (<= dh 0)
+    (put config :decoration-height (or (config :decoration-config-height) 28)))
+  (log/infof "ipc: decorator registered (height=%d)" (config :decoration-height))
+  # Trigger re-layout
+  (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
+    (:manage-dirty wm))
+  (respond stream id {"ok" true
+                       "height" (config :decoration-height)}))
+
 # --- Request dispatch ---
 
 (defn- handle-request [stream line]
@@ -154,6 +190,7 @@
         "action" (handle-action stream id params)
         "watch" (handle-watch stream id params)
         "list-actions" (handle-list-actions stream id)
+        "register-decorator" (handle-register-decorator stream id params)
         "debug-windows" (respond stream id
           {"windows"
            (seq [w :in (ctx-ref :windows)
@@ -217,16 +254,95 @@
     0))
 
 (defn- build-tree [node focused-id &opt depth]
-  "Build a JSON-friendly tree representation of the column layout."
+  "Build a JSON-friendly tree representation of the column layout.
+   Includes window metadata (title, app-id) at leaves for decorator use."
   (default depth 0)
   (case (node :type)
-    :leaf {"type" "leaf"
-           "focused" (if (and focused-id (= (get node :window) focused-id)) true false)}
+    :leaf (let [w (get node :window)]
+            {"type" "leaf"
+             "focused" (if (and focused-id (= w focused-id)) true false)
+             "app-id" (if w (or (w :app-id) "") "")
+             "title" (if w (or (w :title) "") "")})
     :container {"type" "container"
                 "mode" (string (node :mode))
+                "active" (or (node :active) 0)
                 "orientation" (string (tree/orientation-at-depth depth))
                 "children" (map |(build-tree $ focused-id (inc depth)) (node :children))}
     nil))
+
+# --- Decorator state ---
+
+(defn has-decorator?
+  "Check if an active decorator is registered."
+  []
+  (not (nil? decorator)))
+
+(var- next-deco-id 0)
+
+(defn- deco-tree-for-window [ctx w]
+  "Build tree data for the column containing window w."
+  (when-let [leaf (w :tree-leaf)
+             col (tree/column-of leaf)
+             tag (get-in ctx [:tags (w :tag)])
+             fid (tag :focused-id)]
+    (build-tree col fid)))
+
+(defn emit-decoration-create
+  "Emit decoration:create for a window that just got a decoration."
+  [ctx w]
+  (when (not decorator) (break))
+  (def id (++ next-deco-id))
+  (put w :deco-id id)
+  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (emit "decoration:create"
+    {"id" id
+     "width" (or (w :proposed-w) (w :w) 0)
+     "height" ((ctx :config) :decoration-height)
+     "app-id" (or (w :app-id) "")
+     "title" (or (w :title) "")
+     "focused" (= w focused)
+     "tree" (or (deco-tree-for-window ctx w) {})}))
+
+(defn emit-decoration-destroy
+  "Emit decoration:destroy for a window losing its decoration."
+  [ctx w]
+  (when (and decorator (w :deco-id))
+    (emit "decoration:destroy" {"id" (w :deco-id)})
+    (put w :deco-id nil)))
+
+(defn emit-decoration-updates
+  "Pipeline step: emit decoration updates for title/focus/size changes."
+  [ctx]
+  (when (not decorator) (break))
+  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (each w (ctx :windows)
+    (when (w :deco-id)
+      (def cur-focused (= w focused))
+      (def cur-title (or (w :title) ""))
+      (def cur-app-id (or (w :app-id) ""))
+      (def cur-w (or (w :proposed-w) (w :w) 0))
+      # Check for changes
+      (when (or (not= cur-focused (w :deco-was-focused))
+                (not= cur-title (w :deco-was-title))
+                (not= cur-app-id (w :deco-was-app-id)))
+        (put w :deco-was-focused cur-focused)
+        (put w :deco-was-title cur-title)
+        (put w :deco-was-app-id cur-app-id)
+        (emit "decoration:update"
+          {"id" (w :deco-id)
+           "title" cur-title
+           "app-id" cur-app-id
+           "focused" cur-focused
+           "tree" (or (deco-tree-for-window ctx w) {})}))
+      # Check for resize
+      (when (not= cur-w (w :deco-was-w))
+        (put w :deco-was-w cur-w)
+        (emit "decoration:resize"
+          {"id" (w :deco-id)
+           "width" cur-w
+           "height" ((ctx :config) :decoration-height)})))))
+
+# --- State snapshot ---
 
 (defn- build-state [ctx]
   "Build structural state snapshot (frozen for cheap deep= comparison).

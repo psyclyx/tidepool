@@ -77,8 +77,9 @@
   (each s (ctx :seats)
     (when (s :removed) (put s :pending-destroy true))))
 
-(defn- destroy-decoration [w]
+(defn- destroy-decoration [ctx w]
   "Clean up a window's decoration surface and related objects."
+  (ipc/emit-decoration-destroy ctx w)
   (when-let [deco (w :decoration)]
     (:destroy deco)
     (put w :decoration nil))
@@ -97,7 +98,7 @@
       (:destroy (o :obj))))
   (each w (ctx :windows)
     (when (w :pending-destroy)
-      (destroy-decoration w)
+      (destroy-decoration ctx w)
       (:destroy (w :obj))
       (:destroy (w :node))))
   (each s (ctx :seats)
@@ -571,7 +572,8 @@
       (put w :decoration deco)
       (put w :decoration-surface wl-surface)
       (put w :decoration-viewport viewport)
-      (put w :decoration-color nil))))
+      (put w :decoration-color nil)
+      (ipc/emit-decoration-create ctx w))))
 
 (defn- update-decoration-colors [ctx]
   "Set decoration color based on focus state. Creates single-pixel-buffer
@@ -582,7 +584,7 @@
   (each w (ctx :windows)
     # Remove decorations from floated or fullscreen windows
     (when (and (w :decoration) (or (w :float) (w :fullscreen)))
-      (destroy-decoration w))
+      (destroy-decoration ctx w))
     # Update colors on existing decorations
     (when (and (w :decoration) spb (> dh 0))
       (def focused (when-let [s (first (ctx :seats))] (s :focused)))
@@ -950,6 +952,7 @@
     apply-focus
     apply-borders
     apply-visibility
+    ipc/emit-decoration-updates
     ipc/emit-state-events
     clear-transient
     save-tag-state

@@ -29,7 +29,8 @@
     :warp-cursor false
     :rules @[]
     :output-order @[]
-    :decoration-height 28})
+    :decoration-height 0
+    :decoration-config-height 28})
 
 (defn init
   "Initialize the WM context with default state."
