@@ -512,7 +512,14 @@
       (anim/start-close w close-dur)))
   # Camera animation — the primary driver for horizontal scrolling
   (eachp [_ tag] (ctx :tags)
-    (anim/set-camera-target tag (tag :camera) duration (tag :prev-camera))))
+    (anim/set-camera-target tag (tag :camera) duration (tag :prev-camera)))
+  # Reset animation clock when transitioning from idle to animating,
+  # so the first frame doesn't see a huge dt from the idle gap.
+  (def was-animating (ctx :was-animating))
+  (def now-animating (anim/any-animating? ctx))
+  (put ctx :was-animating now-animating)
+  (when (and now-animating (not was-animating))
+    (put ctx :anim-last-time (os/clock :monotonic))))
 
 (defn- process-fullscreen [ctx]
   "Handle fullscreen requests from clients and toggle-fullscreen action.
@@ -809,8 +816,8 @@
   (def raw-dt (* (- now last-time) 1000)) # convert to ms
   (put ctx :anim-last-time now)
   (when (< raw-dt 0.1) (break)) # skip if dt is negligible (first frame)
-  # Cap at ~2 frames to prevent instant completion after idle
-  (def dt (min raw-dt 33))
+  # Cap at ~6 frames to smooth over occasional long gaps
+  (def dt (min raw-dt 100))
   (def ease-fn (or (anim/easing-fns (config :anim-ease)) anim/ease-out-cubic))
   (each w (ctx :windows)
     (anim/tick-window w dt ease-fn))
