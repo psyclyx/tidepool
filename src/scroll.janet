@@ -126,18 +126,19 @@
   "Compute pixel placements for a node within an allocated rectangle.
    Returns array of {:window :x :y :w :h} for each visible leaf.
    inner-gap is applied between children of split containers.
-   depth determines orientation (alternating: even=horizontal, odd=vertical)."
-  [node rect inner-gap border-width depth]
+   depth determines orientation (alternating: even=horizontal, odd=vertical).
+   deco-h is reserved above each leaf for decoration surfaces."
+  [node rect inner-gap border-width depth deco-h]
   (case (node :type)
     :leaf
     @[{:window (node :window)
-       :x (rect :x) :y (rect :y)
-       :w (rect :w) :h (rect :h)}]
+       :x (rect :x) :y (+ (rect :y) deco-h)
+       :w (rect :w) :h (- (rect :h) deco-h)}]
 
     :container
     (case (node :mode)
       :tabbed
-      (layout-node ((node :children) (node :active)) rect inner-gap border-width (inc depth))
+      (layout-node ((node :children) (node :active)) rect inner-gap border-width (inc depth) deco-h)
 
       :split
       (let [children (node :children)
@@ -156,7 +157,7 @@
               (array/concat results
                 (layout-node (children i)
                   {:x (rect :x) :y y :w (rect :w) :h h}
-                  inner-gap border-width (inc depth)))
+                  inner-gap border-width (inc depth) deco-h))
               (set y (+ y h inner-gap)))
             results)
 
@@ -172,7 +173,7 @@
               (array/concat results
                 (layout-node (children i)
                   {:x x :y (rect :y) :w w :h (rect :h)}
-                  inner-gap border-width (inc depth)))
+                  inner-gap border-width (inc depth) deco-h))
               (set x (+ x w inner-gap)))
             results))))))
 
@@ -212,15 +213,15 @@
   # Compute placements with virtual x (camera-independent)
   (def placements @[])
   (def dh (or (config :decoration-height) 0))
-  (def col-h (- (usable :h) (* 2 og) dh))
-  (def col-screen-y (+ (usable :y) og dh))
+  (def col-h (- (usable :h) (* 2 og)))
+  (def col-screen-y (+ (usable :y) og))
   (for i 0 (length columns)
     (def col (columns i))
     (def vp (vpositions i))
     # Layout ALL columns — render chain clips/hides off-screen windows via camera
     (def rect {:x (vp :vx) :y col-screen-y
                :w (vp :vw) :h col-h})
-    (def node-placements (layout-node col rect ig bw 0))
+    (def node-placements (layout-node col rect ig bw 0 dh))
     (each p node-placements
       (array/push placements
         (merge p {:vx (p :x) :x nil}))))

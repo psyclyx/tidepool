@@ -574,6 +574,7 @@
   (def vp (get-in ctx [:registry :proxies "wp_viewporter"]))
   (when (not (and compositor spb vp)) (break))
   (each w (ctx :windows)
+    # Create decoration for tiled windows that don't have one
     (when (and (not (w :float)) (not (w :fullscreen))
                (not (w :closed)) (not (w :pending-destroy))
                (not (w :decoration)))
