@@ -555,17 +555,24 @@
 # ============================================================
 
 (defn- create-decorations [ctx]
-  "Create decoration surfaces for new windows that don't have one yet.
-   Uses single-pixel-buffer as placeholder content."
+  "Create decoration surfaces for tiled windows that don't have one yet.
+   Uses single-pixel-buffer as placeholder content. Also destroys decorations
+   when decoration-height drops to 0 (decorator disconnected)."
   (def config (ctx :config))
   (def dh (config :decoration-height))
-  (when (<= dh 0) (break))
+  # Destroy all decorations if height is 0
+  (when (<= dh 0)
+    (each w (ctx :windows)
+      (when (w :decoration) (destroy-decoration ctx w)))
+    (break))
   (def compositor (get-in ctx [:registry :proxies "wl_compositor"]))
   (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
   (def vp (get-in ctx [:registry :proxies "wp_viewporter"]))
   (when (not (and compositor spb vp)) (break))
   (each w (ctx :windows)
-    (when (and (w :new) (not (w :float)) (not (w :decoration)))
+    (when (and (not (w :float)) (not (w :fullscreen))
+               (not (w :closed)) (not (w :pending-destroy))
+               (not (w :decoration)))
       (def wl-surface (:create-surface compositor))
       (def deco (:get-decoration-above (w :obj) wl-surface))
       (def viewport (:get-viewport vp wl-surface))

@@ -18,7 +18,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = lib.fileset.toSource {
     root = ./.;
-    fileset = lib.fileset.fileFilter (f: (f.hasExt "janet" || f.hasExt "zig" || f.hasExt "zon" || f.hasExt "xml")) ./.;
+    fileset = lib.fileset.fileFilter (f: (f.hasExt "janet" || f.hasExt "zig" || f.hasExt "zon" || f.hasExt "xml" || f.hasExt "c")) ./.;
   };
 
   deps = callPackage ./build.zig.zon.nix {};

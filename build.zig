@@ -142,6 +142,33 @@ pub fn build(b: *Build) !void {
     xkbcommon_native_static.root_module.linkLibrary(janet_static.artifact("janet"));
     xkbcommon_native_static.root_module.linkLibrary(xkbcommon_static.artifact("xkbcommon"));
 
+    // --- Deco Buffers (decoration buffer import helpers) ---
+    const deco_buffers = b.addLibrary(.{
+        .name = "deco-buffers",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .link_libc = true,
+        }),
+        .linkage = .dynamic,
+    });
+    deco_buffers.addCSourceFile(.{ .file = b.path("src/deco-buffers.c") });
+    deco_buffers.root_module.linkLibrary(janet.artifact("janet"));
+
+    const deco_buffers_static = b.addLibrary(.{
+        .name = "deco-buffers",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+        .linkage = .static,
+    });
+    deco_buffers_static.addCSourceFile(.{
+        .file = b.path("src/deco-buffers.c"),
+        .flags = &.{"-DJANET_ENTRY_NAME=janet_module_entry_deco_buffers"},
+    });
+    deco_buffers_static.root_module.linkLibrary(janet_static.artifact("janet"));
+
     // --- Protocol Generation ---
     const gen_protocols = b.addRunArtifact(janet.artifact("janet-bin"));
     gen_protocols.addFileArg(b.path("build/gen-protocols.janet"));
@@ -189,6 +216,9 @@ pub fn build(b: *Build) !void {
     gen_c.addArgs(&.{ "--native", "xkbcommon-native", "janet_module_entry_xkbcommon_native" });
     gen_c.addArtifactArg(xkbcommon_native);
 
+    gen_c.addArgs(&.{ "--native", "deco-buffers", "janet_module_entry_deco_buffers" });
+    gen_c.addArtifactArg(deco_buffers);
+
     b.getInstallStep().dependOn(&gen_c.step);
 
     // --- Final Executable ---
@@ -206,6 +236,7 @@ pub fn build(b: *Build) !void {
     tidepool.linkLibrary(rawterm_static);
     tidepool.linkLibrary(json_static);
     tidepool.linkLibrary(xkbcommon_native_static);
+    tidepool.linkLibrary(deco_buffers_static);
 
     b.installArtifact(tidepool);
 
