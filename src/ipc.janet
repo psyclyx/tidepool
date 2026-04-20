@@ -383,13 +383,24 @@
       (def cur-title (or (w :title) ""))
       (def cur-app-id (or (w :app-id) ""))
       (def cur-w (or (w :proposed-w) (w :w) 0))
-      # Check for changes
+      # Detect tree structure changes (mode, child count, active tab)
+      (def parent (when-let [leaf (w :tree-leaf)] (leaf :parent)))
+      (def cur-mode (when parent (parent :mode)))
+      (def cur-nchildren (when parent (length (parent :children))))
+      (def cur-active (when parent (parent :active)))
+      # Check for any change
       (when (or (not= cur-focused (w :deco-was-focused))
                 (not= cur-title (w :deco-was-title))
-                (not= cur-app-id (w :deco-was-app-id)))
+                (not= cur-app-id (w :deco-was-app-id))
+                (not= cur-mode (w :deco-was-mode))
+                (not= cur-nchildren (w :deco-was-nchildren))
+                (not= cur-active (w :deco-was-active)))
         (put w :deco-was-focused cur-focused)
         (put w :deco-was-title cur-title)
         (put w :deco-was-app-id cur-app-id)
+        (put w :deco-was-mode cur-mode)
+        (put w :deco-was-nchildren cur-nchildren)
+        (put w :deco-was-active cur-active)
         (emit "decoration:update"
           {"id" (w :deco-id)
            "title" cur-title
