@@ -77,6 +77,19 @@
   (each s (ctx :seats)
     (when (s :removed) (put s :pending-destroy true))))
 
+(defn- destroy-decoration [w]
+  "Clean up a window's decoration surface and related objects."
+  (when-let [deco (w :decoration)]
+    (:destroy deco)
+    (put w :decoration nil))
+  (when-let [vp (w :decoration-viewport)]
+    (:destroy vp)
+    (put w :decoration-viewport nil))
+  (when-let [surf (w :decoration-surface)]
+    (:destroy surf)
+    (put w :decoration-surface nil))
+  (put w :decoration-color nil))
+
 (defn- apply-destroys [ctx]
   (each o (ctx :outputs)
     (when (o :pending-destroy)
@@ -84,6 +97,7 @@
       (:destroy (o :obj))))
   (each w (ctx :windows)
     (when (w :pending-destroy)
+      (destroy-decoration w)
       (:destroy (w :obj))
       (:destroy (w :node))))
   (each s (ctx :seats)
@@ -535,6 +549,71 @@
           (put w :last-proposed-w nil)
           (put w :last-proposed-h nil))))))
 
+# ============================================================
+# Decoration surfaces (river_decoration_v1)
+# ============================================================
+
+(defn- create-decorations [ctx]
+  "Create decoration surfaces for new windows that don't have one yet.
+   Uses single-pixel-buffer as placeholder content."
+  (def config (ctx :config))
+  (def dh (config :decoration-height))
+  (when (<= dh 0) (break))
+  (def compositor (get-in ctx [:registry :proxies "wl_compositor"]))
+  (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
+  (def vp (get-in ctx [:registry :proxies "wp_viewporter"]))
+  (when (not (and compositor spb vp)) (break))
+  (each w (ctx :windows)
+    (when (and (w :new) (not (w :float)) (not (w :decoration)))
+      (def wl-surface (:create-surface compositor))
+      (def deco (:get-decoration-above (w :obj) wl-surface))
+      (def viewport (:get-viewport vp wl-surface))
+      (put w :decoration deco)
+      (put w :decoration-surface wl-surface)
+      (put w :decoration-viewport viewport)
+      (put w :decoration-color nil))))
+
+(defn- update-decoration-colors [ctx]
+  "Set decoration color based on focus state. Creates single-pixel-buffer
+   and attaches when color changes. Destroys decorations on floated windows."
+  (def config (ctx :config))
+  (def dh (config :decoration-height))
+  (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
+  (each w (ctx :windows)
+    # Remove decorations from floated or fullscreen windows
+    (when (and (w :decoration) (or (w :float) (w :fullscreen)))
+      (destroy-decoration w))
+    # Update colors on existing decorations
+    (when (and (w :decoration) spb (> dh 0))
+      (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+      (def color (if (= w focused)
+                   (config :border-focused)
+                   (config :border-normal)))
+      (when (not= color (w :decoration-color))
+        (put w :decoration-color color)
+        (def [r g b a] (output/rgb-to-u32-rgba color))
+        (def buffer (:create-u32-rgba-buffer spb r g b a))
+        (:attach (w :decoration-surface) buffer 0 0)
+        (put w :decoration-dirty true)))))
+
+(defn- apply-decorations [ctx]
+  "Render-chain step: position decoration surfaces and commit.
+   set_offset and sync_next_commit are rendering-state operations."
+  (def config (ctx :config))
+  (def dh (config :decoration-height))
+  (when (<= dh 0) (break))
+  (def bw (config :border-width))
+  (each w (ctx :windows)
+    (when (and (w :decoration) (w :visible) (not (w :render-hidden)))
+      # Position: above the window content, spanning full width including borders
+      (def [rw _] (anim/resolve-dimensions w))
+      (def win-w (or rw (w :proposed-w) (w :w) 0))
+      (def deco-w (+ win-w (* 2 bw)))
+      (:set-destination (w :decoration-viewport) (max 1 deco-w) dh)
+      (:set-offset (w :decoration) (- bw) (- 0 dh bw))
+      (:sync-next-commit (w :decoration))
+      (:commit (w :decoration-surface)))))
+
 (defn- compute-borders [ctx]
   (def config (ctx :config))
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))
@@ -848,6 +927,7 @@
     sort-outputs
     init-new-outputs
     init-new-windows
+    create-decorations
     init-new-seats
     process-focus
     process-pointer-ops
@@ -860,6 +940,7 @@
     run-scroll-layout
     start-animations
     compute-borders
+    update-decoration-colors
     sync-child-tags
     anchor-floats
     compute-visibility
@@ -881,6 +962,7 @@
     apply-positions
     apply-float-clips
     apply-clips
+    apply-decorations
     signal-render-done
     request-rerender])
 

@@ -28,7 +28,8 @@
     :pointer-bindings @[]
     :warp-cursor false
     :rules @[]
-    :output-order @[]})
+    :output-order @[]
+    :decoration-height 28})
 
 (defn init
   "Initialize the WM context with default state."
