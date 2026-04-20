@@ -589,17 +589,21 @@
 
 (defn- update-decoration-colors [ctx]
   "Set decoration color based on focus state. Creates single-pixel-buffer
-   and attaches when color changes. Destroys decorations on floated windows."
+   placeholders only when no decorator is connected. Destroys decorations
+   on floated/fullscreen windows."
   (def config (ctx :config))
   (def dh (config :decoration-height))
-  (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
   (each w (ctx :windows)
     # Remove decorations from floated or fullscreen windows
     (when (and (w :decoration) (or (w :float) (w :fullscreen)))
-      (destroy-decoration ctx w))
-    # Update colors on existing decorations
-    (when (and (w :decoration) spb (> dh 0))
-      (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+      (destroy-decoration ctx w)))
+  # Only use single-pixel-buffer placeholders when no decorator is rendering
+  (when (ipc/has-decorator?) (break))
+  (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
+  (when (not spb) (break))
+  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (each w (ctx :windows)
+    (when (and (w :decoration) (> dh 0) (not (w :decoration-buffer)))
       (def color (if (= w focused)
                    (config :border-focused)
                    (config :border-normal)))
@@ -628,7 +632,7 @@
                 (not= deco-w (w :decoration-applied-w)))
         (put w :decoration-applied-w deco-w)
         (put w :decoration-dirty nil)
-        (:set-destination (w :decoration-viewport) deco-w dh)
+        (:set-destination (w :decoration-viewport) (math/round deco-w) dh)
         (:set-offset (w :decoration) (- bw) (- 0 dh bw))
         (:sync-next-commit (w :decoration))
         (:commit (w :decoration-surface))))))
