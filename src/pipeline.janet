@@ -906,14 +906,21 @@
               (def oy (or (o :y) 0))
               (def ow (or (o :w) 1920))
               (def oh (or (o :h) 1080))
+              # Compute clip, expanding to include decoration area if present
+              (def cfg (ctx :config))
+              (def dh (if (w :decoration) (+ (cfg :decoration-height) (cfg :border-width)) 0))
+              (def dbw (if (w :decoration) (cfg :border-width) 0))
               (def clip
-                (scroll/clip-rect screen-x win-w
-                                  screen-y win-h
+                (scroll/clip-rect (- screen-x dbw) (+ win-w (* 2 dbw))
+                                  (- screen-y dh) (+ win-h dh)
                                   ox oy ow oh))
+              # Convert clip back to window-local coords (offset by decoration expansion)
               (if clip
                 (:set-clip-box (w :obj)
-                               (math/round (clip :clip-x)) (math/round (clip :clip-y))
-                               (math/round (clip :clip-w)) (math/round (clip :clip-h)))
+                               (math/round (- (clip :clip-x) dbw))
+                               (math/round (- (clip :clip-y) dh))
+                               (math/round (clip :clip-w))
+                               (math/round (clip :clip-h)))
                 (when (w :clip-applied)
                   (:set-clip-box (w :obj) 0 0 0 0)))
               (put w :clip-applied clip))
