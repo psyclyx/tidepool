@@ -60,9 +60,8 @@
     :optional true
     :handler (dispatch/handler c "zwlr_output_manager_v1")}
 
-   "zwp_linux_dmabuf_v1"
-   {:min-version 3
-    :optional true}})
+   # zwp_linux_dmabuf_v1 bound on demand when decorator needs DMA-BUF
+   })
 
 
 (defn main "Connect to Wayland, load config, and run the event loop."
@@ -85,4 +84,9 @@
           (config/exec-path path env))
         (def repl-server (config/repl-server-create env))
         (defer (:close repl-server)
-          (forever (:dispatch display)))))))
+          (try
+            (forever (:dispatch display))
+            ([err fib]
+              (log/errorf "fatal: %s" err)
+              (debug/stacktrace fib err "")
+              (os/exit 1))))))))
