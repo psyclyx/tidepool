@@ -34,24 +34,41 @@ static Janet cfun_open_shm(int32_t argc, Janet *argv) {
     return janet_wrap_integer(fd);
 }
 
-/* (deco-buffers/memfd-create name size) → [fd path] */
-static Janet cfun_memfd_create(int32_t argc, Janet *argv) {
+/* (deco-buffers/shm-create name size) → [fd path]
+ * Create a POSIX shared memory object at /dev/shm/<name>, truncate to size,
+ * fill with zeros. Returns [fd path]. */
+static Janet cfun_shm_create(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
     const char *name = janet_getcstring(argv, 0);
     int32_t size = janet_getinteger(argv, 1);
-    int fd = memfd_create(name, MFD_CLOEXEC | MFD_ALLOW_SEALING);
+
+    /* Build /dev/shm path */
+    char shm_name[128];
+    snprintf(shm_name, sizeof(shm_name), "/tidepool-deco-%s", name);
+
+    int fd = shm_open(shm_name, O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
-        janet_panicf("memfd-create: %s", strerror(errno));
+        janet_panicf("shm-create: shm_open %s: %s", shm_name, strerror(errno));
     }
     if (ftruncate(fd, size) < 0) {
         close(fd);
-        janet_panicf("memfd-create ftruncate: %s", strerror(errno));
+        shm_unlink(shm_name);
+        janet_panicf("shm-create ftruncate: %s", strerror(errno));
     }
-    /* Build /proc/self/fd/N path for cross-process access */
-    char proc_path[64];
-    snprintf(proc_path, sizeof(proc_path), "/proc/%d/fd/%d", getpid(), fd);
+    /* Initialize to opaque black so decorations are visible immediately */
+    void *ptr = mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr != MAP_FAILED) {
+        uint32_t *pixels = ptr;
+        for (int32_t i = 0; i < size / 4; i++) {
+            pixels[i] = 0xFF000000; /* ARGB opaque black */
+        }
+        munmap(ptr, size);
+    }
+
+    char path[256];
+    snprintf(path, sizeof(path), "/dev/shm%s", shm_name);
     Janet result[2] = {janet_wrap_integer(fd),
-                       janet_cstringv(proc_path)};
+                       janet_cstringv(path)};
     return janet_wrap_tuple(janet_tuple_n(result, 2));
 }
 
@@ -111,9 +128,9 @@ static const JanetReg cfuns[] = {
     {"open-shm", cfun_open_shm,
      "(deco-buffers/open-shm path)\n\n"
      "Open a file and return the raw fd as an integer."},
-    {"memfd-create", cfun_memfd_create,
-     "(deco-buffers/memfd-create name size)\n\n"
-     "Create anonymous shared memory, return [fd proc-path]."},
+    {"shm-create", cfun_shm_create,
+     "(deco-buffers/shm-create name size)\n\n"
+     "Create POSIX shared memory at /dev/shm, return [fd path]."},
     {"close-fd", cfun_close_fd,
      "(deco-buffers/close-fd fd)\n\n"
      "Close a raw file descriptor."},

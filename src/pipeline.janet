@@ -617,17 +617,17 @@
       (def stride (* deco-w 4))
       (def shm-size (* stride dh))
       (when (> shm-size 0)
-        (def [mem-fd mem-path] (deco-buffers/memfd-create
-                                 (string "tidepool-deco-" (w :wid)) shm-size))
         (def shm (get-in ctx [:registry :proxies "wl_shm"]))
         (when shm
-          (def pool (:create-pool shm mem-fd shm-size))
+          (def [shm-fd shm-path] (deco-buffers/shm-create
+                                    (string (w :wid)) shm-size))
+          (def pool (:create-pool shm shm-fd shm-size))
           (def buffer (:create-buffer pool 0 deco-w dh stride :argb8888))
           (:destroy pool)
           (:attach wl-surface buffer 0 0)
           (put w :decoration-buffer buffer)
-          (put w :decoration-shm-fd mem-fd)
-          (put w :decoration-shm-path mem-path)
+          (put w :decoration-shm-fd shm-fd)
+          (put w :decoration-shm-path shm-path)
           (put w :decoration-shm-size shm-size)))
       (ipc/emit-decoration-create ctx w))))
 
