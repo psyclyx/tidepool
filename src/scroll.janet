@@ -211,8 +211,9 @@
 
   # Compute placements with virtual x (camera-independent)
   (def placements @[])
-  (def col-h (- (usable :h) (* 2 og)))
-  (def col-screen-y (+ (usable :y) og))
+  (def dh (or (config :decoration-height) 0))
+  (def col-h (- (usable :h) (* 2 og) dh))
+  (def col-screen-y (+ (usable :y) og dh))
   (for i 0 (length columns)
     (def col (columns i))
     (def vp (vpositions i))
