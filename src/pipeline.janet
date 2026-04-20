@@ -610,21 +610,26 @@
 
 (defn- apply-decorations [ctx]
   "Render-chain step: position decoration surfaces and commit.
-   set_offset and sync_next_commit are rendering-state operations."
+   Only commits when decoration state has changed (size or buffer)
+   to avoid per-frame protocol overhead."
   (def config (ctx :config))
   (def dh (config :decoration-height))
   (when (<= dh 0) (break))
   (def bw (config :border-width))
   (each w (ctx :windows)
     (when (and (w :decoration) (w :visible) (not (w :render-hidden)))
-      # Position: above the window content, spanning full width including borders
       (def [rw _] (anim/resolve-dimensions w))
       (def win-w (or rw (w :proposed-w) (w :w) 0))
-      (def deco-w (+ win-w (* 2 bw)))
-      (:set-destination (w :decoration-viewport) (max 1 deco-w) dh)
-      (:set-offset (w :decoration) (- bw) (- 0 dh bw))
-      (:sync-next-commit (w :decoration))
-      (:commit (w :decoration-surface)))))
+      (def deco-w (max 1 (+ win-w (* 2 bw))))
+      # Only update if dimensions changed or buffer was attached
+      (when (or (w :decoration-dirty)
+                (not= deco-w (w :decoration-applied-w)))
+        (put w :decoration-applied-w deco-w)
+        (put w :decoration-dirty nil)
+        (:set-destination (w :decoration-viewport) deco-w dh)
+        (:set-offset (w :decoration) (- bw) (- 0 dh bw))
+        (:sync-next-commit (w :decoration))
+        (:commit (w :decoration-surface))))))
 
 (defn- compute-borders [ctx]
   (def config (ctx :config))

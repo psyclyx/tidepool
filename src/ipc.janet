@@ -198,17 +198,20 @@
    Imports the SHM buffer and attaches it to the decoration surface."
   (def id (get params "id"))
   (def w (find-window-by-deco-id ctx id))
-  (when (not w) (break))
-  (when (not (w :decoration-surface)) (break))
+  (when (not w) (log/debugf "deco-buf: no window for id %q" id) (break))
+  (when (not (w :decoration-surface))
+    (log/debug "deco-buf: no decoration-surface") (break))
   (def shm-path (get params "shm-path"))
   (def width (get params "width" 0))
   (def height (get params "height" 0))
   (def stride (get params "stride" (* width 4)))
   (def format (format-name-to-wl (get params "format" "argb8888")))
   (def size (* stride height))
-  (when (or (<= width 0) (<= height 0)) (break))
+  (when (or (<= width 0) (<= height 0))
+    (log/debugf "deco-buf: invalid dims %dx%d" width height) (break))
   (def shm (get-in ctx [:registry :proxies "wl_shm"]))
-  (when (not shm) (break))
+  (when (not shm) (log/debug "deco-buf: no wl_shm proxy") (break))
+  (log/debugf "deco-buf: importing id=%d %dx%d from %s" id width height shm-path)
   (def fd (deco-buffers/open-shm shm-path))
   (try
     (do
@@ -223,7 +226,8 @@
       (:attach (w :decoration-surface) buffer 0 0)
       (when-let [vp (w :decoration-viewport)]
         (:set-destination vp width height))
-      (put w :decoration-dirty true))
+      (put w :decoration-dirty true)
+      (log/debugf "deco-buf: imported id=%d" id))
     ([err]
       (deco-buffers/close-fd fd)
       (log/warnf "ipc: decoration buffer import failed: %s" err))))
