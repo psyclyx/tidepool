@@ -580,9 +580,13 @@
   (def vp (get-in ctx [:registry :proxies "wp_viewporter"]))
   (when (not (and compositor spb vp)) (break))
   (each w (ctx :windows)
-    # Create decoration for tiled windows that don't have one
+    # Destroy decoration on windows that became hidden (e.g. inactive tabs)
+    (when (and (w :decoration) (w :layout-hidden))
+      (destroy-decoration ctx w))
+    # Create decoration for visible tiled windows that don't have one
     (when (and (not (w :float)) (not (w :fullscreen))
                (not (w :closed)) (not (w :pending-destroy))
+               (not (w :layout-hidden))
                (not (w :decoration)))
       (def wl-surface (:create-surface compositor))
       (def deco (:get-decoration-above (w :obj) wl-surface))
@@ -965,7 +969,6 @@
     sort-outputs
     init-new-outputs
     init-new-windows
-    create-decorations
     init-new-seats
     process-focus
     process-pointer-ops
@@ -976,6 +979,7 @@
     sync-tree-focus
     process-fullscreen
     run-scroll-layout
+    create-decorations
     start-animations
     compute-borders
     update-decoration-colors
