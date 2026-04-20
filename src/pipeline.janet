@@ -84,11 +84,8 @@
   (when-let [buf (w :decoration-buffer)]
     (:destroy buf)
     (put w :decoration-buffer nil))
-  (when-let [fd (w :decoration-shm-fd)]
-    (deco-buffers/close-fd fd)
-    (put w :decoration-shm-fd nil)
-    (put w :decoration-shm-path nil)
-    (put w :decoration-shm-size nil))
+  # Keep SHM fd/path alive for tab sibling reuse — only close if no
+  # sibling still references it (cleaned up on window destroy)
   (when-let [buf (w :decoration-placeholder-buf)]
     (:destroy buf)
     (put w :decoration-placeholder-buf nil))
@@ -111,6 +108,10 @@
   (each w (ctx :windows)
     (when (w :pending-destroy)
       (destroy-decoration ctx w)
+      # Close SHM fd on actual window destroy
+      (when-let [fd (w :decoration-shm-fd)]
+        (deco-buffers/close-fd fd)
+        (put w :decoration-shm-fd nil))
       (:destroy (w :obj))
       (:destroy (w :node))))
   (each s (ctx :seats)
@@ -594,6 +595,19 @@
   (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
   (def vp (get-in ctx [:registry :proxies "wp_viewporter"]))
   (when (not (and compositor spb vp)) (break))
+  # For tabbed containers, find existing SHM buffers from siblings
+  # so the new active tab reuses the same buffer (no flash).
+  (defn- find-sibling-shm [w]
+    (when-let [leaf (w :tree-leaf)
+               parent (leaf :parent)]
+      (when (= (parent :mode) :tabbed)
+        (var result nil)
+        (each child (parent :children)
+          (when-let [sibling-w (child :window)]
+            (when (and (not= sibling-w w) (sibling-w :decoration-shm-fd))
+              (set result sibling-w)
+              (break))))
+        result)))
   (each w (ctx :windows)
     # Destroy decoration on windows that became hidden (e.g. inactive tabs)
     (when (and (w :decoration) (w :layout-hidden))
@@ -610,7 +624,7 @@
       (put w :decoration-surface wl-surface)
       (put w :decoration-viewport viewport)
       (put w :decoration-color nil)
-      # Create shared memfd for zero-copy rendering from decorator
+      # Reuse SHM from a tab sibling, or create new
       (def win-w (or (w :proposed-w) (w :w) 800))
       (def bw (config :border-width))
       (def deco-w (+ win-w (* 2 bw)))
@@ -619,8 +633,14 @@
       (when (> shm-size 0)
         (def shm (get-in ctx [:registry :proxies "wl_shm"]))
         (when shm
-          (def [shm-fd shm-path] (deco-buffers/shm-create
-                                    (string (w :wid)) shm-size))
+          (def sibling (find-sibling-shm w))
+          (def [shm-fd shm-path]
+            (if (and sibling
+                     (= (sibling :decoration-shm-size) shm-size))
+              # Reuse sibling's SHM — same buffer, instant content
+              [(sibling :decoration-shm-fd) (sibling :decoration-shm-path)]
+              # New SHM buffer
+              (deco-buffers/shm-create (string (w :wid)) shm-size)))
           (def pool (:create-pool shm shm-fd shm-size))
           (def buffer (:create-buffer pool 0 deco-w dh stride :argb8888))
           (:destroy pool)
