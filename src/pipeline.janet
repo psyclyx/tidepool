@@ -83,6 +83,9 @@
   (when-let [buf (w :decoration-buffer)]
     (:destroy buf)
     (put w :decoration-buffer nil))
+  (when-let [buf (w :decoration-placeholder-buf)]
+    (:destroy buf)
+    (put w :decoration-placeholder-buf nil))
   (when-let [deco (w :decoration)]
     (:destroy deco)
     (put w :decoration nil))
@@ -609,8 +612,12 @@
                    (config :border-normal)))
       (when (not= color (w :decoration-color))
         (put w :decoration-color color)
+        # Destroy previous placeholder buffer to avoid leak
+        (when-let [old (w :decoration-placeholder-buf)]
+          (:destroy old))
         (def [r g b a] (output/rgb-to-u32-rgba color))
         (def buffer (:create-u32-rgba-buffer spb r g b a))
+        (put w :decoration-placeholder-buf buffer)
         (:attach (w :decoration-surface) buffer 0 0)
         (put w :decoration-dirty true)))))
 

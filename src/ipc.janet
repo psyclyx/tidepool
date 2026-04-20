@@ -275,7 +275,15 @@
   (defer (do
            (each w watchers
              (when (= (w :stream) stream)
-               (put w :closed true)))
+               (put w :closed true)
+               # Immediate decorator disconnect handling
+               (when (= w decorator)
+                 (set decorator nil)
+                 (log/info "ipc: decorator disconnected")
+                 (when ctx-ref
+                   (put (ctx-ref :config) :decoration-height 0)
+                   (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
+                     (:manage-dirty wm))))))
            (try (:close stream) ([_])))
     (def buf @"")
     (forever
