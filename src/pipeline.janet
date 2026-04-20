@@ -9,6 +9,7 @@
 (import ./tree)
 (import ./scroll)
 (import ./anim)
+(import deco-buffers)
 
 # --- Chain runner ---
 
@@ -83,6 +84,11 @@
   (when-let [buf (w :decoration-buffer)]
     (:destroy buf)
     (put w :decoration-buffer nil))
+  (when-let [fd (w :decoration-shm-fd)]
+    (deco-buffers/close-fd fd)
+    (put w :decoration-shm-fd nil)
+    (put w :decoration-shm-path nil)
+    (put w :decoration-shm-size nil))
   (when-let [buf (w :decoration-placeholder-buf)]
     (:destroy buf)
     (put w :decoration-placeholder-buf nil))
@@ -604,6 +610,25 @@
       (put w :decoration-surface wl-surface)
       (put w :decoration-viewport viewport)
       (put w :decoration-color nil)
+      # Create shared memfd for zero-copy rendering from decorator
+      (def win-w (or (w :proposed-w) (w :w) 800))
+      (def bw (config :border-width))
+      (def deco-w (+ win-w (* 2 bw)))
+      (def stride (* deco-w 4))
+      (def shm-size (* stride dh))
+      (when (> shm-size 0)
+        (def [mem-fd mem-path] (deco-buffers/memfd-create
+                                 (string "tidepool-deco-" (w :wid)) shm-size))
+        (def shm (get-in ctx [:registry :proxies "wl_shm"]))
+        (when shm
+          (def pool (:create-pool shm mem-fd shm-size))
+          (def buffer (:create-buffer pool 0 deco-w dh stride :argb8888))
+          (:destroy pool)
+          (:attach wl-surface buffer 0 0)
+          (put w :decoration-buffer buffer)
+          (put w :decoration-shm-fd mem-fd)
+          (put w :decoration-shm-path mem-path)
+          (put w :decoration-shm-size shm-size)))
       (ipc/emit-decoration-create ctx w))))
 
 (defn- update-decoration-colors [ctx]
@@ -616,9 +641,8 @@
     # Remove decorations from floated or fullscreen windows
     (when (and (w :decoration) (or (w :float) (w :fullscreen)))
       (destroy-decoration ctx w)))
-  # Update placeholder colors for instant focus feedback.
-  # When a decorator is connected, this gets overwritten by the rendered
-  # content next frame — but provides immediate visual response.
+  # Placeholder colors only when no decorator is connected
+  (when (ipc/has-decorator?) (break))
   (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
   (when (not spb) (break))
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))

@@ -250,6 +250,14 @@
         "decoration:buffer" (do
           (handle-decoration-buffer ctx-ref params)
           (when id (respond stream id {"ok" true})))
+        "decoration:ready" (do
+          # Decorator wrote pixels into shared mmap — just mark dirty
+          (when-let [deco-id (get params "id")
+                     w (find-window-by-deco-id ctx-ref deco-id)]
+            (put w :decoration-dirty true)
+            (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
+              (:manage-dirty wm)))
+          (when id (respond stream id {"ok" true})))
         "debug-windows" (respond stream id
           {"windows"
            (seq [w :in (ctx-ref :windows)
@@ -361,14 +369,18 @@
   (def id (++ next-deco-id))
   (put w :deco-id id)
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (def bw ((ctx :config) :border-width))
+  (def win-w (or (w :proposed-w) (w :w) 0))
   (emit "decoration:create"
     {"id" id
-     "width" (or (w :proposed-w) (w :w) 0)
+     "width" (+ win-w (* 2 bw))
      "height" ((ctx :config) :decoration-height)
      "app-id" (or (w :app-id) "")
      "title" (or (w :title) "")
      "focused" (= w focused)
-     "tree" (or (deco-tree-for-window ctx w) {})}))
+     "tree" (or (deco-tree-for-window ctx w) {})
+     "shm-path" (or (w :decoration-shm-path) "")
+     "stride" (* (+ win-w (* 2 bw)) 4)}))
 
 (defn emit-decoration-destroy
   "Emit decoration:destroy for a window losing its decoration."
