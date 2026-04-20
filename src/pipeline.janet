@@ -616,19 +616,19 @@
     # Remove decorations from floated or fullscreen windows
     (when (and (w :decoration) (or (w :float) (w :fullscreen)))
       (destroy-decoration ctx w)))
-  # Only use single-pixel-buffer placeholders when no decorator is rendering
-  (when (ipc/has-decorator?) (break))
+  # Update placeholder colors for instant focus feedback.
+  # When a decorator is connected, this gets overwritten by the rendered
+  # content next frame — but provides immediate visual response.
   (def spb (get-in ctx [:registry :proxies "wp_single_pixel_buffer_manager_v1"]))
   (when (not spb) (break))
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))
   (each w (ctx :windows)
-    (when (and (w :decoration) (> dh 0) (not (w :decoration-buffer)))
+    (when (and (w :decoration) (> dh 0))
       (def color (if (= w focused)
                    (config :border-focused)
                    (config :border-normal)))
       (when (not= color (w :decoration-color))
         (put w :decoration-color color)
-        # Destroy previous placeholder buffer to avoid leak
         (when-let [old (w :decoration-placeholder-buf)]
           (:destroy old))
         (def [r g b a] (output/rgb-to-u32-rgba color))
