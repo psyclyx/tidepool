@@ -107,7 +107,12 @@
       (when (and (not (w :closed))
                  (or (not (w :events))
                      (find |(= $ event-type) (w :events))))
-        (ev/give (w :ch) buf)))))
+        # Non-blocking: disconnect stalled watchers rather than blocking
+        # the main loop (which would make tidepool unresponsive to River).
+        (if (ev/full (w :ch))
+          (do (put w :closed true)
+              (log/warn "ipc: watcher channel full, disconnecting"))
+          (ev/give (w :ch) buf))))))
 
 # --- JSON-RPC response helpers ---
 
