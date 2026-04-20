@@ -450,10 +450,14 @@
                         :outer-gap (config :outer-gap)
                         :decoration-height (or (config :decoration-height) 0)})
   # Save previous positions for animation (y, w, h only — x is camera-driven)
+  # Clear prev for windows that were layout-hidden (e.g. inactive tabs) so they
+  # don't animate from a stale position when they become active again.
   (each w (ctx :windows)
-    (put w :prev-y (w :y))
-    (put w :prev-w (if (not (nil? (w :proposed-w))) (w :proposed-w) (w :w)))
-    (put w :prev-h (if (not (nil? (w :proposed-h))) (w :proposed-h) (w :h))))
+    (if (w :layout-hidden)
+      (do (put w :prev-y nil) (put w :prev-w nil) (put w :prev-h nil))
+      (do (put w :prev-y (w :y))
+          (put w :prev-w (if (not (nil? (w :proposed-w))) (w :proposed-w) (w :w)))
+          (put w :prev-h (if (not (nil? (w :proposed-h))) (w :proposed-h) (w :h))))))
   # Clear placement state so every window gets fresh data from scroll-layout
   (each w (ctx :windows)
     (put w :layout-hidden nil)
