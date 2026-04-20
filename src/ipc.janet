@@ -181,14 +181,11 @@
 
 # --- Decoration buffer import ---
 
-(def- WL_SHM_FORMAT_ARGB8888 0)
-(def- WL_SHM_FORMAT_XRGB8888 1)
-
 (defn- format-name-to-wl [name]
   (case name
-    "argb8888" WL_SHM_FORMAT_ARGB8888
-    "xrgb8888" WL_SHM_FORMAT_XRGB8888
-    WL_SHM_FORMAT_ARGB8888))
+    "argb8888" :argb8888
+    "xrgb8888" :xrgb8888
+    :argb8888))
 
 (defn- find-window-by-deco-id [ctx id]
   (find |(= ($ :deco-id) id) (ctx :windows)))
