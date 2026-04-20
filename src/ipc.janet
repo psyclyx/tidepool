@@ -342,12 +342,12 @@
 (var- next-deco-id 0)
 
 (defn- deco-tree-for-window [ctx w]
-  "Build tree data for the column containing window w."
+  "Build tree data for the window's immediate parent container."
   (when-let [leaf (w :tree-leaf)
-             col (tree/column-of leaf)
+             parent (leaf :parent)
              tag (get-in ctx [:tags (w :tag)])
              fid (tag :focused-id)]
-    (build-tree col fid)))
+    (build-tree parent fid)))
 
 (defn emit-decoration-create
   "Emit decoration:create for a window that just got a decoration."
