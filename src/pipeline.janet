@@ -1037,6 +1037,7 @@
     process-fullscreen
     run-scroll-layout
     create-decorations
+    ipc/sync-all-decorations
     start-animations
     compute-borders
     update-decoration-colors

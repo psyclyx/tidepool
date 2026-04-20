@@ -178,11 +178,13 @@
   (when (<= dh 0)
     (put config :decoration-height (or (config :decoration-config-height) 28)))
   (log/infof "ipc: decorator registered (height=%d)" (config :decoration-height))
-  # Trigger re-layout
+  # Trigger re-layout so new decorations get created
   (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
     (:manage-dirty wm))
   (respond stream id {"ok" true
-                       "height" (config :decoration-height)}))
+                       "height" (config :decoration-height)})
+  # Flag: send all existing decorations on next manage cycle
+  (put ctx-ref :decorator-needs-sync true))
 
 # --- Decoration buffer import ---
 
@@ -388,6 +390,30 @@
   (when (and decorator (w :deco-id))
     (emit "decoration:destroy" {"id" (w :deco-id)})
     (put w :deco-id nil)))
+
+(defn sync-all-decorations
+  "Send decoration:create for all existing decorated windows.
+   Called when a new decorator registers to sync its state."
+  [ctx]
+  (when (not decorator) (break))
+  (when (not (ctx :decorator-needs-sync)) (break))
+  (put ctx :decorator-needs-sync nil)
+  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
+  (def config (ctx :config))
+  (def bw (config :border-width))
+  (each w (ctx :windows)
+    (when (w :deco-id)
+      (def win-w (or (w :proposed-w) (w :w) 0))
+      (emit "decoration:create"
+        {"id" (w :deco-id)
+         "width" (+ win-w (* 2 bw))
+         "height" (config :decoration-height)
+         "app-id" (or (w :app-id) "")
+         "title" (or (w :title) "")
+         "focused" (= w focused)
+         "tree" (or (deco-tree-for-window ctx w) {})
+         "shm-path" (or (w :decoration-shm-path) "")
+         "stride" (* (+ win-w (* 2 bw)) 4)}))))
 
 (defn emit-decoration-updates
   "Pipeline step: emit decoration updates for title/focus/size changes."
