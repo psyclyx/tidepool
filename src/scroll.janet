@@ -213,8 +213,11 @@
   # Compute placements with virtual x (camera-independent)
   (def placements @[])
   (def dh (or (config :decoration-height) 0))
-  (def col-h (- (usable :h) (* 2 og)))
-  (def col-screen-y (+ (usable :y) og))
+  # When decorations are active, the topmost decoration extends bw pixels
+  # above the window — offset the column so it doesn't bleed past outer-gap
+  (def deco-top-pad (if (> dh 0) bw 0))
+  (def col-h (- (usable :h) (* 2 og) deco-top-pad))
+  (def col-screen-y (+ (usable :y) og deco-top-pad))
   (for i 0 (length columns)
     (def col (columns i))
     (def vp (vpositions i))
