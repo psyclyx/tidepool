@@ -263,16 +263,15 @@
           # Set focus to new window
           (put tag :focused-id w)
           (tree/update-active-path leaf))))
-    # Propose 0x0 for float windows so compositor configures the client
-    (when (and (w :float) (not (w :w)))
-      (put w :proposed-w 0)
-      (put w :proposed-h 0))))
+    nil))
 
 (defn- init-new-seats [ctx]
   (each s (ctx :seats)
     (when (s :new)
       (each [keysym mods action-fn] ((ctx :config) :xkb-bindings)
-        (seat/bind-key ctx s keysym mods action-fn)))))
+        (seat/bind-key ctx s keysym mods action-fn))
+      (each [button mods action-fn] ((ctx :config) :pointer-bindings)
+        (seat/bind-pointer ctx s button mods action-fn)))))
 
 (defn- process-focus [ctx]
   (each s (ctx :seats)
@@ -397,10 +396,7 @@
                (w :tag))
       # Apply float logic — same rules as init-new-windows
       (when (window/should-float? w (config :rules))
-        (window/set-float w true)
-        (when (not (w :w))
-          (put w :proposed-w 0)
-          (put w :proposed-h 0)))
+        (window/set-float w true))
       (when (not (w :float))
         (def tag-id (w :tag))
         (def tag (state/ensure-tag ctx tag-id))
@@ -425,8 +421,113 @@
       (when (and (not on-float) fwin (not (fwin :closed)) (not (fwin :pending-destroy)))
         (seat/focus s fwin)))))
 
+(def- edge-bits {:top 1 :bottom 2 :left 4 :right 8})
+
+(defn- edge? [edges edge]
+  (if (table? edges)
+    (truthy? (edges edge))
+    (not= 0 (band (or edges 0) (edge-bits edge)))))
+
+(defn- clamp-dim [dim min-v max-v]
+  (def lo (max 1 (or min-v 1)))
+  (def hi (when (and max-v (> max-v 0)) max-v))
+  (max lo (if hi (min hi dim) dim)))
+
+(defn- clamp-ratio [ratio min-v max-v]
+  (def lo (max 0.001 (or min-v 0.001)))
+  (def hi (when (and max-v (> max-v 0)) max-v))
+  (max lo (if hi (min hi ratio) ratio)))
+
+(defn- resize-axis [edges]
+  (cond
+    (or (edge? edges :left) (edge? edges :right)) :horizontal
+    (or (edge? edges :top) (edge? edges :bottom)) :vertical))
+
+(defn- resize-delta [edges dx dy]
+  (if (= (resize-axis edges) :vertical) dy dx))
+
+(defn- output-for-window [ctx w]
+  (find |(($ :tags) (w :tag)) (ctx :outputs)))
+
+(defn- column-base-width [ctx w]
+  (when-let [o (output-for-window ctx w)]
+    (def usable (output/usable-area o))
+    (scroll/base-width (usable :w)
+                       (get-in ctx [:config :peek-width] 8)
+                       (get-in ctx [:config :border-width] 4)
+                       (get-in ctx [:config :inner-gap] 8)
+                       (get-in ctx [:config :outer-gap] 4))))
+
+(defn- split-boundary-target [ctx w edges axis]
+  (when-let [leaf (w :tree-leaf)]
+    (var child leaf)
+    (var parent (child :parent))
+    (while parent
+      (when (and (tree/split? parent)
+                 (= (tree/node-orientation parent) axis))
+        (def children (parent :children))
+        (def idx (tree/child-index child))
+        (def edge-before (if (= axis :horizontal) :left :top))
+        (def edge-after (if (= axis :horizontal) :right :bottom))
+        (cond
+          (and (edge? edges edge-after)
+               (< idx (dec (length children))))
+          (break @{:kind :split
+                   :axis axis
+                   :a child
+                   :b (children (inc idx))
+                   :origin-a (child :width)
+                   :origin-b ((children (inc idx)) :width)
+                   :sign 1
+                   :basis-weight (child :width)
+                   :basis (if (= axis :horizontal) (or (w :w) 1) (or (w :h) 1))})
+
+          (and (edge? edges edge-before)
+               (> idx 0))
+          (break @{:kind :split
+                   :axis axis
+                   :a (children (dec idx))
+                   :b child
+                   :origin-a ((children (dec idx)) :width)
+                   :origin-b (child :width)
+                   :sign 1
+                   :basis-weight (child :width)
+                   :basis (if (= axis :horizontal) (or (w :w) 1) (or (w :h) 1))})))
+      (set child parent)
+      (set parent (child :parent)))))
+
+(defn- tile-resize-target [ctx w edges]
+  (def axis (resize-axis edges))
+  (unless axis (break nil))
+  (or (split-boundary-target ctx w edges axis)
+      (when (and (= axis :horizontal) (w :tree-leaf))
+        (when-let [base-w (column-base-width ctx w)]
+          (def sign (if (edge? edges :left) -1 1))
+          @{:kind :column
+            :column (tree/column-of (w :tree-leaf))
+            :origin-width ((tree/column-of (w :tree-leaf)) :width)
+            :base-w base-w
+            :sign sign}))))
+
+(defn- apply-split-resize [ctx target delta-px]
+  (def min-r (get-in ctx [:config :split-min-width] 0.1))
+  (def total (+ (target :origin-a) (target :origin-b)))
+  (def basis (max 1 (target :basis)))
+  (def delta-r (* (/ delta-px basis) (target :basis-weight) (target :sign)))
+  (def max-a (- total min-r))
+  (def new-a (clamp-ratio (+ (target :origin-a) delta-r) min-r max-a))
+  (put (target :a) :width new-a)
+  (put (target :b) :width (- total new-a)))
+
+(defn- apply-column-resize [ctx target delta-px]
+  (def min-r (get-in ctx [:config :column-min-width] 0.2))
+  (def max-r (get-in ctx [:config :column-max-width] 2.0))
+  (def delta-r (* (/ delta-px (max 1 (target :base-w))) (target :sign)))
+  (put (target :column) :width
+       (clamp-ratio (+ (target :origin-width) delta-r) min-r max-r)))
+
 (defn- process-pointer-ops [ctx]
-  "Start and apply pointer move/resize operations on floating windows."
+  "Start and apply pointer move/resize operations."
   (each w (ctx :windows)
     (when-let [seat (w :pointer-move-requested)]
       (when (w :float)
@@ -434,7 +535,27 @@
                         :origin-vx (or (w :float-vx) 0)
                         :origin-vy (or (w :float-vy) 0)})
         (:op-start-pointer (seat :obj)))
-      (put w :pointer-move-requested nil)))
+      (put w :pointer-move-requested nil))
+    (when-let [req (w :pointer-resize-requested)]
+      (def seat (req :seat))
+      (when seat
+        (if (w :float)
+          (when (and (w :w) (w :h))
+            (put seat :op @{:type :resize :window w
+                            :edges (req :edges)
+                            :origin-vx (or (w :float-vx) 0)
+                            :origin-vy (or (w :float-vy) 0)
+                            :origin-w (w :w)
+                            :origin-h (w :h)})
+            (:inform-resize-start (w :obj))
+            (:op-start-pointer (seat :obj)))
+          (when-let [target (tile-resize-target ctx w (req :edges))]
+            (put seat :op @{:type :tile-resize :window w
+                            :edges (req :edges)
+                            :target target})
+            (:inform-resize-start (w :obj))
+            (:op-start-pointer (seat :obj)))))
+      (put w :pointer-resize-requested nil)))
   (each s (ctx :seats)
     (when-let [op (s :op)]
       (when-let [dx (op :dx)
@@ -444,8 +565,43 @@
           :move
           (do
             (put w :float-vx (+ (op :origin-vx) dx))
-            (put w :float-vy (+ (op :origin-vy) dy))))))
+            (put w :float-vy (+ (op :origin-vy) dy)))
+          :resize
+          (let [config (ctx :config)
+                edges (op :edges)
+                min-w (max 1 (or (w :min-w) 0) (or (config :float-min-width) 75))
+                min-h (max 1 (or (w :min-h) 0) (or (config :float-min-height) 50))
+                max-w (w :max-w)
+                max-h (w :max-h)]
+            (var new-vx (op :origin-vx))
+            (var new-vy (op :origin-vy))
+            (var new-w (op :origin-w))
+            (var new-h (op :origin-h))
+            (when (edge? edges :left)
+              (set new-w (clamp-dim (- (op :origin-w) dx) min-w max-w))
+              (set new-vx (+ (op :origin-vx) (- (op :origin-w) new-w))))
+            (when (edge? edges :right)
+              (set new-w (clamp-dim (+ (op :origin-w) dx) min-w max-w)))
+            (when (edge? edges :top)
+              (set new-h (clamp-dim (- (op :origin-h) dy) min-h max-h))
+              (set new-vy (+ (op :origin-vy) (- (op :origin-h) new-h))))
+            (when (edge? edges :bottom)
+              (set new-h (clamp-dim (+ (op :origin-h) dy) min-h max-h)))
+            (put w :float-vx new-vx)
+            (put w :float-vy new-vy)
+            (put w :proposed-w new-w)
+            (put w :proposed-h new-h))
+          :tile-resize
+          (let [target (op :target)
+                delta (resize-delta (op :edges) dx dy)]
+            (case (target :kind)
+              :split (apply-split-resize ctx target delta)
+              :column (apply-column-resize ctx target delta))))))
     (when (s :op-release)
+      (when-let [op (s :op)]
+        (when (or (= (op :type) :resize) (= (op :type) :tile-resize))
+          (:inform-resize-end ((op :window) :obj)))
+        (:op-end (s :obj)))
       (put s :op nil)
       (put s :op-release nil))))
 
@@ -636,9 +792,12 @@
           (def sibling (find-sibling-shm w))
           (def [shm-fd shm-path]
             (if (and sibling
-                     (= (sibling :decoration-shm-size) shm-size))
-              # Reuse sibling's SHM — same buffer, instant content
-              [(sibling :decoration-shm-fd) (sibling :decoration-shm-path)]
+                     (= (sibling :decoration-shm-size) shm-size)
+                     (sibling :decoration-shm-path))
+              # Reuse sibling's SHM object, but open a fresh fd so each
+              # window owns its handle independently.
+              [(deco-buffers/open-shm (sibling :decoration-shm-path))
+               (sibling :decoration-shm-path)]
               # New SHM buffer
               (deco-buffers/shm-create (string (w :wid)) shm-size)))
           (def pool (:create-pool shm shm-fd shm-size))
@@ -724,6 +883,20 @@
                  (not= (w :tag) (p :tag)))
         (put w :tag (p :tag))))))
 
+(defn- propose-float-dimensions [ctx]
+  "Ask the client to choose its natural size for new floating windows.
+   In river_window_v1.propose_dimensions, 0 means client-decided for that axis."
+  (each w (ctx :windows)
+    (when (and (w :float)
+               (not (w :fullscreen))
+               (not (w :closed))
+               (not (w :pending-destroy))
+               (not (w :w))
+               (nil? (w :proposed-w))
+               (nil? (w :proposed-h)))
+      (put w :proposed-w 0)
+      (put w :proposed-h 0))))
+
 (defn- anchor-floats
   "Assign virtual positions to floating windows so they scroll with content.
    Also rescues floats that have drifted too far from the viewport."
@@ -738,16 +911,17 @@
         (def oh (or (o :h) 1080))
         (def oy (or (o :y) 0))
         # Assign initial anchor for new floats
-        (when (nil? (w :float-vx))
-          (def ww (or (w :w) 0))
-          (def wh (or (w :h) 0))
+        (when (and (nil? (w :float-vx)) (w :w) (w :h))
+          (def ww (w :w))
+          (def wh (w :h))
           (put w :float-vx (+ cam (div (- ow ww) 2)))
           (put w :float-vy (+ oy (div (- oh wh) 2))))
         # Rescue: if float is more than 2 viewports away, pull it back
-        (def screen-vx (- (w :float-vx) cam))
-        (when (or (< screen-vx (- 0 (* 2 ow)))
-                  (> screen-vx (* 3 ow)))
-          (put w :float-vx (+ cam (div ow 2))))))))
+        (when (w :float-vx)
+          (def screen-vx (- (w :float-vx) cam))
+          (when (or (< screen-vx (- 0 (* 2 ow)))
+                    (> screen-vx (* 3 ow)))
+            (put w :float-vx (+ cam (div ow 2)))))))))
 
 (defn- compute-visibility [ctx]
   (window/compute-visibility (ctx :outputs) (ctx :windows)))
@@ -826,11 +1000,10 @@
   (each w (ctx :windows)
     (def vis (w :visible))
     (unless (= vis (w :vis-applied))
+      (put w :vis-applied vis)
       (if vis
-        (do (put w :vis-applied vis) (:show (w :obj)))
-        (when (w :w)
-          (put w :vis-applied vis)
-          (:hide (w :obj)))))))
+        (:show (w :obj))
+        (:hide (w :obj))))))
 
 (defn- clear-transient [ctx]
   (each o (ctx :outputs) (put o :new nil))
@@ -908,7 +1081,11 @@
 
 (defn- apply-positions [ctx]
   (each w (ctx :windows)
-    (when (and (w :visible) (w :node))
+    (when (and (w :node)
+               (not (w :closed))
+               (not (w :pending-destroy))
+               (not (w :layout-hidden))
+               (not (w :fullscreen)))
       (if (w :float)
         (when-let [[sx sy] (float-screen-pos w ctx)]
           (:set-position (w :node) (math/round sx) (math/round sy)))
@@ -1042,11 +1219,13 @@
     compute-borders
     update-decoration-colors
     sync-child-tags
+    propose-float-dimensions
     anchor-floats
     compute-visibility
     # --- effects ---
     apply-fullscreen
     apply-window-config
+    apply-positions
     apply-focus
     apply-borders
     apply-visibility
@@ -1060,7 +1239,10 @@
   @[build-tag-output-index
     tick-animations
     center-unplaced
+    anchor-floats
+    compute-visibility
     apply-positions
+    apply-visibility
     apply-float-clips
     apply-clips
     apply-decorations

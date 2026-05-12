@@ -25,6 +25,7 @@
 (import ./protocols/river_seat_v1)
 (import ./protocols/river_layer_shell_seat_v1)
 (import ./protocols/river_xkb_binding_v1)
+(import ./protocols/river_pointer_binding_v1)
 (import ./protocols/wl_output)
 
 (def interfaces

@@ -162,6 +162,26 @@
 (def focus-float-next float-actions/focus-float-next)
 (def focus-float-prev float-actions/focus-float-prev)
 (def gather-floats float-actions/gather-floats)
+(defn shrink-width [ctx s]
+  (or (float-actions/shrink-width ctx s)
+      (scroll-actions/shrink-width ctx s)))
+(defn grow-width [ctx s]
+  (or (float-actions/grow-width ctx s)
+      (scroll-actions/grow-width ctx s)))
+(defn shrink-height [ctx s]
+  (or (float-actions/shrink-height ctx s)
+      (scroll-actions/shrink-height ctx s)))
+(defn grow-height [ctx s]
+  (or (float-actions/grow-height ctx s)
+      (scroll-actions/grow-height ctx s)))
+(def reset-size scroll-actions/reset-size)
+(def shrink-float-width float-actions/shrink-width)
+(def grow-float-width float-actions/grow-width)
+(def shrink-float-height float-actions/shrink-height)
+(def grow-float-height float-actions/grow-height)
+(def pointer-move-float float-actions/pointer-move)
+(def pointer-resize-float float-actions/pointer-resize)
+(def pointer-resize-window float-actions/pointer-resize)
 
 # --- Output focus cycling ---
 

@@ -16,6 +16,15 @@
     mod4 = "mod4";
   };
 
+  buttonMap = {
+    left = 272;
+    btn_left = 272;
+    middle = 274;
+    btn_middle = 274;
+    right = 273;
+    btn_right = 273;
+  };
+
   parseKey = key: let
     parts = lib.splitString "+" key;
     keysym = lib.last parts;
@@ -33,12 +42,28 @@
     parsed = parseKey key;
   in "[:${parsed.keysym} ${parsed.modsJanet} ${action}]";
 
+  parsePointer = binding: let
+    parsed = parseKey binding;
+    buttonName = lib.toLower parsed.keysym;
+    button =
+      buttonMap.${buttonName}
+        or (throw "Unknown tidepool pointer button '${parsed.keysym}' in '${binding}'");
+  in {
+    inherit button;
+    modsJanet = parsed.modsJanet;
+  };
+
+  pointerBindingToJanet = binding: action: let
+    parsed = parsePointer binding;
+  in "[${toString parsed.button} ${parsed.modsJanet} ${action}]";
+
   keybindLines = lib.mapAttrsToList keybindingToJanet cfg.keybindings;
+  pointerBindLines = lib.mapAttrsToList pointerBindingToJanet cfg.pointerBindings;
 
   outputOrderEntry = entry:
     "{${if entry.match != null then ":match ${builtins.toJSON entry.match}" else ":name ${builtins.toJSON entry.name}"}${lib.optionalString (entry.tag != null) " :tag ${toString entry.tag}"}}";
 
-  hasConfig = cfg.keybindings != {} || cfg.outputOrder != [] || cfg.extraConfig != "";
+  hasConfig = cfg.keybindings != {} || cfg.pointerBindings != {} || cfg.outputOrder != [] || cfg.extraConfig != "";
 
   initJanet = pkgs.writeText "tidepool-init.janet" (lib.concatStringsSep "\n" (lib.filter (s: s != "") [
     "(def config (ctx :config))"
@@ -46,6 +71,10 @@
 
       (put config :xkb-bindings
         @[${lib.concatStringsSep "\n    " keybindLines}])'')
+    (lib.optionalString (cfg.pointerBindings != {}) ''
+
+      (put config :pointer-bindings
+        @[${lib.concatStringsSep "\n    " pointerBindLines}])'')
     (lib.optionalString (cfg.outputOrder != []) ''
 
       (put config :output-order
@@ -81,6 +110,25 @@ in {
           "super+shift+q" = "actions/close-focused";
           "super+j" = "actions/focus-next";
           "super+1" = "(actions/focus-tag 1)";
+        }
+      '';
+    };
+
+    pointerBindings = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {};
+      description = ''
+        Pointer bindings as an attribute set mapping button combinations to
+        Janet action expressions. Buttons use `modifier+...+button` format.
+
+        Modifiers: super, shift, ctrl, alt (or mod1, mod4).
+        Buttons: left, middle, right (or BTN_LEFT, BTN_MIDDLE, BTN_RIGHT).
+
+        Values are Janet expressions that evaluate to action functions.
+      '';
+      example = lib.literalExpression ''
+        {
+          "super+left" = "actions/pointer-move-float";
         }
       '';
     };

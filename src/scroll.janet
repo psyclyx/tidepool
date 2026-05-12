@@ -120,6 +120,32 @@
   (and (< win-screen-x (+ output-x output-w))
        (> (+ win-screen-x win-w) output-x)))
 
+# --- Weighted child sizing ---
+
+(defn- child-weight [child]
+  (max 0.001 (or (child :width) 1.0)))
+
+(defn- weighted-sizes [children total gap]
+  "Allocate integer pixel sizes by each child's :width ratio."
+  (def n (length children))
+  (when (= n 0) (break @[]))
+  (def usable (max 0 (- total (* gap (dec n)))))
+  (def weights (map child-weight children))
+  (def total-weight (max 0.001 (sum weights)))
+  (def sizes @[])
+  (var used 0)
+  (each weight weights
+    (def size (math/floor (* usable (/ weight total-weight))))
+    (array/push sizes size)
+    (set used (+ used size)))
+  (var remainder (- usable used))
+  (var i 0)
+  (while (> remainder 0)
+    (put sizes i (inc (sizes i)))
+    (-- remainder)
+    (set i (% (inc i) n)))
+  sizes)
+
 # --- Recursive node layout ---
 
 (defn layout-node
@@ -152,14 +178,11 @@
             orient (tree/orientation-at-depth depth)]
         (case orient
           :vertical
-          (let [total-gap (* inner-gap (dec n))
-                usable-h (- (rect :h) total-gap)
-                cell-h (math/floor (/ usable-h n))
-                remainder (- usable-h (* cell-h n))
+          (let [sizes (weighted-sizes children (rect :h) inner-gap)
                 results @[]]
             (var y (rect :y))
             (for i 0 n
-              (def h (+ cell-h (if (< i remainder) 1 0)))
+              (def h (sizes i))
               (array/concat results
                 (layout-node (children i)
                   {:x (rect :x) :y y :w (rect :w) :h h}
@@ -168,14 +191,11 @@
             results)
 
           :horizontal
-          (let [total-gap (* inner-gap (dec n))
-                usable-w (- (rect :w) total-gap)
-                cell-w (math/floor (/ usable-w n))
-                remainder (- usable-w (* cell-w n))
+          (let [sizes (weighted-sizes children (rect :w) inner-gap)
                 results @[]]
             (var x (rect :x))
             (for i 0 n
-              (def w (+ cell-w (if (< i remainder) 1 0)))
+              (def w (sizes i))
               (array/concat results
                 (layout-node (children i)
                   {:x x :y (rect :y) :w w :h (rect :h)}

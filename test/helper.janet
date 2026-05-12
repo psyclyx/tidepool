@@ -59,6 +59,14 @@
             :peek-width 8
             :default-column-width 1.0
             :width-presets @[0.33 0.5 0.66 0.8 1.0]
+            :column-resize-step 0.05
+            :column-min-width 0.2
+            :column-max-width 2.0
+            :split-resize-step 0.1
+            :split-min-width 0.1
+            :float-resize-step 50
+            :float-min-width 75
+            :float-min-height 50
             :main-ratio 0.55
             :main-count 1
             :default-layout :master-stack

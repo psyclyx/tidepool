@@ -408,6 +408,88 @@
     (def new-idx (% (inc best-idx) (length presets)))
     (put col :width (presets new-idx))))
 
+(defn- clamp-ratio [ratio min-v max-v]
+  (def lo (max 0.001 (or min-v 0.001)))
+  (def hi (when (and max-v (> max-v 0)) max-v))
+  (max lo (if hi (min hi ratio) ratio)))
+
+(defn- nearest-split-child [leaf axis]
+  (var child leaf)
+  (var parent (child :parent))
+  (var result nil)
+  (while (and parent (not result))
+    (when (and (tree/split? parent)
+               (= (tree/node-orientation parent) axis)
+               (> (length (parent :children)) 1))
+      (set result [parent child]))
+    (set child parent)
+    (set parent (child :parent)))
+  result)
+
+(defn- resize-split-child [ctx leaf axis grow?]
+  (when-let [[parent child] (nearest-split-child leaf axis)]
+    (def children (parent :children))
+    (def idx (tree/child-index child))
+    (def neighbor
+      (if (< idx (dec (length children)))
+        (children (inc idx))
+        (when (> idx 0) (children (dec idx)))))
+    (unless neighbor (break nil))
+    (def min-r (get-in ctx [:config :split-min-width] 0.1))
+    (def step (get-in ctx [:config :split-resize-step] 0.1))
+    (def donor (if grow? neighbor child))
+    (def receiver (if grow? child neighbor))
+    (def available (max 0 (- (donor :width) min-r)))
+    (def delta (min step available))
+    (when (> delta 0)
+      (put donor :width (- (donor :width) delta))
+      (put receiver :width (+ (receiver :width) delta))
+      true)))
+
+(defn- resize-column [ctx leaf grow?]
+  (def col (tree/column-of leaf))
+  (def step (get-in ctx [:config :column-resize-step] 0.05))
+  (def min-r (get-in ctx [:config :column-min-width] 0.2))
+  (def max-r (get-in ctx [:config :column-max-width] 2.0))
+  (def delta (if grow? step (- step)))
+  (put col :width (clamp-ratio (+ (col :width) delta) min-r max-r))
+  true)
+
+(defn- resize-focused [ctx s axis grow?]
+  (when-let [tag (active-tag ctx s)
+             leaf (focused-leaf ctx s)]
+    (or (resize-split-child ctx leaf axis grow?)
+        (when (= axis :horizontal)
+          (resize-column ctx leaf grow?)))))
+
+(defn shrink-width [ctx s] (resize-focused ctx s :horizontal false))
+(defn grow-width [ctx s] (resize-focused ctx s :horizontal true))
+(defn shrink-height [ctx s] (resize-focused ctx s :vertical false))
+(defn grow-height [ctx s] (resize-focused ctx s :vertical true))
+
+(defn reset-size [ctx s]
+  "Reset the nearest split containing the focused window, or the column width."
+  (when-let [tag (active-tag ctx s)
+             leaf (focused-leaf ctx s)]
+    (var child leaf)
+    (var parent (child :parent))
+    (var split nil)
+    (while (and parent (not split))
+      (when (and (tree/split? parent)
+                 (> (length (parent :children)) 1))
+        (set split parent))
+      (set child parent)
+      (set parent (child :parent)))
+    (if split
+      (do
+        (each child (split :children)
+          (put child :width 1.0))
+        true)
+      (do
+        (put (tree/column-of leaf) :width
+             (get-in ctx [:config :default-column-width] 0.5))
+        true))))
+
 # --- Container mode toggle ---
 
 (defn toggle-split-tabbed [ctx s]

@@ -47,6 +47,15 @@
 (reg-action "focus-float-next" actions/focus-float-next)
 (reg-action "focus-float-prev" actions/focus-float-prev)
 (reg-action "gather-floats" actions/gather-floats)
+(reg-action "shrink-width" actions/shrink-width)
+(reg-action "grow-width" actions/grow-width)
+(reg-action "shrink-height" actions/shrink-height)
+(reg-action "grow-height" actions/grow-height)
+(reg-action "reset-size" actions/reset-size)
+(reg-action "shrink-float-width" actions/shrink-float-width)
+(reg-action "grow-float-width" actions/grow-float-width)
+(reg-action "shrink-float-height" actions/shrink-float-height)
+(reg-action "grow-float-height" actions/grow-float-height)
 
 # --- Write helpers ---
 
@@ -196,6 +205,35 @@
 
 (defn- find-window-by-deco-id [ctx id]
   (find |(= ($ :deco-id) id) (ctx :windows)))
+
+(defn- recreate-decoration-buffer [ctx w width height]
+  "Allocate a fresh SHM-backed wl_buffer for a resized decoration."
+  (def shm (get-in ctx [:registry :proxies "wl_shm"]))
+  (when (not shm) (break nil))
+  (def stride (* width 4))
+  (def shm-size (* stride height))
+  (when (or (<= width 0) (<= height 0) (<= shm-size 0))
+    (break nil))
+  (def [shm-fd shm-path] (deco-buffers/shm-create (string (w :wid)) shm-size))
+  (try
+    (do
+      (def pool (:create-pool shm shm-fd shm-size))
+      (def buffer (:create-buffer pool 0 width height stride :argb8888))
+      (:destroy pool)
+      (when-let [old (w :decoration-buffer)]
+        (:destroy old))
+      (when-let [old-fd (w :decoration-shm-fd)]
+        (deco-buffers/close-fd old-fd))
+      (put w :decoration-buffer buffer)
+      (put w :decoration-shm-fd shm-fd)
+      (put w :decoration-shm-path shm-path)
+      (put w :decoration-shm-size shm-size)
+      (put w :decoration-dirty true)
+      true)
+    ([err]
+      (deco-buffers/close-fd shm-fd)
+      (log/warnf "ipc: decoration resize buffer recreate failed: %s" err)
+      nil)))
 
 (defn- handle-decoration-buffer [ctx params]
   "Handle a decoration:buffer message from the decorator.
@@ -452,11 +490,17 @@
            "tree" (or (deco-tree-for-window ctx w) {})}))
       # Check for resize
       (when (not= cur-w (w :deco-was-w))
-        (put w :deco-was-w cur-w)
-        (emit "decoration:resize"
-          {"id" (w :deco-id)
-           "width" cur-w
-           "height" ((ctx :config) :decoration-height)})))))
+        (def dh ((ctx :config) :decoration-height))
+        (def bw ((ctx :config) :border-width))
+        (def deco-w (+ cur-w (* 2 bw)))
+        (when (recreate-decoration-buffer ctx w deco-w dh)
+          (put w :deco-was-w cur-w)
+          (emit "decoration:resize"
+            {"id" (w :deco-id)
+             "width" deco-w
+             "height" dh
+             "shm-path" (or (w :decoration-shm-path) "")
+             "stride" (* deco-w 4)}))))))
 
 # --- State snapshot ---
 
@@ -493,6 +537,7 @@
          "w" (or (o :w) 0) "h" (or (o :h) 0)
          "focused" (= o focused-output)
          "tag" (or tag-id 0)
+         "tags" (tuple ;(sorted (keys (o :tags))))
          "columns" (or columns [])})))
 
   # Occupied tags (tags with at least one non-closed window)

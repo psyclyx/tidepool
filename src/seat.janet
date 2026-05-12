@@ -27,6 +27,13 @@
   (:enable obj)
   (array/push (seat :xkb-bindings) binding))
 
+(defn bind-pointer [ctx seat button mods action-fn]
+  (def obj (:get-pointer-binding (seat :obj) button mods))
+  (def binding @{:obj obj :button button :mods mods :action action-fn})
+  (:set-handler obj (dispatch/proxy-handler ctx "river_pointer_binding_v1" seat binding))
+  (:enable obj)
+  (array/push (seat :pointer-bindings) binding))
+
 # --- Create ---
 
 (defn create [obj ctx]
@@ -35,6 +42,7 @@
   (def seat @{:obj obj
               :layer-focus :none
               :xkb-bindings @[]
+              :pointer-bindings @[]
               :pending-actions @[]
               :new true})
   (when-let [ls-proxy (get-in registry [:proxies "river_layer_shell_v1"])]

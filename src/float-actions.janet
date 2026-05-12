@@ -109,6 +109,55 @@
         :down (put w :float-vy (+ (or (w :float-vy) 0) step-y)))
       true)))
 
+(defn- clamp-dim [dim min-v max-v]
+  (def lo (max 1 (or min-v 1)))
+  (def hi (when (and max-v (> max-v 0)) max-v))
+  (max lo (if hi (min hi dim) dim)))
+
+(defn- resize-focused [ctx s dw dh]
+  (when-let [w (s :focused)]
+    (when (and (w :float) (w :w) (w :h))
+      (def config (ctx :config))
+      (def min-w (max 1 (or (w :min-w) 0) (or (config :float-min-width) 75)))
+      (def min-h (max 1 (or (w :min-h) 0) (or (config :float-min-height) 50)))
+      (put w :proposed-w (clamp-dim (+ (w :w) dw) min-w (w :max-w)))
+      (put w :proposed-h (clamp-dim (+ (w :h) dh) min-h (w :max-h)))
+      true)))
+
+(defn shrink-width [ctx s]
+  (def step (or (get-in ctx [:config :float-resize-step]) 50))
+  (resize-focused ctx s (- step) 0))
+
+(defn grow-width [ctx s]
+  (def step (or (get-in ctx [:config :float-resize-step]) 50))
+  (resize-focused ctx s step 0))
+
+(defn shrink-height [ctx s]
+  (def step (or (get-in ctx [:config :float-resize-step]) 50))
+  (resize-focused ctx s 0 (- step)))
+
+(defn grow-height [ctx s]
+  (def step (or (get-in ctx [:config :float-resize-step]) 50))
+  (resize-focused ctx s 0 step))
+
+(defn- pointer-window [s]
+  (or (s :pointer-target) (s :focused)))
+
+(defn pointer-move [ctx s]
+  (when-let [w (pointer-window s)]
+    (when (w :float)
+      (seat/focus s w)
+      (put w :pointer-move-requested s)
+      true)))
+
+(defn pointer-resize [edges]
+  (fn [ctx s]
+    (when-let [w (pointer-window s)]
+      (when (not (w :closed))
+        (seat/focus s w)
+        (put w :pointer-resize-requested @{:seat s :edges edges})
+        true))))
+
 (defn focus-tiled
   "Jump from a float back to the tiled tree's focused window."
   [ctx s]
