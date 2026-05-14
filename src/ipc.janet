@@ -102,6 +102,14 @@
   []
   (not (empty? watchers)))
 
+(var- last-decoration-snapshot nil)
+
+(defn reset-decoration-snapshot
+  "Force the next emit-decoration-state to re-send the full snapshot
+   (used when a new decorator registers and needs to sync from scratch)."
+  []
+  (set last-decoration-snapshot nil))
+
 (defn emit
   "Send a JSON-RPC notification to matching watchers (non-blocking).
    Messages are queued in a per-watcher channel and written serially by
@@ -172,15 +180,18 @@
     (put decorator :closed true)
     (try (:close (decorator :stream)) ([_]))
     (log/info "ipc: decorator replaced"))
-  # Register as watcher with all events
+  # Decorator gets the same state stream watchers see, plus the
+  # consolidated decoration:state snapshot.
   (def w @{:stream stream
             :events ["state" "focus:changed" "window:new" "window:closed"
-                     "decoration:create" "decoration:update"
-                     "decoration:resize" "decoration:destroy"]
+                     "decoration:state"]
             :ch (ev/chan 64)})
   (array/push watchers w)
   (ev/go (fn [] (watcher-writer w)))
   (set decorator w)
+  # Force a full re-emit on the next manage cycle so a freshly
+  # registered decorator sees current state from scratch.
+  (reset-decoration-snapshot)
   # Activate decoration height
   (def config (ctx-ref :config))
   (def dh (config :decoration-height))
@@ -191,9 +202,7 @@
   (when-let [wm (get-in ctx-ref [:registry :proxies "river_window_manager_v1"])]
     (:manage-dirty wm))
   (respond stream id {"ok" true
-                       "height" (config :decoration-height)})
-  # Flag: send all existing decorations on next manage cycle
-  (put ctx-ref :decorator-needs-sync true))
+                       "height" (config :decoration-height)}))
 
 # --- Decoration buffer import ---
 
@@ -206,8 +215,9 @@
 (defn- find-window-by-deco-id [ctx id]
   (find |(= ($ :deco-id) id) (ctx :windows)))
 
-(defn- recreate-decoration-buffer [ctx w width height]
-  "Allocate a fresh SHM-backed wl_buffer for a resized decoration."
+(defn recreate-decoration-buffer [ctx w width height]
+  "Allocate a fresh SHM-backed wl_buffer for a resized decoration.
+   Public so the pipeline can call it before emitting a new snapshot."
   (def shm (get-in ctx [:registry :proxies "wl_shm"]))
   (when (not shm) (break nil))
   (def stride (* width 4))
@@ -402,105 +412,50 @@
              fid (tag :focused-id)]
     (build-tree parent fid)))
 
-(defn emit-decoration-create
-  "Emit decoration:create for a window that just got a decoration."
-  [ctx w]
-  (when (not decorator) (break))
-  (def id (++ next-deco-id))
-  (put w :deco-id id)
-  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
-  (def bw ((ctx :config) :border-width))
-  (def win-w (or (w :proposed-w) (w :w) 0))
-  (emit "decoration:create"
-    {"id" id
-     "width" (+ win-w (* 2 bw))
-     "height" ((ctx :config) :decoration-height)
-     "app-id" (or (w :app-id) "")
-     "title" (or (w :title) "")
-     "focused" (= w focused)
-     "tree" (or (deco-tree-for-window ctx w) {})
-     "shm-path" (or (w :decoration-shm-path) "")
-     "stride" (* (+ win-w (* 2 bw)) 4)}))
+(defn assign-deco-id
+  "Assign a fresh decoration id to a window. The snapshot emitter
+   includes the id in the next decoration:state event."
+  [w]
+  (put w :deco-id (++ next-deco-id)))
 
-(defn emit-decoration-destroy
-  "Emit decoration:destroy for a window losing its decoration."
-  [ctx w]
-  (when (and decorator (w :deco-id))
-    (emit "decoration:destroy" {"id" (w :deco-id)})
-    (put w :deco-id nil)))
+(defn clear-deco-id
+  "Forget the decoration id for a window. The snapshot emitter
+   will drop it from the next decoration:state event."
+  [w]
+  (put w :deco-id nil))
 
-(defn sync-all-decorations
-  "Send decoration:create for all existing decorated windows.
-   Called when a new decorator registers to sync its state."
-  [ctx]
-  (when (not decorator) (break))
-  (when (not (ctx :decorator-needs-sync)) (break))
-  (put ctx :decorator-needs-sync nil)
+(defn- build-decoration-snapshot [ctx]
+  "Build a frozen list of every decorated window's current state.
+   The decorator diffs this against its own previous snapshot to
+   create/render/destroy decorations — no per-field change tracking
+   on the compositor side."
   (def focused (when-let [s (first (ctx :seats))] (s :focused)))
   (def config (ctx :config))
   (def bw (config :border-width))
-  (each w (ctx :windows)
-    (when (w :deco-id)
+  (def dh (config :decoration-height))
+  (tuple/slice
+    (seq [w :in (ctx :windows) :when (w :deco-id)]
       (def win-w (or (w :proposed-w) (w :w) 0))
-      (emit "decoration:create"
-        {"id" (w :deco-id)
-         "width" (+ win-w (* 2 bw))
-         "height" (config :decoration-height)
-         "app-id" (or (w :app-id) "")
-         "title" (or (w :title) "")
-         "focused" (= w focused)
-         "tree" (or (deco-tree-for-window ctx w) {})
-         "shm-path" (or (w :decoration-shm-path) "")
-         "stride" (* (+ win-w (* 2 bw)) 4)}))))
+      (def deco-w (+ win-w (* 2 bw)))
+      {"id" (w :deco-id)
+       "width" deco-w
+       "height" dh
+       "stride" (* deco-w 4)
+       "shm-path" (or (w :decoration-shm-path) "")
+       "focused" (= w focused)
+       "app-id" (or (w :app-id) "")
+       "title" (or (w :title) "")
+       "tree" (or (deco-tree-for-window ctx w) {})})))
 
-(defn emit-decoration-updates
-  "Pipeline step: emit decoration updates for title/focus/size changes."
+(defn emit-decoration-state
+  "Pipeline step: emit decoration:state when the snapshot has
+   structurally changed. Frozen deep= short-circuits unchanged data."
   [ctx]
   (when (not decorator) (break))
-  (def focused (when-let [s (first (ctx :seats))] (s :focused)))
-  (each w (ctx :windows)
-    (when (w :deco-id)
-      (def cur-focused (= w focused))
-      (def cur-title (or (w :title) ""))
-      (def cur-app-id (or (w :app-id) ""))
-      (def cur-w (or (w :proposed-w) (w :w) 0))
-      # Detect tree structure changes (mode, child count, active tab)
-      (def parent (when-let [leaf (w :tree-leaf)] (leaf :parent)))
-      (def cur-mode (when parent (parent :mode)))
-      (def cur-nchildren (when parent (length (parent :children))))
-      (def cur-active (when parent (parent :active)))
-      # Check for any change
-      (when (or (not= cur-focused (w :deco-was-focused))
-                (not= cur-title (w :deco-was-title))
-                (not= cur-app-id (w :deco-was-app-id))
-                (not= cur-mode (w :deco-was-mode))
-                (not= cur-nchildren (w :deco-was-nchildren))
-                (not= cur-active (w :deco-was-active)))
-        (put w :deco-was-focused cur-focused)
-        (put w :deco-was-title cur-title)
-        (put w :deco-was-app-id cur-app-id)
-        (put w :deco-was-mode cur-mode)
-        (put w :deco-was-nchildren cur-nchildren)
-        (put w :deco-was-active cur-active)
-        (emit "decoration:update"
-          {"id" (w :deco-id)
-           "title" cur-title
-           "app-id" cur-app-id
-           "focused" cur-focused
-           "tree" (or (deco-tree-for-window ctx w) {})}))
-      # Check for resize
-      (when (not= cur-w (w :deco-was-w))
-        (def dh ((ctx :config) :decoration-height))
-        (def bw ((ctx :config) :border-width))
-        (def deco-w (+ cur-w (* 2 bw)))
-        (when (recreate-decoration-buffer ctx w deco-w dh)
-          (put w :deco-was-w cur-w)
-          (emit "decoration:resize"
-            {"id" (w :deco-id)
-             "width" deco-w
-             "height" dh
-             "shm-path" (or (w :decoration-shm-path) "")
-             "stride" (* deco-w 4)}))))))
+  (def snapshot (build-decoration-snapshot ctx))
+  (when (not (deep= snapshot last-decoration-snapshot))
+    (set last-decoration-snapshot snapshot)
+    (emit "decoration:state" {"decorations" snapshot})))
 
 # --- State snapshot ---
 

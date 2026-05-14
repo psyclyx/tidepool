@@ -79,8 +79,9 @@
     (when (s :removed) (put s :pending-destroy true))))
 
 (defn- destroy-decoration [ctx w]
-  "Clean up a window's decoration surface and related objects."
-  (ipc/emit-decoration-destroy ctx w)
+  "Clean up a window's decoration surface and related objects.
+   Clears :deco-id so the next decoration:state snapshot drops it."
+  (ipc/clear-deco-id w)
   (when-let [buf (w :decoration-buffer)]
     (:destroy buf)
     (put w :decoration-buffer nil))
@@ -98,7 +99,12 @@
   (when-let [surf (w :decoration-surface)]
     (:destroy surf)
     (put w :decoration-surface nil))
-  (put w :decoration-color nil))
+  (put w :decoration-color nil)
+  (put w :decoration-buffer-w nil)
+  # Clear render-side state so the next create commits cleanly even if
+  # the new decoration happens to land at the same width.
+  (put w :decoration-applied-w nil)
+  (put w :decoration-dirty nil))
 
 (defn- apply-destroys [ctx]
   (each o (ctx :outputs)
@@ -790,6 +796,13 @@
         (def shm (get-in ctx [:registry :proxies "wl_shm"]))
         (when shm
           (def sibling (find-sibling-shm w))
+          # destroy-decoration keeps the prior SHM fd alive in case a tab
+          # sibling still references it. If we're allocating a fresh one
+          # here (or reusing a sibling's instead), close any orphaned fd
+          # from a previous decoration on this window first.
+          (when-let [old-fd (w :decoration-shm-fd)]
+            (deco-buffers/close-fd old-fd)
+            (put w :decoration-shm-fd nil))
           (def [shm-fd shm-path]
             (if (and sibling
                      (= (sibling :decoration-shm-size) shm-size)
@@ -805,10 +818,28 @@
           (:destroy pool)
           (:attach wl-surface buffer 0 0)
           (put w :decoration-buffer buffer)
+          (put w :decoration-buffer-w deco-w)
           (put w :decoration-shm-fd shm-fd)
           (put w :decoration-shm-path shm-path)
           (put w :decoration-shm-size shm-size)))
-      (ipc/emit-decoration-create ctx w))))
+      (ipc/assign-deco-id w))))
+
+(defn- prepare-decoration-buffers [ctx]
+  "Recreate SHM-backed wl_buffers for any decorated window whose width
+   has changed since the buffer was allocated. The new shm-path lands
+   in the next decoration:state snapshot, which prompts the decorator
+   to re-render at the new size."
+  (when (not (ipc/has-decorator?)) (break))
+  (def config (ctx :config))
+  (def dh (config :decoration-height))
+  (def bw (config :border-width))
+  (each w (ctx :windows)
+    (when (and (w :decoration) (w :deco-id))
+      (def win-w (or (w :proposed-w) (w :w) 0))
+      (def deco-w (+ win-w (* 2 bw)))
+      (when (and (> win-w 0) (not= deco-w (w :decoration-buffer-w)))
+        (when (ipc/recreate-decoration-buffer ctx w deco-w dh)
+          (put w :decoration-buffer-w deco-w))))))
 
 (defn- update-decoration-colors [ctx]
   "Set decoration color based on focus state. Creates single-pixel-buffer
@@ -1214,7 +1245,6 @@
     process-fullscreen
     run-scroll-layout
     create-decorations
-    ipc/sync-all-decorations
     start-animations
     compute-borders
     update-decoration-colors
@@ -1229,7 +1259,8 @@
     apply-focus
     apply-borders
     apply-visibility
-    ipc/emit-decoration-updates
+    prepare-decoration-buffers
+    ipc/emit-decoration-state
     ipc/emit-state-events
     clear-transient
     save-tag-state
