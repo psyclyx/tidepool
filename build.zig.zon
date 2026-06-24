@@ -9,8 +9,8 @@
             .hash = "janet-1.40.1-3XUN8cVGAAA7Os-UamOhi0sYVRqN-slGltgD5Jwwwfdk",
         },
         .janet_wayland = .{
-            .url = "git+https://codeberg.org/ifreund/janet-wayland?ref=main#c118af389f43ac853c5189db4fd5cc430c7a3370",
-            .hash = "N-V-__8AAPOoAACNhl0Pd9muOFuvch4kljaImdQiU6FPr9tY",
+            .url = "git+https://codeberg.org/ifreund/janet-wayland?ref=main#0aea1ae8c2b462d609fc739acceeb9ead315c07f",
+            .hash = "N-V-__8AAFKzAADGCCHsA4J38ww-aT3CFoj2MbSxtkWX0D50",
         },
         .wayland = .{
             .url = "git+https://github.com/ifreund/wayland-build.zig#8c7f2c42ab0e4c16853d03914ce1f3259cda40db",

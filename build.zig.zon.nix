@@ -21,11 +21,11 @@ linkFarm "zig-packages" [
   }
   # janet-wayland (Janet bindings for libwayland)
   {
-    name = "N-V-__8AAPOoAACNhl0Pd9muOFuvch4kljaImdQiU6FPr9tY";
+    name = "N-V-__8AAFKzAADGCCHsA4J38ww-aT3CFoj2MbSxtkWX0D50";
     path = fetchgit {
       url = "https://codeberg.org/ifreund/janet-wayland";
-      rev = "c118af389f43ac853c5189db4fd5cc430c7a3370";
-      hash = "sha256-hoQy1uMFeM5Jmh3ZOfnMr88iSBBdJ9PObLg7baw7TNY=";
+      rev = "0aea1ae8c2b462d609fc739acceeb9ead315c07f";
+      hash = "sha256-maPZ0hAvsBhRuVZt/6hlUYHkxGSbV+zwVDldqjDRRNU=";
     };
   }
   # wayland-build.zig (Zig build for wayland)
