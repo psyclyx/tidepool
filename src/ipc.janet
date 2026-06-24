@@ -405,12 +405,17 @@
 (var- next-deco-id 0)
 
 (defn- deco-tree-for-window [ctx w]
-  "Build tree data for the window's immediate parent container."
+  "Tree data for the window's decoration. Tabbed parents return the
+   parent container so the decorator can draw a shared tab bar across
+   siblings; everything else returns just this leaf so each window shows
+   its own title."
   (when-let [leaf (w :tree-leaf)
-             parent (leaf :parent)
              tag (get-in ctx [:tags (w :tag)])
              fid (tag :focused-id)]
-    (build-tree parent fid)))
+    (def parent (leaf :parent))
+    (build-tree
+      (if (and parent (= (parent :mode) :tabbed)) parent leaf)
+      fid)))
 
 (defn assign-deco-id
   "Assign a fresh decoration id to a window. The snapshot emitter
