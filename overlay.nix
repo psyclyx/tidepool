@@ -1,1 +1,1 @@
-final: prev: { tidepool = prev.callPackage ./package.nix {}; }
+final: prev: {tidepool = final.callPackage ./package.nix {};}
